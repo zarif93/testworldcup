@@ -1,0 +1,9 @@
+{
+  "query": "INSERT INTO users (openId, username, email, passwordHash, name, loginMethod, role, createdAt, updatedAt, lastSignedIn) VALUES ('local-Yoven-admin', 'Yoven', 'admin@worldcup2026.local', '$2b$10$v8ZuAmZUWSFqxc3fDF0xveSLXEL6VYMD3tpfZM1W7Zqbot9HEk6MW', 'Admin', 'local', 'admin', NOW(), NOW(), NOW());",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2E757zGDJ6S47Ay.5f83bdcb28d7 --database bRNrES9ug4qSdkctG9vbbu --execute INSERT INTO users (openId, username, email, passwordHash, name, loginMethod, role, createdAt, updatedAt, lastSignedIn) VALUES ('local-Yoven-admin', 'Yoven', 'admin@worldcup2026.local', '$2b$10$v8ZuAmZUWSFqxc3fDF0xveSLXEL6VYMD3tpfZM1W7Zqbot9HEk6MW', 'Admin', 'local', 'admin', NOW(), NOW(), NOW());",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1708
+}
