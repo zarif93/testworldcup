@@ -6,9 +6,9 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install
 
-# Copy source and build (client + server)
+# Copy source and ensure tailwindcss packages מחוץ לסביבת pnpm המקומית
 COPY . .
-RUN npm run build
+RUN npm install tailwindcss @tailwindcss/vite --save-dev && npm run build
 
 FROM node:22-alpine AS runner
 
