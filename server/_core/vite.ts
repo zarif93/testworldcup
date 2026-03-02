@@ -4,9 +4,12 @@ import { type Server } from "http";
 import { nanoid } from "nanoid";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import viteConfig from "../../vite.config";
 
 export async function setupVite(app: Express, server: Server) {
+  // Load Vite config only in dev so production bundle doesn't need @builder.io/vite-plugin-jsx-loc etc.
+  const configPath = path.join(process.cwd(), "vite.config.ts");
+  const { default: viteConfig } = await import(/* @vite-ignore */ configPath);
+
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
