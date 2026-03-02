@@ -162,7 +162,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   if (loading) return <LoadingScreen />;
 
   const termsContent = (
-    <div className="space-y-8 text-right text-slate-300 text-sm max-h-[70vh] overflow-y-auto pr-2">>
+    <div className="space-y-8 text-right text-slate-300 text-sm max-h-[70vh] overflow-y-auto pr-2">
       {/* פתיחה */}
       <p className="text-slate-400 text-base leading-relaxed">
         תקנון זה מגדיר את תנאי השימוש באתר. השימוש באתר מהווה הסכמה לתקנון. מומלץ לקרוא לפני ההרשמה וההשתתפות.
