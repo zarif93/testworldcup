@@ -46,7 +46,8 @@ export default function Transparency() {
     );
   }
 
-  const { byTournament, totalAmount, totalFee, totalPrizePool, totalParticipants } = data;
+  const { totalAmount, totalFee, totalPrizePool, totalParticipants } = data;
+  const byTournament = Array.isArray(data.byTournament) ? data.byTournament : [];
 
   return (
     <div className="min-h-screen py-8">

@@ -3,6 +3,8 @@ import { notifyOwner } from "./notification";
 import { adminProcedure, publicProcedure, router } from "./trpc";
 
 export const systemRouter = router({
+  getServerTime: publicProcedure.query(() => ({ now: new Date().toISOString() })),
+
   health: publicProcedure
     .input(
       z.object({

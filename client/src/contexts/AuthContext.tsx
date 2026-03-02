@@ -9,6 +9,8 @@ interface User {
   name?: string;
   role: "user" | "admin" | "agent";
   referralCode?: string | null;
+  points?: number;
+  isSuperAdmin?: boolean;
 }
 
 interface AuthContextType {
@@ -17,6 +19,8 @@ interface AuthContextType {
   isAuthenticated: boolean;
   loginSuccess: (user: User) => void;
   logout: () => Promise<void>;
+  /** עדכון יתרת נקודות בזמן אמת (מסוקט) – מעדכן רק אם userId תואם למשתמש המחובר */
+  updatePointsFromSocket: (userId: number, balance: number) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -48,6 +52,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.location.href = "/";
   };
 
+  const updatePointsFromSocket = (userId: number, balance: number) => {
+    setUser((prev) => (prev && prev.id === userId ? { ...prev, points: balance } : prev));
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -56,6 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated: !!user,
         loginSuccess,
         logout,
+        updatePointsFromSocket,
       }}
     >
       {children}

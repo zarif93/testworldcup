@@ -10,7 +10,9 @@ import {
 } from "./db";
 import { ENV } from "./_core/env";
 
-const JWT_SECRET = new TextEncoder().encode(ENV.cookieSecret || "your-secret-key");
+const JWT_SECRET = new TextEncoder().encode(
+  ENV.cookieSecret || (ENV.isProduction ? (() => { throw new Error("JWT_SECRET (or cookieSecret) must be set in production"); })() : "your-secret-key")
+);
 const JWT_EXPIRATION = 7 * 24 * 60 * 60; // 7 days in seconds
 
 /**
@@ -133,6 +135,7 @@ export async function registerUser(data: {
       name: user.name,
       phone: user.phone,
       role: user.role,
+      points: user.points ?? 0,
     },
     token,
   };
@@ -156,6 +159,10 @@ export async function loginUser(data: {
     throw new Error("Invalid username or password");
   }
 
+  if ((user as { isBlocked?: boolean }).isBlocked) {
+    throw new Error("חשבון זה חסום. פנה למנהל.");
+  }
+
   // Verify password
   const isPasswordValid = await verifyPassword(data.password, user.passwordHash);
   if (!isPasswordValid) {
@@ -173,10 +180,12 @@ export async function loginUser(data: {
       name: user.name,
       phone: user.phone,
       role: user.role,
+      points: user.points ?? 0,
     },
     token,
   };
 }
+
 /**
  * Get user from token
  */

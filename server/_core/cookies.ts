@@ -1,4 +1,5 @@
 import type { CookieOptions, Request } from "express";
+import { ENV } from "./env";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
@@ -25,8 +26,8 @@ export function getSessionCookieOptions(
   req: Request
 ): Pick<CookieOptions, "domain" | "httpOnly" | "path" | "sameSite" | "secure"> {
   const secure = isSecureRequest(req);
-  // Use lax so cookie is sent on same-origin requests (e.g. form submit). none+secure is for cross-site.
-  const sameSite = secure ? "none" : "lax";
+  const useLax = secure && ENV.sameSiteLaxSameOrigin;
+  const sameSite = useLax ? "lax" : secure ? "none" : "lax";
   return {
     httpOnly: true,
     path: "/",

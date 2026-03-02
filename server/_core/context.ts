@@ -24,6 +24,10 @@ export async function createContext(
     user = null;
   }
 
+  if (user && ((user as { deletedAt?: Date | null }).deletedAt || (user as { isBlocked?: boolean }).isBlocked)) {
+    user = null;
+  }
+
   let adminCodeVerified = false;
   if (ENV.adminSecret) {
     const cookieHeader = opts.req.headers.cookie;

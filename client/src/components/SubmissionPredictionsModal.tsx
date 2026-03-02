@@ -11,6 +11,10 @@ import { Loader2, FileText } from "lucide-react";
 type Prediction = { matchId: number; prediction: "1" | "X" | "2" };
 type MatchRow = { id: number; matchNumber: number; homeTeam: string; awayTeam: string };
 
+function isFootballPredictions(p: unknown): p is Prediction[] {
+  return Array.isArray(p) && p.every((x) => x && typeof x.matchId === "number" && ["1", "X", "2"].includes(x.prediction));
+}
+
 interface SubmissionPredictionsModalProps {
   submissionId: number | null;
   open: boolean;
@@ -35,14 +39,25 @@ export function SubmissionPredictionsModal({
     enabled: open && !!submission?.tournamentId,
   });
 
-  const predictions = (submission?.predictions as Prediction[] | undefined) ?? [];
+  const rawPredictions = submission?.predictions;
+  const predictions: Prediction[] = isFootballPredictions(rawPredictions) ? rawPredictions : [];
   const matchMap = new Map<number, MatchRow>(matches?.map((m: MatchRow) => [m.id, m]) ?? []);
   const tourName = tournaments?.find((t: { id: number; name: string }) => t.id === submission?.tournamentId)?.name ?? `טורניר ${submission?.tournamentId ?? ""}`;
+  const tournament = tournaments?.find((t: { id: number; type?: string }) => t.id === submission?.tournamentId);
+  const isChance = (tournament as { type?: string } | undefined)?.type === "chance";
+  const isLotto = (tournament as { type?: string } | undefined)?.type === "lotto";
 
   const sortedRows = predictions
     .map((p) => ({ pred: p, match: matchMap.get(p.matchId) }))
     .filter((r): r is { pred: Prediction; match: MatchRow } => !!r.match)
     .sort((a, b) => a.match.matchNumber - b.match.matchNumber);
+
+  const chancePred = !isFootballPredictions(rawPredictions) && rawPredictions && typeof rawPredictions === "object" && "heart" in rawPredictions
+    ? (rawPredictions as { heart?: string; club?: string; diamond?: string; spade?: string })
+    : null;
+  const lottoPred = !isFootballPredictions(rawPredictions) && rawPredictions && typeof rawPredictions === "object" && "numbers" in rawPredictions
+    ? (rawPredictions as { numbers?: number[]; strongNumber?: number })
+    : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -71,6 +86,25 @@ export function SubmissionPredictionsModal({
           </div>
         ) : (
           <div className="overflow-y-auto flex-1 min-h-0 rounded border border-slate-700 bg-slate-800/50">
+            {chancePred && (isChance || ("heart" in chancePred && "club" in chancePred)) ? (
+              <div className="p-6 text-right">
+                <p className="text-slate-400 mb-2">ניחוש צ'אנס – קלפים לפי צורה:</p>
+                <ul className="space-y-1 text-white font-medium">
+                  <li>❤️ לב: {String(chancePred.heart ?? "—")}</li>
+                  <li>♣ תלתן: {String(chancePred.club ?? "—")}</li>
+                  <li>♦ יהלום: {String(chancePred.diamond ?? "—")}</li>
+                  <li>♠ עלה: {String(chancePred.spade ?? "—")}</li>
+                </ul>
+              </div>
+            ) : lottoPred && (isLotto || ("numbers" in lottoPred && Array.isArray(lottoPred.numbers))) ? (
+              <div className="p-6 text-right">
+                <p className="text-slate-400 mb-2">ניחוש לוטו:</p>
+                <p className="text-white font-medium">
+                  מספרים: {Array.isArray(lottoPred.numbers) ? [...lottoPred.numbers].sort((a, b) => a - b).join(", ") : "—"}
+                </p>
+                <p className="text-white font-medium mt-1">מספר חזק: {lottoPred.strongNumber ?? "—"}</p>
+              </div>
+            ) : (
             <table className="w-full text-right text-sm">
               <thead className="sticky top-0 bg-slate-800 border-b border-slate-700">
                 <tr className="text-slate-400">
@@ -103,7 +137,8 @@ export function SubmissionPredictionsModal({
                 ))}
               </tbody>
             </table>
-            {sortedRows.length === 0 && !isLoading && (
+            )}
+            {sortedRows.length === 0 && !chancePred && !lottoPred && !isLoading && (
               <p className="text-slate-500 text-center py-8">אין ניחושים להצגה</p>
             )}
           </div>

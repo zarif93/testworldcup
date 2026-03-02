@@ -11,4 +11,8 @@ export const ENV = {
   adminSecret: process.env.ADMIN_SECRET ?? "",
   /** אחוז מעמלת האתר (12.5%) שהסוכן מקבל – למשל 50 = סוכן מקבל 50% מ-12.5% = 6.25% מסכום התפוס */
   agentCommissionPercentOfFee: Math.min(100, Math.max(0, Number(process.env.AGENT_COMMISSION_PERCENT_OF_FEE) || 50)),
+  /** רשימת שמות משתמש סופר-מנהל (מופרדים בפסיק). ברירת מחדל: Yoven!,Yoven */
+  superAdminUsernames: (process.env.SUPER_ADMIN_USERNAMES ?? "Yoven!,Yoven").split(",").map((s) => s.trim()).filter(Boolean),
+  /** אם true – ב-HTTPS משתמשים ב-sameSite=lax (מומלץ כשה-API והאתר same-origin). ברירת מחדל: false */
+  sameSiteLaxSameOrigin: process.env.SAME_SITE_LAX_SAME_ORIGIN === "1" || process.env.SAME_SITE_LAX_SAME_ORIGIN === "true",
 };

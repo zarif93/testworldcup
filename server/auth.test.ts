@@ -31,7 +31,7 @@ function createContext(user?: AuthenticatedUser): { ctx: TrpcContext; setCookie:
 
 describe("auth", () => {
   const testUsername = `testuser_${Date.now()}`;
-  const testEmail = `test_${Date.now()}@example.com`;
+  const testPhone = "0500000000";
   const testPassword = "TestPassword123";
 
   afterAll(async () => {
@@ -49,7 +49,7 @@ describe("auth", () => {
 
       const result = await caller.auth.register({
         username: testUsername,
-        email: testEmail,
+        phone: testPhone,
         password: testPassword,
         name: "Test User",
       });
@@ -57,7 +57,6 @@ describe("auth", () => {
       expect(result).toBeDefined();
       expect(result.user).toBeDefined();
       expect(result.user.username).toBe(testUsername);
-      expect(result.user.email).toBe(testEmail);
       expect(result.token).toBeDefined();
     });
 
@@ -68,8 +67,9 @@ describe("auth", () => {
       try {
         await caller.auth.register({
           username: testUsername,
-          email: `another_${Date.now()}@example.com`,
+          phone: "0501111111",
           password: testPassword,
+          name: "Other",
         });
         expect.fail("Should have thrown error");
       } catch (error) {
@@ -77,15 +77,16 @@ describe("auth", () => {
       }
     });
 
-    it("should reject invalid email", async () => {
+    it("should reject invalid phone", async () => {
       const { ctx } = createContext();
       const caller = appRouter.createCaller(ctx);
 
       try {
         await caller.auth.register({
           username: `newuser_${Date.now()}`,
-          email: "invalid-email",
+          phone: "12",
           password: testPassword,
+          name: "Test",
         });
         expect.fail("Should have thrown error");
       } catch (error) {
@@ -100,8 +101,9 @@ describe("auth", () => {
       try {
         await caller.auth.register({
           username: `newuser_${Date.now()}`,
-          email: `test_${Date.now()}@example.com`,
+          phone: "0500000002",
           password: "short",
+          name: "Test",
         });
         expect.fail("Should have thrown error");
       } catch (error) {
@@ -162,7 +164,7 @@ describe("auth", () => {
       const user: AuthenticatedUser = {
         id: 1,
         openId: "test-user",
-        email: testEmail,
+        email: null,
         name: "Test User",
         username: testUsername,
         loginMethod: "local",
