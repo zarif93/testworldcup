@@ -2,9 +2,9 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Install dependencies
+# Install all dependencies (כולל dev), כדי לאפשר build של Vite + Tailwind
 COPY package.json ./
-RUN npm install --production=false
+RUN npm install
 
 # Copy source and build (client + server)
 COPY . .
