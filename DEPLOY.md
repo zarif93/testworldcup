@@ -86,7 +86,7 @@ docker-compose build --no-cache
 docker-compose up -d
 ```
 
-האתר יעלה על **http://כתובת-השרת:3000**
+האתר יעלה על **http://כתובת-השרת:PORT** (ברירת מחדל 3000).
 
 ### פקודות שימושיות
 
@@ -110,7 +110,7 @@ npm run build
 NODE_ENV=production PORT=3000 node dist/index.js
 ```
 
-כדי שהשרת ירוץ ברקע ויפעל אחרי התנתקות, השתמש ב־**PM2** עם קובץ ה-ecosystem:
+כדי שהשרת ירוץ ברקע ויפעל אחרי התנתקות, השתמש ב־**PM2** עם קובץ ה-ecosystem (הפורט נקבע ב־`.env.production` או ב־`ecosystem.config.cjs`):
 
 ```bash
 sudo npm install -g pm2
@@ -157,7 +157,7 @@ pm2 save
 
 | בעיה | מה לבדוק |
 |------|-----------|
-| פורט 3000 תפוס | `sudo lsof -i :3000` או שנה ב־docker-compose את הפורט (למשל `3001:3000`) |
+| פורט האפליקציה תפוס | `sudo lsof -i :$PORT` (ברירת מחדל 3000) או שנה ב־docker-compose את הפורט (למשל `3001:3000`) |
 | אין הרשאות ל-Docker | `sudo usermod -aG docker $USER` ואז התנתק והתחבר מחדש |
 | Build נכשל | וודא ש־`git pull` מעודכן ו־`tailwindcss` ו־`@tailwindcss/vite` ב־dependencies ב־package.json |
 | קונטיינר ב־Restarting / האתר לא עולה | הרץ `docker logs worldcup2026-app` ובדוק את השגיאה. אם מופיע JWT_SECRET – הוסף ל־.env והפעל מחדש. אם מופיע Cannot find package – וודא ש־git pull ובנה מחדש. |

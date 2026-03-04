@@ -81,7 +81,7 @@ pnpm backup-db
 
 # בדיקת עומס (השרת חייב לרוץ)
 pnpm load-test
-pnpm load-test http://localhost:3000 5 100
+pnpm load-test http://localhost:${PORT:-3000} 5 100
 ```
 
 ---

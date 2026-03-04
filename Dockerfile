@@ -27,5 +27,6 @@ COPY --from=builder /app/dist ./dist
 
 RUN mkdir -p /app/data
 
+# App listens on PORT (default 3000); set in .env or -e PORT=...
 EXPOSE 3000
 CMD ["node", "dist/index.js"]

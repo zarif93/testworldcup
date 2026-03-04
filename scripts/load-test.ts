@@ -1,9 +1,10 @@
 /**
  * בדיקת עומס מדומה – שולח N בקשות ל-API ומדווח על הצלחות וזמני תגובה.
  * דורש שרת רץ (pnpm dev או pnpm start). הרצה: pnpm exec tsx scripts/load-test.ts [baseUrl] [concurrency] [total]
- * ברירת מחדל: baseUrl=http://localhost:3000, concurrency=5, total=50
+ * ברירת מחדל: baseUrl=http://localhost:${process.env.PORT || 3000}, concurrency=5, total=50
  */
-const BASE = process.argv[2] ?? "http://localhost:3000";
+const DEFAULT_PORT = process.env.PORT || "3000";
+const BASE = process.argv[2] ?? `http://localhost:${DEFAULT_PORT}`;
 const CONCURRENCY = Math.max(1, parseInt(process.argv[3] ?? "5", 10));
 const TOTAL = Math.max(1, parseInt(process.argv[4] ?? "50", 10));
 

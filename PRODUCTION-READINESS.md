@@ -7,7 +7,7 @@
 | `server/_core/index.ts` | **עודכן** – טעינת `.env.production` ב-production, החלפת `console` ב-`logger`, כיבוי x-powered-by, Helmet, Rate limit, CORS |
 | `server/_core/vite.ts` | **עודכן** – `console.error` → `logger.error` כשאין תיקיית build |
 | `server/routers.ts` | **עודכן** – כל `console.log` של אדמין → `logger.info` |
-| `deployment/nginx-worldcup2026.conf` | **נוצר** – Nginx: פורט 80, proxy ל-127.0.0.1:3000, gzip, כותרות אבטחה |
+| `deployment/nginx-worldcup2026.conf` | **נוצר** – Nginx: פורט 80, proxy ל-127.0.0.1:PORT (ברירת מחדל 3000), gzip, כותרות אבטחה |
 | `deploy.sh` | **נוצר/עודכן** – apt, nodejs, npm, nginx, npm install, npm run build, PM2, systemctl nginx |
 | `ecosystem.config.cjs` | **נוצר/עודכן** – name, script, instances: max, autorestart, env_production |
 | `.env.production.example` | **קיים** – תבנית; אין סודות; NODE_ENV=production |

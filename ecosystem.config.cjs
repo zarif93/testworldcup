@@ -20,7 +20,8 @@ module.exports = {
       },
       env_production: {
         NODE_ENV: "production",
-        PORT: "3000",
+        // PORT: override in .env.production; default 3000
+        PORT: process.env.PORT || "3000",
       },
     },
   ],
