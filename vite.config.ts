@@ -1,10 +1,19 @@
 import { jsxLocPlugin } from "@builder.io/vite-plugin-jsx-loc";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import dotenv from "dotenv";
 import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
+
+// Derive OAuth/Analytics URLs from PORT when not set (single source: .env PORT)
+dotenv.config();
+const PORT = process.env.PORT || "3000";
+const BASE_URL = `http://localhost:${PORT}`;
+if (!process.env.VITE_OAUTH_SERVER_URL) process.env.VITE_OAUTH_SERVER_URL = BASE_URL;
+if (!process.env.OAUTH_SERVER_URL) process.env.OAUTH_SERVER_URL = BASE_URL;
+if (!process.env.VITE_ANALYTICS_ENDPOINT) process.env.VITE_ANALYTICS_ENDPOINT = `${BASE_URL}/umami`;
 
 // =============================================================================
 // Manus Debug Collector - Vite Plugin
