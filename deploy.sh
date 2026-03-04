@@ -35,9 +35,9 @@ fi
 
 echo "=== Starting PM2 (production) ==="
 if command -v pnpm >/dev/null 2>&1; then
-  pnpm exec pm2 start ecosystem.config.js --env production 2>/dev/null || pnpm exec pm2 reload ecosystem.config.js --env production
+  pnpm exec pm2 start ecosystem.config.cjs --env production 2>/dev/null || pnpm exec pm2 reload ecosystem.config.cjs --env production
 else
-  npx pm2 start ecosystem.config.js --env production 2>/dev/null || npx pm2 reload ecosystem.config.js --env production
+  npx pm2 start ecosystem.config.cjs --env production 2>/dev/null || npx pm2 reload ecosystem.config.cjs --env production
 fi
 pm2 save 2>/dev/null || npx pm2 save 2>/dev/null || true
 

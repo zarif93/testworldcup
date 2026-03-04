@@ -115,7 +115,7 @@ NODE_ENV=production PORT=3000 node dist/index.js
 ```bash
 sudo npm install -g pm2
 cd ~/testworldcup
-pm2 start ecosystem.config.js --env production
+pm2 start ecosystem.config.cjs --env production
 pm2 save
 pm2 startup
 ```
@@ -140,7 +140,7 @@ cd ~/testworldcup
 git pull
 npm install
 npm run build
-pm2 reload ecosystem.config.js --env production
+pm2 reload ecosystem.config.cjs --env production
 pm2 save
 ```
 

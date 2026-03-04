@@ -9,7 +9,7 @@
 | `server/routers.ts` | **עודכן** – כל `console.log` של אדמין → `logger.info` |
 | `deployment/nginx-worldcup2026.conf` | **נוצר** – Nginx: פורט 80, proxy ל-127.0.0.1:3000, gzip, כותרות אבטחה |
 | `deploy.sh` | **נוצר/עודכן** – apt, nodejs, npm, nginx, npm install, npm run build, PM2, systemctl nginx |
-| `ecosystem.config.js` | **נוצר/עודכן** – name, script, instances: max, autorestart, env_production |
+| `ecosystem.config.cjs` | **נוצר/עודכן** – name, script, instances: max, autorestart, env_production |
 | `.env.production.example` | **קיים** – תבנית; אין סודות; NODE_ENV=production |
 | `package.json` | **עודכן** – הוספת `pm2` כ-devDependency |
 | `PRODUCTION-READINESS.md` | **נוצר/עודכן** – מסמך זה |
@@ -28,7 +28,7 @@ sudo apt install -y nodejs npm nginx
 npm install
 npm run build
 # העתק .env.production.example ל-.env.production והגדר JWT_SECRET
-pm2 start ecosystem.config.js --env production
+pm2 start ecosystem.config.cjs --env production
 pm2 save
 sudo systemctl restart nginx
 ```
@@ -70,7 +70,7 @@ cd /var/www/worldcup2026
 git pull
 npm install
 npm run build
-pm2 reload ecosystem.config.js --env production
+pm2 reload ecosystem.config.cjs --env production
 pm2 save
 ```
 
@@ -89,7 +89,7 @@ worldcup2026/
 │   └── public/                # Frontend סטטי (index.html, assets/)
 ├── data/                      # SQLite (נוצר בזמן ריצה; לא ב-git)
 ├── logs/                      # app.log ב-production (נוצר אוטומטית)
-├── ecosystem.config.js
+├── ecosystem.config.cjs
 ├── deploy.sh
 ├── .env.production            # לא ב-git – ליצור מ-.env.production.example
 ├── .env.production.example

@@ -6,7 +6,7 @@
 |------|--------|
 | `.env.production.example` | **נוצר** – תבנית משתני סביבה ל-Production |
 | `.gitignore` | **עודכן** – הוספת `.env.production` (לא לעשות commit לסודות) |
-| `ecosystem.config.js` | **נוצר** – קונפיגורציית PM2 (instances: max, autorestart, env_production) |
+| `ecosystem.config.cjs` | **נוצר** – קונפיגורציית PM2 (instances: max, autorestart, env_production) |
 | `nginx-worldcup2026.conf` | **נוצר** – קונפיגורציית Nginx (port 80, gzip, security headers) |
 | `deploy.sh` | **נוצר** – סקריפט פריסה ל-Ubuntu (apt, npm, build, PM2, nginx) |
 | `server/_core/index.ts` | **עודכן** – `x-powered-by` כבוי, CORS ל-Production, לוגים ל-logger ב-production |
@@ -43,7 +43,7 @@ cp .env.production.example .env
 nano .env                   # להגדיר JWT_SECRET וערכים נוספים
 npm install
 npm run build
-pm2 start ecosystem.config.js --env production
+pm2 start ecosystem.config.cjs --env production
 pm2 save
 pm2 startup                 # להפעלה אוטומטית אחרי אתחול
 ```
@@ -67,7 +67,7 @@ cd /var/www/worldcup2026
 git pull
 npm install
 npm run build
-pm2 reload ecosystem.config.js --env production
+pm2 reload ecosystem.config.cjs --env production
 pm2 save
 ```
 
@@ -90,7 +90,7 @@ worldcup2026/
 │   ├── index.js            # שרת Node
 │   └── public/             # קבצי Frontend סטטיים (index.html, assets/)
 ├── data/                   # SQLite (נוצר בזמן ריצה אם לא קיים)
-├── ecosystem.config.js      # PM2
+├── ecosystem.config.cjs     # PM2
 ├── nginx-worldcup2026.conf # Nginx
 ├── deploy.sh               # סקריפט פריסה
 ├── .env                    # משתני סביבה (לא ב-git – ליצור מהדוגמה)
@@ -120,7 +120,7 @@ worldcup2026/
 | ניקוי קבצי dev ו-console.logs | ✅ |
 | .env.production.example, סודות מ-env | ✅ |
 | Build (Vite + esbuild) | ✅ |
-| PM2 ecosystem.config.js | ✅ |
+| PM2 ecosystem.config.cjs | ✅ |
 | Nginx config | ✅ |
 | deploy.sh | ✅ |
 | Helmet, Rate limit, CORS, cookies | ✅ |
