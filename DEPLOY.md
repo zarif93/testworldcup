@@ -208,7 +208,7 @@ pm2 save
 
 | בעיה | מה לבדוק |
 |------|-----------|
-| **better-sqlite3: Could not locate the bindings file** | המודול ה-native לא נבנה על השרת. הרץ על השרת: `sudo apt install -y build-essential python3` ואז `cd /root/testworldcup && pnpm rebuild better-sqlite3` (או `npm rebuild better-sqlite3`). אם עדיין נכשל – מחק והתקן מחדש: `rm -rf node_modules && pnpm install`. אל תעתיק `node_modules` ממחשב אחר (Windows→Linux). |
+| **better-sqlite3: Could not locate the bindings file** | המודול ה-native לא נבנה על השרת. **תיקון מלא על השרת:** `sudo apt install -y build-essential python3` ואז מהתיקייה של הפרויקט: `rm -rf node_modules && pnpm install` (או `npm install`). אחרי שההתקנה מסתיימת בלי שגיאות, `pnpm run build` ואז `pm2 restart worldcup2026`. וודא ש-`node -v` זהה כשמריצים את הפקודות וכש-PM2 מריץ את האפליקציה (אותו Node). אל תעתיק `node_modules` ממחשב אחר. |
 | פורט האפליקציה תפוס | `sudo lsof -i :$PORT` (ברירת מחדל 3000) או שנה ב־docker-compose את הפורט (למשל `3001:3000`) |
 | אין הרשאות ל-Docker | `sudo usermod -aG docker $USER` ואז התנתק והתחבר מחדש |
 | Build נכשל | וודא ש־`git pull` מעודכן ו־`tailwindcss` ו־`@tailwindcss/vite` ב־dependencies ב־package.json |

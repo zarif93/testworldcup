@@ -13,10 +13,12 @@ sudo apt install -y nodejs npm nginx build-essential python3
 echo "=== Installing dependencies ==="
 if command -v pnpm >/dev/null 2>&1; then
   pnpm install
-  pnpm rebuild better-sqlite3 2>/dev/null || true
+  echo "=== Rebuilding better-sqlite3 (native module) ==="
+  pnpm rebuild better-sqlite3 || true
 else
   npm install
-  npm rebuild better-sqlite3 2>/dev/null || true
+  echo "=== Rebuilding better-sqlite3 (native module) ==="
+  npm rebuild better-sqlite3 || true
 fi
 
 echo "=== Building application (client + server) ==="
