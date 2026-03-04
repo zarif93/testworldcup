@@ -275,6 +275,8 @@ async function initSqlite() {
     ["drawTime", "TEXT"],
     ["resultsFinalizedAt", "INTEGER"],
     ["dataCleanedAt", "INTEGER"],
+    ["archivedAt", "INTEGER"],
+    ["deletedAt", "INTEGER"],
     ["financialParticipantCount", "INTEGER"],
     ["financialTotalParticipation", "INTEGER"],
     ["financialFee", "INTEGER"],
@@ -1742,16 +1744,17 @@ export async function getTournaments() {
   const { tournaments } = await getSchema();
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(tournaments);
+  return db.select().from(tournaments).where(isNull(tournaments.deletedAt));
 }
 
-/** תחרויות לדף הראשי בלבד – סמכות עליונה. visibility=VISIBLE, status IN (OPEN,LOCKED,CLOSED,SETTLED), לא מוסתרות מדף ראשי. */
+/** תחרויות לדף הראשי בלבד – visibility=VISIBLE, לא מוסתרות, לא מחוקות (deletedAt). */
 export async function getActiveTournaments() {
   const { tournaments } = await getSchema();
   const db = await getDb();
   if (!db) return [];
   return db.select().from(tournaments).where(
     and(
+      isNull(tournaments.deletedAt),
       eq(tournaments.visibility, "VISIBLE"),
       sql`(COALESCE(hiddenFromHomepage, 0) = 0)`,
       inArray(tournaments.status, ["OPEN", "LOCKED", "CLOSED", "SETTLED"])
@@ -1823,9 +1826,9 @@ export async function restoreTournamentToHomepage(
   return { ok: true };
 }
 
-const DISPLAY_WINDOW_MS = 10 * 60 * 1000; // 10 דקות
+const DISPLAY_WINDOW_MS = 10 * 60 * 1000; // 10 דקות – אחריהן תחרות עוברת לארכיון (ללא מחיקה)
 
-/** סימון תחרות כ"תוצאות סופיות הוצגו" – מתחיל טיימר 10 דקות למחיקת נתונים. אופציונלי: שמירת צילום כספי לדוחות מנהל. */
+/** סימון תחרות כ"תוצאות סופיות הוצגו" – אחרי 10 דקות התחרות עוברת לארכיון (ללא מחיקת נתונים). */
 export async function setTournamentResultsFinalized(
   tournamentId: number,
   snapshot?: { participantCount: number; totalParticipation: number; fee: number; prizeDistributed: number; winnerCount: number }
@@ -2134,12 +2137,12 @@ export async function deleteAllTransparencyLog(): Promise<void> {
   await db.delete(financialTransparencyLog);
 }
 
-/** תחרויות שהגיע זמנן למחיקת נתונים (10 דקות אחרי הצגת תוצאות) */
+/** תחרויות שהגיע זמנן למעבר לארכיון (10 דקות אחרי הצגת תוצאות) – ללא מחיקה, רק עדכון סטטוס */
 export async function getTournamentsToCleanup(): Promise<Array<{ id: number }>> {
   const { tournaments } = await getSchema();
   const db = await getDb();
   if (!db) return [];
-  const all = await db.select({ id: tournaments.id, resultsFinalizedAt: tournaments.resultsFinalizedAt, dataCleanedAt: tournaments.dataCleanedAt }).from(tournaments);
+  const all = await db.select({ id: tournaments.id, resultsFinalizedAt: tournaments.resultsFinalizedAt, dataCleanedAt: tournaments.dataCleanedAt }).from(tournaments).where(isNull(tournaments.deletedAt));
   const now = Date.now();
   return all
     .filter((t) => t.resultsFinalizedAt != null && t.dataCleanedAt == null)
@@ -2150,17 +2153,17 @@ export async function getTournamentsToCleanup(): Promise<Array<{ id: number }>> 
     .map((t) => ({ id: t.id }));
 }
 
-/** מחיקת נתוני תחרות (טפסים) וסימון כ-null – בלי לפגוע בנקודות/היסטוריה */
+/** ארכוב תחרות – מעדכן סטטוס ל-ARCHIVED ו-archivedAt. אין מחיקה של נתונים, עמלות או רווחים. */
 export async function cleanupTournamentData(tournamentId: number): Promise<void> {
-  const { tournaments, submissions, agentCommissions } = await getSchema();
+  const { tournaments } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const subs = await db.select({ id: submissions.id }).from(submissions).where(eq(submissions.tournamentId, tournamentId));
-  for (const s of subs) {
-    await db.delete(agentCommissions).where(eq(agentCommissions.submissionId, s.id));
-    await db.delete(submissions).where(eq(submissions.id, s.id));
-  }
-  await db.update(tournaments).set({ dataCleanedAt: new Date() }).where(eq(tournaments.id, tournamentId));
+  const now = new Date();
+  await db.update(tournaments).set({
+    status: "ARCHIVED",
+    archivedAt: now,
+    dataCleanedAt: now,
+  } as typeof tournaments.$inferInsert).where(eq(tournaments.id, tournamentId));
 }
 
 export async function getTournamentByDrawCode(drawCode: string) {
@@ -2635,6 +2638,13 @@ export async function deleteTournament(id: number): Promise<{ refundedCount: num
     .where(and(eq(financialRecords.competitionId, id), or(eq(financialRecords.recordType, "income"), isNull(financialRecords.recordType))))
     .limit(1);
   const prizesDistributed = status === "PRIZES_DISTRIBUTED" || incomeRecord.length > 0;
+  const finishedOrArchived = prizesDistributed || status === "RESULTS_UPDATED" || status === "ARCHIVED";
+
+  /** תחרות שהסתיימה / חולקו פרסים – רק מחיקה רכה (deletedAt). אין מחיקה של נתונים פיננסיים. */
+  if (finishedOrArchived) {
+    await db.update(tournaments).set({ deletedAt: new Date() } as typeof tournaments.$inferInsert).where(eq(tournaments.id, id));
+    return { refundedCount: 0, totalRefunded: 0, refundedUserIds: [], amountPerUser: 0 };
+  }
 
   let refundedCount = 0;
   let totalRefunded = 0;

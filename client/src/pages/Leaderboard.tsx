@@ -1,22 +1,14 @@
 import { useLocation } from "wouter";
 import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Trophy, Check, Clock, X, Eye, Sparkles, Timer } from "lucide-react";
+import { Trophy, Check, Clock, X, Eye, Sparkles, ChevronDown } from "lucide-react";
 import { SubmissionPredictionsModal } from "@/components/SubmissionPredictionsModal";
 import { getTournamentStyles } from "@/lib/tournamentStyles";
-
-const DISPLAY_WINDOW_MS = 10 * 60 * 1000;
-
-function formatCountdown(ms: number): string {
-  if (ms <= 0) return "0:00";
-  const totalSec = Math.floor(ms / 1000);
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
 
 function RankBadge({ rank, isApproved }: { rank: number; isApproved: boolean }) {
   if (!isApproved) return <span className="text-slate-500">—</span>;
@@ -43,20 +35,18 @@ function RankBadge({ rank, isApproved }: { rank: number; isApproved: boolean }) 
   );
 }
 
-type TournamentLike = { id: number; name: string; amount: number; type?: string; resultsFinalizedAt?: Date | string | null; dataCleanedAt?: Date | string | null };
+type TournamentLike = { id: number; name: string; amount: number; type?: string; status?: string; resultsFinalizedAt?: Date | string | null; dataCleanedAt?: Date | string | null };
 
 /** כרטיס דירוג בודד לטורניר – טוען דאטה לפי סוג התחרות */
 function SingleTournamentLeaderboardCard({
   tournament,
   tabId,
-  now,
   onViewSubmission,
   statusBadge,
   byTournament,
 }: {
   tournament: TournamentLike;
   tabId: "chance" | "lotto" | "mondial" | "football_custom";
-  now: number;
   onViewSubmission: (id: number) => void;
   statusBadge: (status: string) => JSX.Element;
   byTournament: (tid: number) => Array<{ id: number; username: string; status: string; points: number; updatedAt: Date | string }>;
@@ -67,6 +57,8 @@ function SingleTournamentLeaderboardCard({
   const isLotto = tabId === "lotto";
   const isFootballCustom = tabId === "football_custom";
   const isMondial = tabId === "mondial";
+
+  const [isCardOpen, setIsCardOpen] = useState(true);
 
   const { data: chanceLeaderboard } = trpc.submissions.getChanceLeaderboard.useQuery(
     { tournamentId: t.id },
@@ -82,54 +74,48 @@ function SingleTournamentLeaderboardCard({
   );
   const list = isMondial ? byTournament(t.id) : [];
 
-  const tour = t as { resultsFinalizedAt?: Date | string | null; dataCleanedAt?: Date | string | null };
+  const tour = t as { resultsFinalizedAt?: Date | string | null; dataCleanedAt?: Date | string | null; status?: string };
   const finalizedAt = tour.resultsFinalizedAt ? new Date(tour.resultsFinalizedAt).getTime() : 0;
   const cleanedAt = tour.dataCleanedAt;
-  const displayUntil = finalizedAt + DISPLAY_WINDOW_MS;
-  const inDisplayWindow = finalizedAt > 0 && !cleanedAt && now < displayUntil;
-  const remainingMs = displayUntil - now;
-
-  if (cleanedAt) {
-    return (
-      <Card className="card-sport bg-slate-800/60 border-slate-600/50 overflow-hidden mb-4">
-        <CardHeader className="border-b border-slate-600/50">
-          <h2 className="text-lg font-bold text-white">{t.name}</h2>
-        </CardHeader>
-        <CardContent className="p-6 text-center">
-          <p className="text-slate-400 font-medium">נתוני התחרות נמחקו.</p>
-          <p className="text-slate-500 text-sm mt-1">הדירוג וטפסי הניחושים הוסרו לאחר 10 דקות מהצגת התוצאות.</p>
-        </CardContent>
-      </Card>
-    );
-  }
+  const isArchived = !!cleanedAt || tour.status === "ARCHIVED";
 
   return (
     <Card className="card-sport bg-slate-800/60 border-slate-600/50 overflow-hidden mb-4">
       <CardHeader className="border-b border-slate-600/50">
-        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-          {isChance ? <Sparkles className="w-6 h-6 text-amber-400" /> : <Trophy className={`w-6 h-6 ${st.icon}`} />}
-          {t.name} – דירוג {isChance ? "צ'אנס" : isLotto ? "לוטו" : isFootballCustom ? "תחרות כדורגל" : "מונדיאל"}
-        </h2>
-        {isChance && chanceLeaderboard?.drawResult && (
-          <p className="text-slate-400 text-sm mt-1">
-            תוצאות ההגרלה: ❤️ {chanceLeaderboard.drawResult.heartCard} ♣ {chanceLeaderboard.drawResult.clubCard} ♦ {chanceLeaderboard.drawResult.diamondCard} ♠ {chanceLeaderboard.drawResult.spadeCard} • {chanceLeaderboard.drawResult.drawDate}
-          </p>
-        )}
-        {isLotto && lottoLeaderboard?.drawResult && (
-          <p className="text-slate-400 text-sm mt-1">
-            תוצאות: {lottoLeaderboard.drawResult.num1}, {lottoLeaderboard.drawResult.num2}, {lottoLeaderboard.drawResult.num3}, {lottoLeaderboard.drawResult.num4}, {lottoLeaderboard.drawResult.num5}, {lottoLeaderboard.drawResult.num6} • חזק: {lottoLeaderboard.drawResult.strongNumber} • {lottoLeaderboard.drawResult.drawDate}
-          </p>
-        )}
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              {isChance ? <Sparkles className="w-6 h-6 text-amber-400 shrink-0" /> : <Trophy className={`w-6 h-6 shrink-0 ${st.icon}`} />}
+              {t.name} – דירוג {isChance ? "צ'אנס" : isLotto ? "לוטו" : isFootballCustom ? "תחרות כדורגל" : "מונדיאל"}
+            </h2>
+            {isChance && chanceLeaderboard?.drawResult && (
+              <p className="text-slate-400 text-sm mt-1">
+                תוצאות ההגרלה: ❤️ {chanceLeaderboard.drawResult.heartCard} ♣ {chanceLeaderboard.drawResult.clubCard} ♦ {chanceLeaderboard.drawResult.diamondCard} ♠ {chanceLeaderboard.drawResult.spadeCard} • {chanceLeaderboard.drawResult.drawDate}
+              </p>
+            )}
+            {isLotto && lottoLeaderboard?.drawResult && (
+              <p className="text-slate-400 text-sm mt-1">
+                תוצאות: {lottoLeaderboard.drawResult.num1}, {lottoLeaderboard.drawResult.num2}, {lottoLeaderboard.drawResult.num3}, {lottoLeaderboard.drawResult.num4}, {lottoLeaderboard.drawResult.num5}, {lottoLeaderboard.drawResult.num6} • חזק: {lottoLeaderboard.drawResult.strongNumber} • {lottoLeaderboard.drawResult.drawDate}
+              </p>
+            )}
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0 text-slate-400 hover:text-white hover:bg-slate-700/50"
+            onClick={() => setIsCardOpen((prev) => !prev)}
+            title={isCardOpen ? "סגור דירוג" : "הצג דירוג"}
+          >
+            <ChevronDown className={`w-5 h-5 transition-transform duration-200 ${isCardOpen ? "rotate-180" : ""}`} />
+          </Button>
+        </div>
       </CardHeader>
+      {isCardOpen && (
       <CardContent className="p-0">
-        {inDisplayWindow && (
-          <div className="mx-4 mt-4 p-4 rounded-xl bg-amber-500/15 border border-amber-500/40 text-right">
-            <p className="text-amber-200 font-medium">התחרות הסתיימה! הזוכים קיבלו את הפרסים.</p>
-            <p className="text-slate-400 text-sm mt-1">נתוני התחרות יוצגו למשך 10 דקות בלבד.</p>
-            <p className="text-amber-400 font-mono text-lg mt-2 flex items-center justify-end gap-2">
-              <Timer className="w-5 h-5" />
-              נתוני תחרות יימחקו בעוד: {formatCountdown(remainingMs)}
-            </p>
+        {finalizedAt > 0 && (
+          <div className="mx-4 mt-4 p-4 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-right">
+            <p className="text-emerald-200 font-medium">התחרות הסתיימה. הנתונים נשמרו בארכיון וניתנים לצפייה בדף הניהול.</p>
           </div>
         )}
         {isChance ? (
@@ -290,12 +276,15 @@ function SingleTournamentLeaderboardCard({
           </>
         )}
       </CardContent>
+      )}
     </Card>
   );
 }
 
 export default function Leaderboard() {
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
+
   const [viewSubmissionId, setViewSubmissionId] = useState<number | null>(null);
   const { data: tournaments, isLoading: tournamentsLoading } = trpc.tournaments.getAll.useQuery();
   const { data: submissions } = trpc.submissions.getAll.useQuery();
@@ -329,16 +318,6 @@ export default function Leaderboard() {
   }, [chanceTournaments.length, lottoTournaments.length, mondialTournaments.length, footballCustomTournaments.length, activeTab]);
 
   const tabValue = activeTab;
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const hasDisplayWindow = sortedTournaments.some(
-      (t) => (t as { resultsFinalizedAt?: Date | null; dataCleanedAt?: Date | null }).resultsFinalizedAt && !(t as { dataCleanedAt?: Date | null }).dataCleanedAt
-    );
-    if (!hasDisplayWindow) return;
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, [sortedTournaments]);
-
   const byTournament = (tid: number) =>
     (submissions ?? [])
       .filter((s) => s.tournamentId === tid)
@@ -375,13 +354,18 @@ export default function Leaderboard() {
   return (
     <div className="min-h-screen py-8">
       <div className="container mx-auto px-4">
-        <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 flex items-center gap-2 animate-fade-in">
-          <Trophy className="w-9 h-9 text-amber-400" />
-          טבלת דירוג
-        </h1>
-        <p className="text-slate-400 mb-8">
-          כל הטפסים מופיעים מיד בדירוג. רק טפסים שאושרו נספרים במיקום לפי ניקוד.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 flex items-center gap-2 animate-fade-in">
+              <Trophy className="w-9 h-9 text-amber-400" />
+              טבלת דירוג
+            </h1>
+            <p className="text-slate-400">
+              כל הטפסים מופיעים מיד בדירוג. רק טפסים שאושרו נספרים במיקום לפי ניקוד.
+            </p>
+          </div>
+        </div>
+        <>
         {tournamentsLoading ? (
           <div className="flex justify-center py-16">
             <p className="text-slate-400">טוען טורנירים...</p>
@@ -431,7 +415,6 @@ export default function Leaderboard() {
                       key={t.id}
                       tournament={t as TournamentLike}
                       tabId={tabId}
-                      now={now}
                       onViewSubmission={setViewSubmissionId}
                       statusBadge={statusBadge}
                       byTournament={byTournament}
@@ -443,6 +426,7 @@ export default function Leaderboard() {
           })}
         </Tabs>
         )}
+        </>
       </div>
 
       <SubmissionPredictionsModal

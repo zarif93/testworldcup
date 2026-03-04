@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Trophy, Loader2, Lock } from "lucide-react";
@@ -40,7 +40,29 @@ export default function TournamentSelect() {
       return (a.amount ?? 0) - (b.amount ?? 0);
     });
   })();
+
+  const byType = useMemo(() => {
+    const football: T[] = [];
+    const lotto: T[] = [];
+    const chance: T[] = [];
+    const football_custom: T[] = [];
+    for (const t of allTournaments) {
+      const type = (t.type ?? "football") as string;
+      if (type === "lotto") lotto.push(t);
+      else if (type === "chance") chance.push(t);
+      else if (type === "football_custom") football_custom.push(t);
+      else football.push(t);
+    }
+    return { football, lotto, chance, football_custom };
+  }, [allTournaments]);
+
   const hasAny = allTournaments.length > 0;
+  const sectionOrder: Array<{ key: keyof typeof byType; title: string }> = [
+    { key: "football", title: "מונדיאל – ניחושי משחקים" },
+    { key: "lotto", title: "לוטו" },
+    { key: "chance", title: "צ'אנס" },
+    { key: "football_custom", title: "תחרות כדורגל" },
+  ];
 
   const renderTournamentButton = (t: T, i: number) => {
     const styles = getTournamentStyles(t.amount);
@@ -55,25 +77,25 @@ export default function TournamentSelect() {
       <Button
         key={t.id}
         size="lg"
-        className={`text-lg px-8 py-6 rounded-xl border-2 shadow-lg hover:shadow-xl transition-all duration-300 ${styles.button} ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "btn-sport"} animate-slide-up`}
+        className={`text-lg px-6 py-5 rounded-xl border-2 shadow-lg hover:shadow-xl transition-all duration-300 min-w-0 max-w-full flex items-stretch gap-3 text-right min-h-[7.5rem] ${styles.button} ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "btn-sport"} animate-slide-up`}
         style={{ animationDelay: `${i * 0.04}s` }}
         onClick={() => !isLocked && setLocation(`/predict/${t.id}`)}
         disabled={isLocked}
       >
-        <Trophy className={`w-6 h-6 ml-2 ${styles.icon}`} />
-        <span className="block text-right">
-          {label && !isLocked && <span className="text-xs opacity-80 block mb-0.5">{label}</span>}
-          <span>{t.name}{!isLocked ? drawLabel : ""}</span>
+        <Trophy className={`w-6 h-6 ml-2 shrink-0 self-center ${styles.icon}`} />
+        <span className="block text-right min-w-0 flex-1 py-0.5 flex flex-col justify-center">
+          {label && !isLocked && <span className="text-xs opacity-80 block mb-1 break-words leading-tight">{label}</span>}
+          <span className="break-words leading-snug">{t.name}{!isLocked ? drawLabel : ""}</span>
           {isLocked && countdown != null ? (
             <>
-              <span className="text-red-400 font-bold flex items-center gap-1 mt-1"><Lock className="w-4 h-4" /> התחרות ננעלה</span>
-              <span className="block text-red-300 font-black text-xl mt-0.5">נסגרת בעוד: {countdown}</span>
+              <span className="text-red-400 font-bold flex items-center gap-1 mt-1 text-sm"><Lock className="w-4 h-4 shrink-0" /> התחרות ננעלה</span>
+              <span className="block text-red-300 font-black text-lg mt-0.5">נסגרת בעוד: {countdown}</span>
             </>
           ) : !isLocked && (
-            <span className="block text-sm opacity-90 mt-0.5">₪{t.prizePool.toLocaleString("he-IL")} פרסים • {t.participants} משתתפים</span>
+            <span className="block text-sm opacity-90 mt-1.5 break-words leading-tight">₪{t.prizePool.toLocaleString("he-IL")} פרסים • {t.participants} משתתפים</span>
           )}
         </span>
-        {isLocked && countdown == null && <span className="mr-2">🔒</span>}
+        {isLocked && countdown == null && <span className="mr-2 shrink-0 self-center">🔒</span>}
       </Button>
     );
   };
@@ -98,24 +120,35 @@ export default function TournamentSelect() {
         </p>
 
         {/* איך זה עובד – הסבר קצר */}
-        <div className="max-w-2xl mx-auto mb-12 p-6 rounded-xl bg-slate-800/50 border border-slate-600/50 text-right">
-          <h2 className="text-lg font-bold text-white mb-3">איך זה עובד</h2>
-          <ul className="text-slate-400 text-sm space-y-2 list-none">
+        <div className="max-w-2xl mx-auto mb-12 p-6 rounded-xl bg-slate-800/50 border border-slate-600/50 text-right min-w-0 overflow-hidden">
+          <h2 className="text-lg font-bold text-white mb-3 break-words">איך זה עובד</h2>
+          <ul className="text-slate-400 text-sm space-y-2 list-none break-words">
             <li><strong className="text-slate-300">בחירת תחרות:</strong> בחר תחרות מהרשימה (מונדיאל, לוטו, צ'אנס או כדורגל) ולחץ עליה.</li>
             <li><strong className="text-slate-300">טופס והשתתפות:</strong> אחרי הלחיצה תגיע לטופס לפי סוג התחרות. מלא ושלוח.</li>
             <li><strong className="text-slate-300">אישור ותשלום:</strong> לאחר אישור מנהל ותשלום תיכנס לדירוג של התחרות.</li>
             <li><strong className="text-slate-300">נעילה:</strong> תחרות עם סימן 🔒 סגורה להרשמה – לא ניתן לשלוח אליה טפסים.</li>
           </ul>
         </div>
-        <div className="flex flex-wrap gap-4 justify-center max-w-4xl mx-auto">
+        <div className="min-w-0 max-w-6xl mx-auto">
           {!hasAny ? (
             <div className="w-full max-w-xl mx-auto p-6 rounded-xl bg-slate-800/50 border border-slate-600/50 text-center">
               <p className="text-slate-400 mb-2">אין תחרויות כרגע.</p>
               <p className="text-slate-500 text-sm">כשיפתחו תחרויות חדשות הן יופיעו כאן.</p>
             </div>
           ) : (
-            <div className="w-full flex flex-wrap gap-4 justify-center">
-              {allTournaments.map((t, i) => renderTournamentButton(t, i))}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+              {sectionOrder.map(({ key, title }) => {
+                const list = byType[key];
+                return (
+                  <div key={key} className="min-w-0 flex flex-col">
+                    <h2 className="text-xl font-bold text-white mb-4 text-center break-words">{title}</h2>
+                    <div className="flex flex-col gap-4">
+                      {list.map((t, i) => renderTournamentButton(t, i))}
+                    </div>
+                    {list.length === 0 && <p className="text-slate-500 text-sm text-center py-4">אין תחרויות</p>}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

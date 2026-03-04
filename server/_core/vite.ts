@@ -3,12 +3,15 @@ import fs from "fs";
 import { type Server } from "http";
 import { nanoid } from "nanoid";
 import path from "path";
+import { pathToFileURL } from "url";
 import { createServer as createViteServer } from "vite";
+import { logger } from "./logger";
 
 export async function setupVite(app: Express, server: Server) {
   // Load Vite config only in dev so production bundle doesn't need @builder.io/vite-plugin-jsx-loc etc.
   const configPath = path.join(process.cwd(), "vite.config.ts");
-  const { default: viteConfig } = await import(/* @vite-ignore */ configPath);
+  const configUrl = pathToFileURL(configPath).href;
+  const { default: viteConfig } = await import(/* @vite-ignore */ configUrl);
 
   const serverOptions = {
     middlewareMode: true,
@@ -56,9 +59,7 @@ export function serveStatic(app: Express) {
       ? path.resolve(import.meta.dirname, "../..", "dist", "public")
       : path.resolve(import.meta.dirname, "public");
   if (!fs.existsSync(distPath)) {
-    console.error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`
-    );
+    logger.error("Could not find the build directory – run build first", { distPath });
   }
 
   app.use(express.static(distPath));

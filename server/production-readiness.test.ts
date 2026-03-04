@@ -162,7 +162,7 @@ describe("Production readiness – לוגיקה כספית", () => {
 });
 
 describe("Production readiness – טיימרים ושחזור", () => {
-  it("getTournamentsToCleanup ו-cleanupTournamentData – פונקציות קיימות", async () => {
+  it("getTournamentsToCleanup ו-cleanupTournamentData (ארכוב ללא מחיקה) – פונקציות קיימות", async () => {
     const { getTournamentsToCleanup, cleanupTournamentData } = await import("./db");
     const list = await getTournamentsToCleanup();
     expect(Array.isArray(list)).toBe(true);

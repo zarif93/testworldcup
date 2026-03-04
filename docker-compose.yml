@@ -7,7 +7,8 @@ services:
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      # ניתן להגדיר כאן משתני סביבה נוספים או להשתמש ב-.env
+      - PORT=3000
+      # הגדר JWT_SECRET ב-.env או כאן (חובה לפרודקשן אמיתי)
     env_file:
       - .env
     ports:

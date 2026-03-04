@@ -190,11 +190,11 @@ export default function AgentDashboard() {
             <div className="flex flex-wrap gap-2 items-end mb-4">
               <div>
                 <label className="text-slate-400 text-xs block mb-1">מתאריך</label>
-                <Input type="date" value={pnlFrom} onChange={(e) => setPnlFrom(e.target.value)} className="bg-slate-900 border-slate-600 text-white w-40" />
+                <Input type="date" value={pnlFrom} onChange={(e) => setPnlFrom(e.target.value)} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-900 border-slate-600 text-white w-40" />
               </div>
               <div>
                 <label className="text-slate-400 text-xs block mb-1">עד תאריך</label>
-                <Input type="date" value={pnlTo} onChange={(e) => setPnlTo(e.target.value)} className="bg-slate-900 border-slate-600 text-white w-40" />
+                <Input type="date" value={pnlTo} onChange={(e) => setPnlTo(e.target.value)} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-900 border-slate-600 text-white w-40" />
               </div>
               <div>
                 <label className="text-slate-400 text-xs block mb-1">סוג תחרות</label>
@@ -430,11 +430,11 @@ export default function AgentDashboard() {
             <div className="flex flex-wrap gap-2 items-end mb-4">
               <div>
                 <label className="text-slate-400 text-xs block mb-1">מתאריך</label>
-                <Input type="date" value={balanceFrom} onChange={(e) => setBalanceFrom(e.target.value)} className="bg-slate-900 border-slate-600 text-white w-40" />
+                <Input type="date" value={balanceFrom} onChange={(e) => setBalanceFrom(e.target.value)} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-900 border-slate-600 text-white w-40" />
               </div>
               <div>
                 <label className="text-slate-400 text-xs block mb-1">עד תאריך</label>
-                <Input type="date" value={balanceTo} onChange={(e) => setBalanceTo(e.target.value)} className="bg-slate-900 border-slate-600 text-white w-40" />
+                <Input type="date" value={balanceTo} onChange={(e) => setBalanceTo(e.target.value)} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-900 border-slate-600 text-white w-40" />
               </div>
             </div>
             {myHistoryLoading ? (
@@ -508,11 +508,11 @@ export default function AgentDashboard() {
             <div className="flex flex-wrap gap-2 items-end mb-4">
               <div>
                 <label className="text-slate-400 text-xs block mb-1">מתאריך</label>
-                <Input type="date" value={commissionFrom} onChange={(e) => setCommissionFrom(e.target.value)} className="bg-slate-900 border-slate-600 text-white w-40" />
+                <Input type="date" value={commissionFrom} onChange={(e) => setCommissionFrom(e.target.value)} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-900 border-slate-600 text-white w-40" />
               </div>
               <div>
                 <label className="text-slate-400 text-xs block mb-1">עד תאריך</label>
-                <Input type="date" value={commissionTo} onChange={(e) => setCommissionTo(e.target.value)} className="bg-slate-900 border-slate-600 text-white w-40" />
+                <Input type="date" value={commissionTo} onChange={(e) => setCommissionTo(e.target.value)} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-900 border-slate-600 text-white w-40" />
               </div>
               <Button
                 type="button"

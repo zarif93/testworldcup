@@ -161,6 +161,18 @@ export const appRouter = router({
         if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
         return getPlayerPnL(ctx.user.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType });
       }),
+    /** ייצוא דוח שחקן – רק למשתמש המחובר (שחקן) – מוריד CSV לפי טווח תאריכים */
+    exportMyPlayerReport: protectedProcedure
+      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+        if ((ctx.user as { role?: string }).role !== "user") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "רק שחקן יכול לייצא את הדוח האישי שלו" });
+        }
+        const data = await getPlayerPnL(ctx.user.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType });
+        const { playerPnLToCsv } = await import("./csvExport");
+        return { csv: playerPnLToCsv(data.transactions, data.profit, data.loss, data.net) };
+      }),
     /** בדיקה אם שם משתמש פנוי – להצגה בטופס הרשמה */
     checkUsername: publicProcedure
       .input(z.object({ username: z.string().min(1) }))
@@ -170,35 +182,35 @@ export const appRouter = router({
       }),
     register: publicProcedure
       .input(z.object({
-        username: z.string().min(3),
+          username: z.string().min(3),
         phone: z.string().min(9),
-        password: z.string().min(6),
+          password: z.string().min(6),
         name: z.string().min(1, "שם מלא חובה"),
         referralCode: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        const result = await registerUser({
-          username: input.username,
+          const result = await registerUser({
+            username: input.username,
           phone: input.phone,
-          password: input.password,
-          name: input.name,
+            password: input.password,
+            name: input.name,
           referralCode: input.referralCode,
-        });
-        ctx.res.cookie(COOKIE_NAME, result.token, {
+          });
+          ctx.res.cookie(COOKIE_NAME, result.token, {
           ...getSessionCookieOptions(ctx.req),
           maxAge: 7 * 24 * 60 * 60 * 1000,
-        });
-        return result;
+          });
+          return result;
       }),
     login: publicProcedure
       .input(z.object({ username: z.string(), password: z.string() }))
       .mutation(async ({ input, ctx }) => {
         const result = await loginUser(input);
-        ctx.res.cookie(COOKIE_NAME, result.token, {
+          ctx.res.cookie(COOKIE_NAME, result.token, {
           ...getSessionCookieOptions(ctx.req),
           maxAge: 7 * 24 * 60 * 60 * 1000,
-        });
-        return result;
+          });
+          return result;
       }),
     logout: publicProcedure.mutation(({ ctx }) => {
       ctx.res.clearCookie(COOKIE_NAME, { ...getSessionCookieOptions(ctx.req), maxAge: -1 });
@@ -264,6 +276,16 @@ export const appRouter = router({
         if (!user) throw new TRPCError({ code: "UNAUTHORIZED" });
         const cost = tournament.amount;
         const isAdmin = user.role === "admin";
+
+        // ולידציה מוקדמת: בדיקת נקודות לפני כל יצירה/ניכוי – אי אפשר לעקוף דרך API
+        const INSUFFICIENT_POINTS_MESSAGE = "אין לך מספיק נקודות להשתתפות בתחרות זו";
+        if (!isAdmin && cost > 0) {
+          const currentBalance = await getUserPoints(ctx.user.id);
+          if (currentBalance < cost) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: INSUFFICIENT_POINTS_MESSAGE });
+          }
+        }
+
         const hasEnoughPoints = isAdmin || ((user.points ?? 0) >= cost);
         const submissionStatus = hasEnoughPoints ? "approved" as const : "pending" as const;
         const paymentStatus = hasEnoughPoints ? "completed" as const : "pending" as const;
@@ -310,7 +332,7 @@ export const appRouter = router({
             throw new TRPCError({ code: "BAD_REQUEST", message: "ההרשמה להגרלה נסגרה" });
           }
           const deducted = await runDeductionIfNeeded();
-          if (!deducted) throw new TRPCError({ code: "BAD_REQUEST", message: "אין מספיק נקודות להשתתפות" });
+          if (!deducted) throw new TRPCError({ code: "BAD_REQUEST", message: INSUFFICIENT_POINTS_MESSAGE });
           await upsertSubmission({
             userId: ctx.user.id,
             username: ctx.user.username || ctx.user.name || "משתמש",
@@ -356,7 +378,7 @@ export const appRouter = router({
             throw new TRPCError({ code: "BAD_REQUEST", message: "יש לבחור בדיוק 6 מספרים שונים (1–37) ומספר חזק אחד (1–7)" });
           }
           const deducted = await runDeductionIfNeeded();
-          if (!deducted) throw new TRPCError({ code: "BAD_REQUEST", message: "אין מספיק נקודות להשתתפות" });
+          if (!deducted) throw new TRPCError({ code: "BAD_REQUEST", message: INSUFFICIENT_POINTS_MESSAGE });
           await upsertSubmission({
             userId: ctx.user.id,
             username: ctx.user.username || ctx.user.name || "משתמש",
@@ -412,7 +434,7 @@ export const appRouter = router({
             if (!matchIds.has(mid)) throw new TRPCError({ code: "BAD_REQUEST", message: "משחק לא תקין" });
           }
           const deducted = await runDeductionIfNeeded();
-          if (!deducted) throw new TRPCError({ code: "BAD_REQUEST", message: "אין מספיק נקודות להשתתפות" });
+          if (!deducted) throw new TRPCError({ code: "BAD_REQUEST", message: INSUFFICIENT_POINTS_MESSAGE });
           await upsertSubmission({
             userId: ctx.user.id,
             username: ctx.user.username || ctx.user.name || "משתמש",
@@ -458,7 +480,7 @@ export const appRouter = router({
           if (!matchIds.has(mid)) throw new TRPCError({ code: "BAD_REQUEST", message: "משחק לא תקין" });
         }
         const deducted = await runDeductionIfNeeded();
-        if (!deducted) throw new TRPCError({ code: "BAD_REQUEST", message: "אין מספיק נקודות להשתתפות" });
+        if (!deducted) throw new TRPCError({ code: "BAD_REQUEST", message: INSUFFICIENT_POINTS_MESSAGE });
         await upsertSubmission({
           userId: ctx.user.id,
           username: ctx.user.username || ctx.user.name || "משתמש",
@@ -924,7 +946,7 @@ export const appRouter = router({
             });
           }
         }
-        console.log(`[Admin] ${ctx.user!.username ?? ctx.user!.id} approved submission #${input.id} (תשלום סומן – הקופה עודכנה)`);
+        logger.info("Approved submission", { submissionId: input.id, userId: sub?.userId, tournamentId: sub?.tournamentId });
         await insertAdminAuditLog({
           performedBy: ctx.user!.id,
           action: "Approve Submission",
@@ -936,8 +958,8 @@ export const appRouter = router({
     rejectSubmission: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        await updateSubmissionStatus(input.id, "rejected");
-        console.log(`[Admin] ${ctx.user!.username ?? ctx.user!.id} rejected submission #${input.id}`);
+          await updateSubmissionStatus(input.id, "rejected");
+        logger.info("Rejected submission", { submissionId: input.id });
         return { success: true };
       }),
     markPayment: adminProcedure
@@ -962,7 +984,7 @@ export const appRouter = router({
           const pts = calcSubmissionPoints(preds as Array<{ matchId: number; prediction: "1" | "X" | "2" }>, results);
           await updateSubmissionPoints(s.id, pts);
         }
-        console.log(`[Admin] ${ctx.user!.username ?? ctx.user!.id} updated match #${input.matchId} result: ${input.homeScore}-${input.awayScore}`);
+        logger.info("Updated match result", { matchId: input.matchId, homeScore: input.homeScore, awayScore: input.awayScore });
         return { success: true };
       }),
     updateMatch: adminProcedure
@@ -1098,7 +1120,7 @@ export const appRouter = router({
         if (!match) throw new TRPCError({ code: "NOT_FOUND", message: "משחק לא נמצא" });
         await updateCustomFootballMatchResult(input.matchId, input.homeScore, input.awayScore);
         await recalcCustomFootballPoints(match.tournamentId);
-        console.log(`[Admin] ${ctx.user!.username ?? ctx.user!.id} updated custom football match #${input.matchId}`);
+        logger.info("Updated custom football match", { matchId: input.matchId });
         return { success: true };
       }),
     updateCustomFootballMatch: adminProcedure
@@ -1117,7 +1139,7 @@ export const appRouter = router({
       .input(z.object({ tournamentId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         await recalcCustomFootballPoints(input.tournamentId);
-        console.log(`[Admin] ${ctx.user!.username ?? ctx.user!.id} recalculated points for tournament #${input.tournamentId}`);
+        logger.info("Recalculated custom football points", { tournamentId: input.tournamentId });
         return { success: true };
       }),
     getCustomFootballLeaderboard: adminProcedure
@@ -1361,8 +1383,8 @@ export const appRouter = router({
             }
           }
         }
-        console.log(`[Admin] ${ctx.user!.username ?? ctx.user!.id} created ${input.count} auto submissions for tournament #${input.tournamentId}`);
-        return {
+        logger.info("Created auto submissions", { count: input.count, tournamentId: input.tournamentId });
+          return {
           created: input.count,
           usernames,
           tournamentId: input.tournamentId,
@@ -1373,20 +1395,20 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         await deleteSubmission(input.id);
-        console.log(`[Admin] ${ctx.user!.username ?? ctx.user!.id} deleted submission #${input.id}`);
+        logger.info("Deleted submission", { submissionId: input.id });
         return { success: true };
       }),
     deleteAllSubmissions: adminProcedure
       .mutation(async ({ ctx }) => {
         const count = await deleteAllSubmissions();
-        console.log(`[Admin] ${ctx.user!.username ?? ctx.user!.id} deleted all submissions (${count} forms)`);
+        logger.info("Deleted all submissions", { deletedCount: count });
         return { success: true, deletedCount: count };
       }),
     deleteUser: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         await deleteUser(input.id);
-        console.log(`[Admin] ${ctx.user!.username ?? ctx.user!.id} deleted user #${input.id}`);
+        logger.info("Deleted user", { userId: input.id });
         return { success: true };
       }),
     getAdmins: superAdminProcedure.query(() => getAdmins()),
@@ -1463,7 +1485,7 @@ export const appRouter = router({
           passwordHash,
           name: input.name,
         });
-        console.log(`[Admin] ${ctx.user!.username ?? ctx.user!.id} created agent ${agent.username} (id=${agent.id}, code=${agent.referralCode})`);
+        logger.info("Created agent", { agentId: agent.id, username: agent.username, referralCode: agent.referralCode });
         return { agent: { id: agent.id, username: agent.username, phone: agent.phone, referralCode: agent.referralCode } };
       }),
     getAgents: adminProcedure.query(() => getAgents()),

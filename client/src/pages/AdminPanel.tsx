@@ -108,6 +108,24 @@ export default function AdminPanel() {
 
   const [pnlFrom, setPnlFrom] = useState("");
   const [pnlTo, setPnlTo] = useState("");
+  const [playersReportFrom, setPlayersReportFrom] = useState("");
+  const [playersReportTo, setPlayersReportTo] = useState("");
+  const [agentsReportFrom, setAgentsReportFrom] = useState("");
+  const [agentsReportTo, setAgentsReportTo] = useState("");
+  const [exportingPlayerId, setExportingPlayerId] = useState<number | null>(null);
+  const [exportingAgentId, setExportingAgentId] = useState<number | null>(null);
+  const [exportPlayerModalOpen, setExportPlayerModalOpen] = useState(false);
+  const [exportPlayerUserId, setExportPlayerUserId] = useState<number | null>(null);
+  const [exportPlayerUsername, setExportPlayerUsername] = useState<string>("");
+  const [exportPlayerFrom, setExportPlayerFrom] = useState("");
+  const [exportPlayerTo, setExportPlayerTo] = useState("");
+  const [exportPlayerError, setExportPlayerError] = useState("");
+  const [exportAgentModalOpen, setExportAgentModalOpen] = useState(false);
+  const [exportAgentId, setExportAgentId] = useState<number | null>(null);
+  const [exportAgentUsername, setExportAgentUsername] = useState<string>("");
+  const [exportAgentFrom, setExportAgentFrom] = useState("");
+  const [exportAgentTo, setExportAgentTo] = useState("");
+  const [exportAgentError, setExportAgentError] = useState("");
   const [pnlTournamentType, setPnlTournamentType] = useState("");
   const [pnlDetailAgentId, setPnlDetailAgentId] = useState<number | null>(null);
   const [pnlDetailPlayerId, setPnlDetailPlayerId] = useState<number | null>(null);
@@ -815,12 +833,12 @@ export default function AdminPanel() {
                 {dashboardCards.map((card) => (
                   <Card
                     key={card.id}
-                    className="bg-slate-800/50 border-slate-700 hover:border-amber-500/50 hover:bg-slate-800/70 transition-all duration-200 cursor-pointer group"
+                    className="bg-slate-800/50 border-slate-700 hover:border-amber-500/50 hover:bg-slate-800/70 transition-all duration-200 cursor-pointer group min-w-0 overflow-hidden"
                     onClick={() => handleDashboardCardClick(card.route)}
                   >
-                    <CardHeader className="pb-2">
+                    <CardHeader className="pb-2 min-w-0">
                       <div className="flex items-start justify-between gap-2">
-                        <div className="p-2 rounded-lg bg-slate-700/50 group-hover:bg-amber-500/20 transition-colors">
+                        <div className="p-2 rounded-lg bg-slate-700/50 group-hover:bg-amber-500/20 transition-colors shrink-0">
                           {card.icon}
                         </div>
                         {card.status && (
@@ -839,8 +857,8 @@ export default function AdminPanel() {
                           </span>
                         )}
                       </div>
-                      <h4 className="text-white font-semibold mt-2">{card.title}</h4>
-                      <p className="text-slate-400 text-sm">{card.description}</p>
+                      <h4 className="text-white font-semibold mt-2 break-words min-w-0">{card.title}</h4>
+                      <p className="text-slate-400 text-sm break-words min-w-0">{card.description}</p>
                     </CardHeader>
                     <CardContent className="pt-0">
                       <Button
@@ -939,7 +957,7 @@ export default function AdminPanel() {
         )}
 
         {section === "submissions" && (
-          <Card className="bg-slate-800/50 border-slate-700">
+          <Card className="bg-slate-800/50 border-slate-700 min-w-0 overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
               <h2 className="text-xl font-bold text-white">כל הטפסים</h2>
               <div className="flex items-center gap-2">
@@ -992,28 +1010,29 @@ export default function AdminPanel() {
                     const count = submissionsCountByTournament.get(t.id) ?? 0;
                     const isSelected = submissionsTournamentId === t.id;
                     return (
-                      <Button
-                        key={t.id}
-                        variant="outline"
-                        size="sm"
-                        className={isSelected ? "bg-amber-600 hover:bg-amber-700 border-amber-500 text-white" : "border-slate-600 text-slate-400 hover:bg-slate-700/50"}
-                        onClick={() => setSubmissionsTournamentId(t.id)}
-                      >
-                        {t.name}
-                        <span className="mr-1.5 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-slate-600 text-xs font-bold">
-                          {count}
-                        </span>
-                      </Button>
+                        <Button
+                          key={t.id}
+                          variant="outline"
+                          size="sm"
+                          className={`max-w-[220px] min-w-0 flex items-center ${isSelected ? "bg-amber-600 hover:bg-amber-700 border-amber-500 text-white" : "border-slate-600 text-slate-400 hover:bg-slate-700/50"}`}
+                          onClick={() => setSubmissionsTournamentId(t.id)}
+                          title={t.name}
+                        >
+                          <span className="min-w-0 truncate mr-1.5">{t.name}</span>
+                          <span className="shrink-0 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-slate-600 text-xs font-bold">
+                            {count}
+                          </span>
+                        </Button>
                     );
                   })}
                 </div>
               </div>
-              <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
-                <table className="w-full text-right text-sm">
+              <div className="overflow-x-auto max-h-[60vh] overflow-y-auto min-w-0">
+                <table className="w-full text-right text-sm table-fixed">
                   <thead className="sticky top-0 bg-slate-800 z-10">
                     <tr className="border-b border-slate-600 text-slate-400">
-                      <th className="py-2 px-2">משתמש</th>
-                      {submissionsTournamentId == null && <th className="py-2 px-2">תחרות</th>}
+                      <th className="py-2 px-2 w-[25%]">משתמש</th>
+                      {submissionsTournamentId == null && <th className="py-2 px-2 w-[25%]">תחרות</th>}
                       <th className="py-2 px-2">סטטוס</th>
                       <th className="py-2 px-2">תאריך</th>
                       <th className="py-2 px-2">פעולות</th>
@@ -1024,9 +1043,9 @@ export default function AdminPanel() {
                   const tourName = tournaments?.find((t) => t.id === s.tournamentId)?.name ?? `#${s.tournamentId}`;
                   return (
                     <tr key={s.id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
-                      <td className="py-2 px-2 text-white font-medium">{s.username}</td>
+                      <td className="py-2 px-2 text-white font-medium min-w-0 max-w-0 break-words" title={s.username}>{s.username}</td>
                       {submissionsTournamentId == null && (
-                        <td className="py-2 px-2 text-slate-400">{tourName}</td>
+                        <td className="py-2 px-2 text-slate-400 min-w-0 max-w-0 break-words" title={tourName}>{tourName}</td>
                       )}
                       <td className="py-2 px-2">
                         <Badge
@@ -1168,7 +1187,7 @@ export default function AdminPanel() {
                   </div>
                   <div className="flex flex-col gap-1">
                     <label className="text-slate-400 text-sm">תאריך הגרלה</label>
-                    <Input type="date" className="bg-slate-800 text-white w-36" value={newTournament.drawDate} onChange={(e) => setNewTournament((p) => ({ ...p, drawDate: e.target.value }))} />
+                    <Input type="date" placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 text-white w-36" value={newTournament.drawDate} onChange={(e) => setNewTournament((p) => ({ ...p, drawDate: e.target.value }))} />
                   </div>
                   <div className="flex flex-col gap-1">
                     <label className="text-slate-400 text-sm">שעת הגרלה</label>
@@ -1798,6 +1817,7 @@ export default function AdminPanel() {
                     <option value="agent">סוכנים</option>
                     <option value="admin">מנהלים</option>
                   </select>
+                  <span className="text-slate-500 text-sm mr-4">לפני ייצוא דוח שחקן – ייפתח חלון לבחירת טווח תאריכים.</span>
                 </div>
               </CardHeader>
               <CardContent>
@@ -1888,6 +1908,25 @@ export default function AdminPanel() {
                                   title="צפייה בדוח סוכן"
                                 >
                                   דוח סוכן
+                                </Button>
+                              )}
+                              {u.role === "user" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 text-xs border-amber-500/50 text-amber-400"
+                                  onClick={() => {
+                                    setExportPlayerUserId(u.id);
+                                    setExportPlayerUsername(u.username ?? `#${u.id}`);
+                                    setExportPlayerFrom(playersReportFrom);
+                                    setExportPlayerTo(playersReportTo);
+                                    setExportPlayerError("");
+                                    setExportPlayerModalOpen(true);
+                                  }}
+                                  title="ייצוא דוח שחקן – ייפתח חלון לבחירת טווח תאריכים"
+                                >
+                                  <FileDown className="w-4 h-4 ml-1" />
+                                  ייצוא דוח שחקן
                                 </Button>
                               )}
                               {!u.deletedAt && u.role !== "admin" && (
@@ -2187,6 +2226,8 @@ export default function AdminPanel() {
                         <label className="block text-slate-500 text-xs mb-0.5">מתאריך</label>
                         <input
                           type="date"
+                          placeholder="dd/mm/yyyy"
+                          title="dd/mm/yyyy"
                           value={pointsLogFrom}
                           onChange={(e) => setPointsLogFrom(e.target.value)}
                           className="bg-slate-800 border border-slate-600 text-white rounded px-2 py-1.5 text-sm"
@@ -2196,6 +2237,8 @@ export default function AdminPanel() {
                         <label className="block text-slate-500 text-xs mb-0.5">עד תאריך</label>
                         <input
                           type="date"
+                          placeholder="dd/mm/yyyy"
+                          title="dd/mm/yyyy"
                           value={pointsLogTo}
                           onChange={(e) => setPointsLogTo(e.target.value)}
                           className="bg-slate-800 border border-slate-600 text-white rounded px-2 py-1.5 text-sm"
@@ -2301,6 +2344,124 @@ export default function AdminPanel() {
 
           </div>
         )}
+
+        <Dialog open={exportPlayerModalOpen} onOpenChange={(open) => { if (!open) { setExportPlayerModalOpen(false); setExportPlayerError(""); } }}>
+          <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-white text-right">ייצוא דוח שחקן – {exportPlayerUsername}</DialogTitle>
+              <DialogDescription className="text-slate-400 text-right">חובה לבחור תאריך התחלה ותאריך סיום לפני יצירת הדוח.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-3 py-2">
+              <div>
+                <label className="block text-sm text-slate-400 mb-1 text-right">תאריך התחלה</label>
+                <Input type="date" value={exportPlayerFrom} onChange={(e) => { setExportPlayerFrom(e.target.value); setExportPlayerError(""); }} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 border-slate-600 text-white text-right w-full" />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-1 text-right">תאריך סיום</label>
+                <Input type="date" value={exportPlayerTo} onChange={(e) => { setExportPlayerTo(e.target.value); setExportPlayerError(""); }} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 border-slate-600 text-white text-right w-full" />
+              </div>
+              {exportPlayerError && <p className="text-red-400 text-sm text-right">{exportPlayerError}</p>}
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0 flex-row-reverse">
+              <Button variant="outline" className="border-slate-600 text-slate-300" onClick={() => { setExportPlayerModalOpen(false); setExportPlayerError(""); }}>
+                ביטול
+              </Button>
+              <Button
+                className="bg-amber-600 hover:bg-amber-700"
+                disabled={exportingPlayerId === exportPlayerUserId}
+                onClick={async () => {
+                  const from = exportPlayerFrom.trim();
+                  const to = exportPlayerTo.trim();
+                  if (!from || !to) {
+                    setExportPlayerError("אנא בחר טווח תאריכים לפני יצירת הדוח");
+                    return;
+                  }
+                  if (exportPlayerUserId == null) return;
+                  setExportingPlayerId(exportPlayerUserId);
+                  setExportPlayerError("");
+                  try {
+                    const { csv } = await utils.admin.exportPlayerPnLCSV.fetch({ userId: exportPlayerUserId, from, to });
+                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `דוח-שחקן-${exportPlayerUsername}-${from}-${to}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    toast.success("הורדת דוח שחקן החלה");
+                    setExportPlayerModalOpen(false);
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "שגיאה בייצוא");
+                  } finally {
+                    setExportingPlayerId(null);
+                  }
+                }}
+              >
+                {exportingPlayerId === exportPlayerUserId ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4 ml-1" />}
+                ייצא דוח
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={exportAgentModalOpen} onOpenChange={(open) => { if (!open) { setExportAgentModalOpen(false); setExportAgentError(""); } }}>
+          <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-white text-right">ייצוא דוח סוכן – {exportAgentUsername}</DialogTitle>
+              <DialogDescription className="text-slate-400 text-right">חובה לבחור תאריך התחלה ותאריך סיום לפני יצירת הדוח.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-3 py-2">
+              <div>
+                <label className="block text-sm text-slate-400 mb-1 text-right">תאריך התחלה</label>
+                <Input type="date" value={exportAgentFrom} onChange={(e) => { setExportAgentFrom(e.target.value); setExportAgentError(""); }} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 border-slate-600 text-white text-right w-full" />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-1 text-right">תאריך סיום</label>
+                <Input type="date" value={exportAgentTo} onChange={(e) => { setExportAgentTo(e.target.value); setExportAgentError(""); }} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 border-slate-600 text-white text-right w-full" />
+              </div>
+              {exportAgentError && <p className="text-red-400 text-sm text-right">{exportAgentError}</p>}
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0 flex-row-reverse">
+              <Button variant="outline" className="border-slate-600 text-slate-300" onClick={() => { setExportAgentModalOpen(false); setExportAgentError(""); }}>
+                ביטול
+              </Button>
+              <Button
+                className="bg-amber-600 hover:bg-amber-700"
+                disabled={exportingAgentId === exportAgentId}
+                onClick={async () => {
+                  const from = exportAgentFrom.trim();
+                  const to = exportAgentTo.trim();
+                  if (!from || !to) {
+                    setExportAgentError("אנא בחר טווח תאריכים לפני יצירת הדוח");
+                    return;
+                  }
+                  if (exportAgentId == null) return;
+                  setExportingAgentId(exportAgentId);
+                  setExportAgentError("");
+                  try {
+                    const { csv } = await utils.admin.exportAgentPnLCSV.fetch({ agentId: exportAgentId, from, to });
+                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `דוח-סוכן-${exportAgentUsername}-${from}-${to}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    toast.success("הורדת דוח סוכן החלה");
+                    setExportAgentModalOpen(false);
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "שגיאה בייצוא");
+                  } finally {
+                    setExportingAgentId(null);
+                  }
+                }}
+              >
+                {exportingAgentId === exportAgentId ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4 ml-1" />}
+                ייצא דוח
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {section === "admins" && !user?.isSuperAdmin && (
           <Card className="bg-slate-800/50 border-slate-700">
@@ -2664,6 +2825,9 @@ export default function AdminPanel() {
               <CardHeader>
                 <h2 className="text-xl font-bold text-white">סוכנים ודוחות</h2>
                 <p className="text-slate-400 text-sm">עמלה מלאה 12.5% לאתר, סוכן מקבל 50% מתוך ה-12.5%.</p>
+                <div className="flex flex-wrap gap-2 items-center mt-2">
+                  <span className="text-slate-500 text-sm">לפני ייצוא דוח סוכן – ייפתח חלון לבחירת טווח תאריכים.</span>
+                </div>
               </CardHeader>
               <CardContent>
                 {agentReports && agentReports.length > 0 && (
@@ -2693,6 +2857,23 @@ export default function AdminPanel() {
                             <Badge variant="outline" className="font-mono text-amber-400 border-amber-500/50">
                               קוד: {r.referralCode ?? "—"}
                             </Badge>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs border-amber-500/50 text-amber-400"
+                              onClick={() => {
+                                setExportAgentId(r.agentId);
+                                setExportAgentUsername(r.username ?? `סוכן #${r.agentId}`);
+                                setExportAgentFrom(agentsReportFrom);
+                                setExportAgentTo(agentsReportTo);
+                                setExportAgentError("");
+                                setExportAgentModalOpen(true);
+                              }}
+                              title="ייצוא דוח סוכן – ייפתח חלון לבחירת טווח תאריכים"
+                            >
+                              <FileDown className="w-4 h-4 ml-1" />
+                              ייצוא דוח סוכן
+                            </Button>
                             <Button
                               size="sm"
                               variant="outline"
@@ -2757,11 +2938,11 @@ export default function AdminPanel() {
             <div className="flex flex-wrap gap-2 items-end">
               <div>
                 <label className="text-slate-400 text-xs block mb-1">מתאריך</label>
-                <Input type="date" value={pnlFrom} onChange={(e) => setPnlFrom(e.target.value)} className="bg-slate-900 border-slate-600 text-white w-40" />
+                <Input type="date" value={pnlFrom} onChange={(e) => setPnlFrom(e.target.value)} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-900 border-slate-600 text-white w-40" />
               </div>
               <div>
                 <label className="text-slate-400 text-xs block mb-1">עד תאריך</label>
-                <Input type="date" value={pnlTo} onChange={(e) => setPnlTo(e.target.value)} className="bg-slate-900 border-slate-600 text-white w-40" />
+                <Input type="date" value={pnlTo} onChange={(e) => setPnlTo(e.target.value)} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-900 border-slate-600 text-white w-40" />
               </div>
               <div>
                 <label className="text-slate-400 text-xs block mb-1">סוג תחרות</label>
@@ -2801,7 +2982,7 @@ export default function AdminPanel() {
                 }}
               >
                 {pnlExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
-                <span className="mr-1">ייצוא CSV</span>
+                <span className="mr-1">ייצא דוח</span>
               </Button>
             </div>
             {pnlSummaryLoading ? (
@@ -3368,7 +3549,7 @@ export default function AdminPanel() {
                             >
                               <Input placeholder="קבוצה ביתית" className="bg-slate-800 text-white w-32" value={footballCustomNewMatch.homeTeam} onChange={(e) => setFootballCustomNewMatch((p) => ({ ...p, homeTeam: e.target.value }))} />
                               <Input placeholder="קבוצה אורחת" className="bg-slate-800 text-white w-32" value={footballCustomNewMatch.awayTeam} onChange={(e) => setFootballCustomNewMatch((p) => ({ ...p, awayTeam: e.target.value }))} />
-                              <Input type="date" placeholder="תאריך" className="bg-slate-800 text-white w-36" value={footballCustomNewMatch.matchDate} onChange={(e) => setFootballCustomNewMatch((p) => ({ ...p, matchDate: e.target.value }))} />
+                              <Input type="date" placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 text-white w-36" value={footballCustomNewMatch.matchDate} onChange={(e) => setFootballCustomNewMatch((p) => ({ ...p, matchDate: e.target.value }))} />
                               <Input type="time" placeholder="שעה" className="bg-slate-800 text-white w-28" value={footballCustomNewMatch.matchTime} onChange={(e) => setFootballCustomNewMatch((p) => ({ ...p, matchTime: e.target.value }))} />
                               <Button type="submit" size="sm" disabled={addCustomFootballMatchMut.isPending}>הוסף משחק</Button>
                             </form>

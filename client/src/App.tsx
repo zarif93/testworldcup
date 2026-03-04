@@ -94,31 +94,31 @@ const WHATSAPP_NUMBER = "972538099212";
         href={whatsappUrl}
         target="_blank"
         rel="noopener noreferrer"
-        className="flex items-center gap-1.5 text-[#25D366] hover:text-[#20bd5a] transition text-sm font-medium"
+        className="flex items-center gap-1.5 text-[#25D366] hover:text-[#20bd5a] transition text-sm font-medium shrink-0"
         aria-label="צור קשר בוואטסאפ"
       >
-        <MessageCircle className="w-5 h-5" />
-        <span className="hidden sm:inline">וואטסאפ</span>
+        <MessageCircle className="w-5 h-5 shrink-0" />
+        <span className="hidden sm:inline truncate">וואטסאפ</span>
       </a>
-      <button onClick={() => onOpenTerms?.()} className="flex items-center gap-1.5 text-slate-300 hover:text-emerald-400 transition text-sm font-medium" aria-label="תקנון האתר">
-        <FileText className="w-4 h-4" />
-        תקנון
+      <button onClick={() => onOpenTerms?.()} className="flex items-center gap-1.5 text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0" aria-label="תקנון האתר">
+        <FileText className="w-4 h-4 shrink-0" />
+        <span className="truncate">תקנון</span>
       </button>
-      <button onClick={() => go("/leaderboard")} className="text-slate-300 hover:text-emerald-400 transition text-sm font-medium">
+      <button onClick={() => go("/leaderboard")} className="text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0 truncate">
         דירוג
       </button>
-      <button onClick={() => go("/submissions")} className="text-slate-300 hover:text-emerald-400 transition text-sm font-medium">
+      <button onClick={() => go("/submissions")} className="text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0 truncate">
         טפסים
       </button>
       {user && (
-        <button onClick={() => go("/points")} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-400/90 hover:text-amber-300 hover:bg-amber-500/20 transition text-sm font-medium">
-          <Gem className="w-4 h-4" />
-          <span className="hidden sm:inline">נקודות שלי:</span>
+        <button onClick={() => go("/points")} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-400/90 hover:text-amber-300 hover:bg-amber-500/20 transition text-sm font-medium shrink-0 min-w-0">
+          <Gem className="w-4 h-4 shrink-0" />
+          <span className="hidden sm:inline truncate">נקודות שלי:</span>
           <span className="font-bold tabular-nums">{pointsLabel}</span>
           <span aria-hidden>💎</span>
         </button>
       )}
-      <button onClick={() => go("/tournaments")} className="text-slate-300 hover:text-emerald-400 transition text-sm font-medium">
+      <button onClick={() => go("/tournaments")} className="text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0 truncate">
         טורנירים
       </button>
       {user ? (
@@ -255,16 +255,16 @@ function Layout({ children }: { children: React.ReactNode }) {
       {user?.role === "admin" && <AdminNewSubmissionNotifier />}
       <PointsSocketSync />
       <div className="relative z-10 min-h-screen flex flex-col">
-      <header className="sticky top-0 z-50 border-b border-slate-700/50 bg-slate-950/90 backdrop-blur-md shadow-lg shadow-black/20">
-        <div className="container mx-auto px-4 py-3 flex items-center justify-between">
+      <header className="sticky top-0 z-50 border-b border-slate-700/50 bg-slate-950/90 backdrop-blur-md shadow-lg shadow-black/20 min-w-0 overflow-hidden">
+        <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-2 min-w-0">
           <button
             onClick={() => setLocation("/")}
-            className="flex items-center gap-2 text-white font-bold text-lg hover:text-emerald-400 transition-colors"
+            className="flex items-center gap-2 text-white font-bold text-lg hover:text-emerald-400 transition-colors min-w-0 shrink-0"
           >
-            <Trophy className="w-7 h-7 text-amber-400 drop-shadow-sm" />
-            <span className="tracking-tight">ניחושי מונדיאל 2026</span>
+            <Trophy className="w-7 h-7 text-amber-400 drop-shadow-sm shrink-0" />
+            <span className="tracking-tight truncate max-w-[180px] sm:max-w-none">ניחושי מונדיאל 2026</span>
           </button>
-          <nav className="hidden md:flex items-center gap-6">
+          <nav className="hidden md:flex items-center gap-4 md:gap-6 min-w-0 flex-1 justify-end flex-wrap">
             <ThemeToggle />
             <NavLinks setLocation={setLocation} user={user} logout={logout} onOpenTerms={() => setTermsOpen(true)} />
           </nav>

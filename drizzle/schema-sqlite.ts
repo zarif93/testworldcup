@@ -66,7 +66,7 @@ export const tournaments = sqliteTable("tournaments", {
   drawDate: text("drawDate"),
   /** שעת הגרלה – צ'אנס (HH:MM), בין 09:00 ל־21:00 */
   drawTime: text("drawTime"),
-  /** מועד סיום תוצאות והצגת דירוג – מתחיל טיימר 10 דקות למחיקת נתונים */
+  /** מועד סיום תוצאות והצגת דירוג – לאחריו תחרות עוברת לארכיון (ללא מחיקת נתונים) */
   resultsFinalizedAt: integer("resultsFinalizedAt", { mode: "timestamp" }),
   /** סטטוס: OPEN | CLOSED | LOCKED | SETTLED | CANCELLED | UPCOMING | RESULTS_UPDATED | PRIZES_DISTRIBUTED | ARCHIVED */
   status: text("status").default("OPEN"),
@@ -82,8 +82,12 @@ export const tournaments = sqliteTable("tournaments", {
   hiddenByAdminId: integer("hiddenByAdminId"),
   /** מזהה ייחודי אופציונלי – למניעת כפילויות כשמנהל מזין; ריק = מאפשר כמה תחרויות עם אותו סכום */
   customIdentifier: text("customIdentifier"),
-  /** מועד ביצוע מחיקת נתוני התחרות (טפסים/דירוג) – לאחר 10 דקות מהצגה */
+  /** מועד מעבר לארכיון (ללא מחיקת נתונים – שמירה לצמיתות) */
   dataCleanedAt: integer("dataCleanedAt", { mode: "timestamp" }),
+  /** מועד ארכוב התחרות – נתונים נשמרים, רק סטטוס משתנה */
+  archivedAt: integer("archivedAt", { mode: "timestamp" }),
+  /** מחיקה רכה – תחרות שמנהל "מחק" (לא מוצגת ברשימות; נתונים פיננסיים נשמרים) */
+  deletedAt: integer("deletedAt", { mode: "timestamp" }),
   /** צילום כספי בעת סיום – נשמר לצמיתות לדוחות מנהל */
   financialParticipantCount: integer("financialParticipantCount"),
   financialTotalParticipation: integer("financialTotalParticipation"),

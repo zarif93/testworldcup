@@ -118,12 +118,13 @@ export default function Submissions() {
                           key={t.id}
                           variant="outline"
                           size="sm"
-                          className={`rounded-xl border-2 ${styles.border} ${isSelected ? styles.button + " shadow-md" : "text-slate-400 hover:bg-slate-700/50"}`}
+                          className={`rounded-xl border-2 max-w-[200px] min-w-0 flex items-center ${styles.border} ${isSelected ? styles.button + " shadow-md" : "text-slate-400 hover:bg-slate-700/50"}`}
                           onClick={() => setSelectedTournamentId(t.id)}
+                          title={t.name}
                         >
-                          <Trophy className={`w-4 h-4 ml-1 ${styles.icon}`} />
-                          {t.name}
-                          <span className="mr-1.5 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-slate-600/80 text-xs font-bold">
+                          <Trophy className={`w-4 h-4 ml-1 shrink-0 ${styles.icon}`} />
+                          <span className="min-w-0 truncate mr-1.5">{t.name}</span>
+                          <span className="shrink-0 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-slate-600/80 text-xs font-bold">
                             {count}
                           </span>
                         </Button>
@@ -155,14 +156,14 @@ export default function Submissions() {
                   </div>
 
                   {/* רשימת טפסים */}
-                  <div className="space-y-3 animate-fade-in">
+                  <div className="space-y-3 animate-fade-in min-w-0 overflow-hidden">
                     {filtered.length > 0 ? (
-                      <div className="overflow-x-auto rounded-xl border border-slate-600/50">
-                        <table className="w-full text-right text-sm">
+                      <div className="overflow-x-auto rounded-xl border border-slate-600/50 min-w-0">
+                        <table className="w-full text-right text-sm table-fixed">
                           <thead>
                             <tr className="border-b border-slate-600 bg-slate-800/80 text-slate-400">
-                              <th className="py-2 px-3">משתמש</th>
-                              <th className="py-2 px-3">תחרות</th>
+                              <th className="py-2 px-3 w-[20%]">משתמש</th>
+                              <th className="py-2 px-3 w-[22%]">תחרות</th>
                               <th className="py-2 px-3">נקודות</th>
                               <th className="py-2 px-3">סטטוס</th>
                               <th className="py-2 px-3">תאריך</th>
@@ -183,8 +184,8 @@ export default function Submissions() {
                                   className="border-b border-slate-700/50 hover:bg-slate-700/30 cursor-pointer"
                                   onClick={() => setViewSubmissionId(s.id)}
                                 >
-                                  <td className="py-2 px-3 text-white font-medium">{s.username}</td>
-                                  <td className="py-2 px-3 text-slate-400 text-sm">{getTourName(s.tournamentId)}</td>
+                                  <td className="py-2 px-3 text-white font-medium min-w-0 max-w-0 break-words" title={s.username}>{s.username}</td>
+                                  <td className="py-2 px-3 text-slate-400 text-sm min-w-0 max-w-0 break-words" title={getTourName(s.tournamentId)}>{getTourName(s.tournamentId)}</td>
                                   <td className="py-2 px-3 text-emerald-400 font-bold">{s.points}</td>
                                   <td className="py-2 px-3">
                                     {s.status === "approved" ? (

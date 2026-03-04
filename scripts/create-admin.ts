@@ -1,16 +1,22 @@
 /**
  * סקריפט חד-פעמי ליצירת משתמש סופר מנהל (Yoven!)
  * סופר מנהל הוא היחיד שיכול ליצור/למחוק/לערוך מנהלים אחרים.
- * הרצה: pnpm tsx scripts/create-admin.ts
+ * הרצה: CREATE_ADMIN_PASSWORD=yourpass pnpm tsx scripts/create-admin.ts
+ * או הגדר CREATE_ADMIN_PASSWORD ב-.env
  */
+import "dotenv/config";
 import { hashPassword } from "../server/auth";
 import { createAdminUser, getUserByUsername, updateUserRole } from "../server/db";
 
-const ADMIN_USERNAME = "Yoven!";
-const ADMIN_PASSWORD = "Adir8043120";
-const ADMIN_PHONE = "0500000000";
+const ADMIN_USERNAME = process.env.CREATE_ADMIN_USERNAME ?? "Yoven!";
+const ADMIN_PASSWORD = process.env.CREATE_ADMIN_PASSWORD ?? "";
+const ADMIN_PHONE = process.env.CREATE_ADMIN_PHONE ?? "0500000000";
 
 async function main() {
+  if (!ADMIN_PASSWORD) {
+    console.error("הגדר CREATE_ADMIN_PASSWORD (או CREATE_ADMIN_PASSWORD ב-.env) לפני הרצת הסקריפט.");
+    process.exit(1);
+  }
   try {
     const existing = await getUserByUsername(ADMIN_USERNAME);
     if (existing) {
@@ -29,7 +35,7 @@ async function main() {
 
     console.log("משתמש המנהל נוצר בהצלחה.");
     console.log("  שם משתמש:", ADMIN_USERNAME);
-    console.log("  סיסמה:", ADMIN_PASSWORD);
+    console.log("  סיסמה: (הוגדר via env)");
   } catch (err) {
     console.error("שגיאה:", err);
     process.exit(1);

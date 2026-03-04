@@ -76,8 +76,7 @@ export default function Home() {
     }
     if (toRemove.length > 0) {
       toRemove.forEach((id) => removedIdsRef.current.add(id));
-      refetch(); // סמכות עליונה: השרת – אחרי ה-refetch התחרות לא תופיע אם ה-API לא מחזיר אותה
-      toRemove.forEach((id) => console.log("[Homepage] הסרה מדף ראשי – סמכות שרת (tournament removed from view)", { tournamentId: id }));
+      refetch();
     }
   }, [tournamentStats, now, refetch]);
   type Stats = typeof tournamentStats;
@@ -151,19 +150,19 @@ export default function Home() {
           </div>
         ) : (
           <TooltipProvider>
-          <div className="space-y-12 max-w-5xl mx-auto mb-20">
-            {byType.football && byType.football.length > 0 && (
-              <div>
-                <h3 className="text-xl font-bold text-white mb-4 text-center">מונדיאל – ניחושי משחקים</h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                  {byType.football.map((t, i) => {
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 max-w-6xl mx-auto mb-20 min-w-0 overflow-hidden px-2">
+            {/* טור 1: מונדיאל */}
+            <div className="min-w-0 flex flex-col">
+                <h3 className="text-xl font-bold text-white mb-4 text-center break-words">מונדיאל – ניחושי משחקים</h3>
+                <div className="flex flex-col gap-4 min-w-0">
+                  {(byType.football ?? []).map((t, i) => {
                     const styles = getTournamentStyles(t.amount);
                     const isLocked = t.status === "LOCKED" || t.isLocked;
                     const removalAt = (t as { removalScheduledAt?: string | Date | null }).removalScheduledAt;
                     const countdown = isLocked && removalAt ? formatRemaining(removalAt) : null;
                     const showHide = canShowHide(t.status);
                     return (
-                      <div key={t.id} className="relative group">
+                      <div key={t.id} className="relative group min-w-0">
                         {showHide && (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -185,22 +184,22 @@ export default function Home() {
                           type="button"
                           disabled={isLocked}
                           onClick={() => !isLocked && setLocation(`/predict/${t.id}`)}
-                          className={`card-sport bg-slate-800/60 border-slate-600/50 p-5 text-center ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40"} animate-slide-up w-full`}
+                          className={`card-sport bg-slate-800/60 border-slate-600/50 px-4 py-5 text-center min-w-0 min-h-[140px] flex flex-col items-center justify-center ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40"} animate-slide-up w-full`}
                           style={{ animationDelay: `${i * 0.05}s` }}
                         >
-                        <Trophy className={`w-8 h-8 mx-auto mb-2 ${styles.icon}`} />
-                        <p className="text-white font-bold text-lg">{t.name}</p>
+                        <Trophy className={`w-8 h-8 mx-auto mb-2 shrink-0 ${styles.icon}`} />
+                        <p className="text-white font-bold text-lg break-words min-w-0 leading-tight">{t.name}</p>
                         {isLocked && countdown != null ? (
                           <>
-                            <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1">
-                              <Lock className="w-4 h-4" /> התחרות ננעלה
+                            <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1 break-words">
+                              <Lock className="w-4 h-4 shrink-0" /> התחרות ננעלה
                             </p>
-                            <p className="text-red-300 font-black text-xl mt-1">נסגרת בעוד: {countdown}</p>
+                            <p className="text-red-300 font-black text-lg mt-1 break-words">נסגרת בעוד: {countdown}</p>
                           </>
                         ) : (
                           <>
-                            <p className="text-amber-400 font-black text-xl mt-1">₪{t.prizePool.toLocaleString("he-IL")} פרסים</p>
-                            <p className="text-slate-500 text-xs mt-2">{t.participants} משתתפים</p>
+                            <p className="text-amber-400 font-black text-lg mt-1.5 break-words leading-tight">₪{t.prizePool.toLocaleString("he-IL")} פרסים</p>
+                            <p className="text-slate-500 text-xs mt-1.5 break-words">{t.participants} משתתפים</p>
                           </>
                         )}
                       </button>
@@ -208,20 +207,20 @@ export default function Home() {
                     );
                   })}
                 </div>
-              </div>
-            )}
-            {byType.lotto && byType.lotto.length > 0 && (
-              <div>
-                <h3 className="text-xl font-bold text-white mb-4 text-center">לוטו</h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                  {byType.lotto.map((t, i) => {
+                {(byType.football ?? []).length === 0 && <p className="text-slate-500 text-sm text-center py-4">אין תחרויות</p>}
+            </div>
+            {/* טור 2: לוטו */}
+            <div className="min-w-0 flex flex-col">
+                <h3 className="text-xl font-bold text-white mb-4 text-center break-words">לוטו</h3>
+                <div className="flex flex-col gap-4 min-w-0">
+                  {(byType.lotto ?? []).map((t, i) => {
                     const styles = getTournamentStyles(t.amount);
                     const isLocked = t.status === "LOCKED" || t.isLocked;
                     const removalAt = (t as { removalScheduledAt?: string | Date | null }).removalScheduledAt;
                     const countdown = isLocked && removalAt ? formatRemaining(removalAt) : null;
                     const showHide = canShowHide(t.status);
                     return (
-                      <div key={t.id} className="relative group">
+                      <div key={t.id} className="relative group min-w-0">
                         {showHide && (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -243,11 +242,11 @@ export default function Home() {
                           type="button"
                           disabled={isLocked}
                           onClick={() => !isLocked && setLocation(`/predict/${t.id}`)}
-                          className={`card-sport bg-slate-800/60 border-slate-600/50 p-5 text-center ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40"} animate-slide-up w-full`}
+                          className={`card-sport bg-slate-800/60 border-slate-600/50 p-5 text-center min-w-0 overflow-hidden ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40"} animate-slide-up w-full`}
                           style={{ animationDelay: `${i * 0.05}s` }}
                         >
                         <Trophy className={`w-8 h-8 mx-auto mb-2 ${styles.icon}`} />
-                        <p className="text-white font-bold text-lg">{t.name}</p>
+                        <p className="text-white font-bold text-lg break-words min-w-0">{t.name}</p>
                         {isLocked && countdown != null ? (
                           <>
                             <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1"><Lock className="w-4 h-4" /> התחרות ננעלה</p>
@@ -255,8 +254,8 @@ export default function Home() {
                           </>
                         ) : (
                           <>
-                            <p className="text-amber-400 font-black text-xl mt-1">₪{t.prizePool.toLocaleString("he-IL")} פרסים</p>
-                            <p className="text-slate-500 text-xs mt-2">{t.participants} משתתפים</p>
+                            <p className="text-amber-400 font-black text-xl mt-1 break-words">₪{t.prizePool.toLocaleString("he-IL")} פרסים</p>
+                            <p className="text-slate-500 text-xs mt-2 break-words">{t.participants} משתתפים</p>
                           </>
                         )}
                       </button>
@@ -264,13 +263,13 @@ export default function Home() {
                     );
                   })}
                 </div>
-              </div>
-            )}
-            {byType.chance && byType.chance.length > 0 && (
-              <div>
-                <h3 className="text-xl font-bold text-white mb-4 text-center">צ'אנס</h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                  {byType.chance.map((t, i) => {
+                {(byType.lotto ?? []).length === 0 && <p className="text-slate-500 text-sm text-center py-4">אין תחרויות</p>}
+            </div>
+            {/* טור 3: צ'אנס */}
+            <div className="min-w-0 flex flex-col">
+                <h3 className="text-xl font-bold text-white mb-4 text-center break-words">צ'אנס</h3>
+                <div className="flex flex-col gap-4 min-w-0">
+                  {(byType.chance ?? []).map((t, i) => {
                     const styles = getTournamentStyles(t.amount);
                     const d = (t as { drawDate?: string | null }).drawDate;
                     const drawTime = (t as { drawTime?: string | null }).drawTime;
@@ -280,7 +279,7 @@ export default function Home() {
                     const countdown = isLocked && removalAt ? formatRemaining(removalAt) : null;
                     const showHide = canShowHide(t.status);
                     return (
-                      <div key={t.id} className="relative group">
+                      <div key={t.id} className="relative group min-w-0">
                         {showHide && (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -302,43 +301,43 @@ export default function Home() {
                           type="button"
                           disabled={isLocked}
                           onClick={() => !isLocked && setLocation(`/predict/${t.id}`)}
-                          className={`card-sport bg-slate-800/60 border-slate-600/50 p-5 text-center ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40"} animate-slide-up w-full`}
+                          className={`card-sport bg-slate-800/60 border-slate-600/50 px-4 py-5 text-center min-w-0 min-h-[160px] flex flex-col items-center justify-center ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40"} animate-slide-up w-full`}
                           style={{ animationDelay: `${i * 0.05}s` }}
                         >
-                        <Trophy className={`w-8 h-8 mx-auto mb-2 ${styles.icon}`} />
-                        <p className="text-white font-bold text-lg">{t.name}</p>
-                        {drawLabel && !isLocked && <p className="text-slate-400 text-sm mt-0.5">⏰ {drawLabel}</p>}
+                        <Trophy className={`w-8 h-8 mx-auto mb-2 shrink-0 ${styles.icon}`} />
+                        <p className="text-white font-bold text-base break-words min-w-0 leading-tight">{t.name}</p>
+                        {drawLabel && !isLocked && <p className="text-slate-400 text-xs mt-1 break-words min-w-0 leading-tight">⏰ {drawLabel}</p>}
                         {isLocked && countdown != null ? (
                           <>
-                            <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1"><Lock className="w-4 h-4" /> התחרות ננעלה</p>
-                            <p className="text-red-300 font-black text-xl mt-1">נסגרת בעוד: {countdown}</p>
+                            <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1 break-words"><Lock className="w-4 h-4 shrink-0" /> התחרות ננעלה</p>
+                            <p className="text-red-300 font-black text-lg mt-1 break-words">נסגרת בעוד: {countdown}</p>
                           </>
                         ) : !isLocked && (
                           <>
-                            <p className="text-amber-400 font-black text-xl mt-1">₪{t.prizePool.toLocaleString("he-IL")} פרסים</p>
-                            <p className="text-slate-500 text-xs mt-2">{t.participants} משתתפים</p>
+                            <p className="text-amber-400 font-black text-lg mt-1.5 break-words leading-tight">₪{t.prizePool.toLocaleString("he-IL")} פרסים</p>
+                            <p className="text-slate-500 text-xs mt-1.5 break-words">{t.participants} משתתפים</p>
                           </>
                         )}
-                        {isLocked && !countdown && <span className="text-slate-500 text-xs">🔒</span>}
+                        {isLocked && !countdown && <span className="text-slate-500 text-xs mt-1">🔒</span>}
                       </button>
                       </div>
                     );
                   })}
                 </div>
-              </div>
-            )}
-            {byType.footballCustom && byType.footballCustom.length > 0 && (
-              <div>
-                <h3 className="text-xl font-bold text-white mb-4 text-center">תחרות כדורגל</h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                  {byType.footballCustom.map((t, i) => {
+                {(byType.chance ?? []).length === 0 && <p className="text-slate-500 text-sm text-center py-4">אין תחרויות</p>}
+            </div>
+            {/* טור 4: תחרות כדורגל */}
+            <div className="min-w-0 flex flex-col">
+                <h3 className="text-xl font-bold text-white mb-4 text-center break-words">תחרות כדורגל</h3>
+                <div className="flex flex-col gap-4 min-w-0">
+                  {(byType.footballCustom ?? []).map((t, i) => {
                     const styles = getTournamentStyles(t.amount);
                     const isLocked = t.status === "LOCKED" || t.isLocked;
                     const removalAt = (t as { removalScheduledAt?: string | Date | null }).removalScheduledAt;
                     const countdown = isLocked && removalAt ? formatRemaining(removalAt) : null;
                     const showHide = canShowHide(t.status);
                     return (
-                      <div key={t.id} className="relative group">
+                      <div key={t.id} className="relative group min-w-0">
                         {showHide && (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -360,20 +359,20 @@ export default function Home() {
                           type="button"
                           disabled={isLocked}
                           onClick={() => !isLocked && setLocation(`/predict/${t.id}`)}
-                          className={`card-sport bg-slate-800/60 border-slate-600/50 p-5 text-center ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40"} animate-slide-up w-full`}
+                          className={`card-sport bg-slate-800/60 border-slate-600/50 px-4 py-5 text-center min-w-0 min-h-[140px] flex flex-col items-center justify-center ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40"} animate-slide-up w-full`}
                           style={{ animationDelay: `${i * 0.05}s` }}
                         >
-                        <Trophy className={`w-8 h-8 mx-auto mb-2 ${styles.icon}`} />
-                        <p className="text-white font-bold text-lg">{t.name}</p>
+                        <Trophy className={`w-8 h-8 mx-auto mb-2 shrink-0 ${styles.icon}`} />
+                        <p className="text-white font-bold text-lg break-words min-w-0 leading-tight">{t.name}</p>
                         {isLocked && countdown != null ? (
                           <>
-                            <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1"><Lock className="w-4 h-4" /> התחרות ננעלה</p>
-                            <p className="text-red-300 font-black text-xl mt-1">נסגרת בעוד: {countdown}</p>
+                            <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1 break-words"><Lock className="w-4 h-4 shrink-0" /> התחרות ננעלה</p>
+                            <p className="text-red-300 font-black text-lg mt-1 break-words">נסגרת בעוד: {countdown}</p>
                           </>
                         ) : (
                           <>
-                            <p className="text-amber-400 font-black text-xl mt-1">₪{t.prizePool.toLocaleString("he-IL")} פרסים</p>
-                            <p className="text-slate-500 text-xs mt-2">{t.participants} משתתפים</p>
+                            <p className="text-amber-400 font-black text-lg mt-1.5 break-words leading-tight">₪{t.prizePool.toLocaleString("he-IL")} פרסים</p>
+                            <p className="text-slate-500 text-xs mt-1.5 break-words">{t.participants} משתתפים</p>
                           </>
                         )}
                       </button>
@@ -381,8 +380,8 @@ export default function Home() {
                     );
                   })}
                 </div>
-              </div>
-            )}
+                {(byType.footballCustom ?? []).length === 0 && <p className="text-slate-500 text-sm text-center py-4">אין תחרויות</p>}
+            </div>
           </div>
           </TooltipProvider>
         )}

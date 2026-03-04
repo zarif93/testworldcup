@@ -10,9 +10,20 @@ import {
 } from "./db";
 import { ENV } from "./_core/env";
 
-const JWT_SECRET = new TextEncoder().encode(
-  ENV.cookieSecret || (ENV.isProduction ? (() => { throw new Error("JWT_SECRET (or cookieSecret) must be set in production"); })() : "your-secret-key")
-);
+const getJwtSecret = (): Uint8Array => {
+  const raw = ENV.cookieSecret;
+  if (!raw) {
+    if (ENV.isProduction) {
+      console.warn(
+        "[auth] WARNING: JWT_SECRET is not set. Using a fallback. Set JWT_SECRET in .env or environment for production security!"
+      );
+    }
+    return new TextEncoder().encode("change-me-set-JWT_SECRET");
+  }
+  return new TextEncoder().encode(raw);
+};
+
+const JWT_SECRET = getJwtSecret();
 const JWT_EXPIRATION = 7 * 24 * 60 * 60; // 7 days in seconds
 
 /**
@@ -148,10 +159,12 @@ export async function loginUser(data: {
   username: string;
   password: string;
 }) {
+
   // Validation
   if (!data.username || !data.password) {
     throw new Error("Username and password are required");
   }
+
 
   // Get user
   const user = await getUserByUsername(data.username);
