@@ -7,10 +7,10 @@ import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 
-// Derive OAuth/Analytics URLs from PORT when not set (single source: .env PORT)
+// Derive OAuth/Analytics URLs: BASE_URL (domain) or http://localhost:PORT
 dotenv.config();
 const PORT = process.env.PORT || "3000";
-const BASE_URL = `http://localhost:${PORT}`;
+const BASE_URL = process.env.BASE_URL?.replace(/\/$/, "") || `http://localhost:${PORT}`;
 if (!process.env.VITE_OAUTH_SERVER_URL) process.env.VITE_OAUTH_SERVER_URL = BASE_URL;
 if (!process.env.OAUTH_SERVER_URL) process.env.OAUTH_SERVER_URL = BASE_URL;
 if (!process.env.VITE_ANALYTICS_ENDPOINT) process.env.VITE_ANALYTICS_ENDPOINT = `${BASE_URL}/umami`;

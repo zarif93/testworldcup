@@ -7,6 +7,7 @@ import { WORLD_CUP_2026_MATCHES } from "@shared/matchesData";
 const USE_SQLITE = !process.env.DATABASE_URL;
 
 let _db: Awaited<ReturnType<typeof initSqlite>> | Awaited<ReturnType<typeof initMysql>> | null = null;
+let _dbInitError: unknown = null;
 let _sqlite: import("better-sqlite3").Database | null = null;
 let _schema: (typeof import("../drizzle/schema-sqlite")) | (typeof import("../drizzle/schema")) | null = null;
 
@@ -381,10 +382,16 @@ export async function getDb() {
       console.log("[Database] Using MySQL");
     }
   } catch (error) {
+    _dbInitError = error;
     console.warn("[Database] Failed to connect:", error);
     _db = null;
   }
   return _db;
+}
+
+/** Returns the error that caused DB init to fail (if any). Use when getDb() returns null. */
+export function getDbInitError(): unknown {
+  return _dbInitError;
 }
 
 export async function upsertUser(user: {
@@ -472,7 +479,7 @@ export async function createUser(data: {
 }) {
   const { users } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.insert(users).values({
     username: data.username,
     email: data.email ?? null,
@@ -490,7 +497,7 @@ export async function createUser(data: {
 export async function updateUserRole(userId: number, role: "user" | "admin" | "agent") {
   const { users } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, userId));
 }
 
@@ -498,7 +505,7 @@ export async function updateUserRole(userId: number, role: "user" | "admin" | "a
 export async function updateUserPassword(userId: number, passwordHash: string): Promise<void> {
   const { users } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
 }
 
@@ -511,7 +518,7 @@ export async function createAdminUser(data: {
 }) {
   const { users } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const openId = `local-admin-${data.username}-${Date.now()}`;
   await db.insert(users).values({
     username: data.username,
@@ -555,7 +562,7 @@ export async function addUserPoints(
   if (amount <= 0) return;
   const { users, pointTransactions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const current = await getUserPoints(userId);
   const balanceAfter = current + amount;
   await db.update(users).set({ points: balanceAfter }).where(eq(users.id, userId));
@@ -582,7 +589,7 @@ export async function deductUserPoints(
   if (current < amount) return false;
   const { users, pointTransactions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const balanceAfter = current - amount;
   await db.update(users).set({ points: balanceAfter }).where(eq(users.id, userId));
   await db.insert(pointTransactions).values({
@@ -804,7 +811,7 @@ export async function getMyPlayersWithBalances(agentId: number) {
 export async function recordAdminDepositToAgent(agentId: number, amount: number, performedBy: number) {
   const { pointTransferLog } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.insert(pointTransferLog).values({
     fromUserId: null,
     toUserId: agentId,
@@ -1273,7 +1280,7 @@ export async function getPointsLogsForAdmin(opts?: {
 export async function deleteAllPointsLogsHistory(): Promise<void> {
   const { pointTransactions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.delete(pointTransactions);
 }
 
@@ -1349,7 +1356,7 @@ export async function fullResetForSuperAdmin(): Promise<{ keptAdminUsernames: st
 export async function distributePrizesForTournament(tournamentId: number): Promise<{ winnerCount: number; prizePerWinner: number; distributed: number; winnerIds: number[] }> {
   const { pointTransactions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const tournament = await getTournamentById(tournamentId);
   if (!tournament) throw new Error("תחרות לא נמצאה");
   const already = await db
@@ -1444,7 +1451,7 @@ const VIRTUAL_USER_OPENID = "system-virtual-auto-submissions";
 export async function getOrCreateVirtualUser(): Promise<number> {
   const { users } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const existing = await db.select().from(users).where(eq(users.openId, VIRTUAL_USER_OPENID)).limit(1);
   if (existing[0]) return existing[0].id;
   const uniq = `virtual_sys_${Date.now()}`;
@@ -1471,7 +1478,7 @@ export async function insertAutoSubmission(data: {
 }) {
   const { submissions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.insert(submissions).values({
     userId: data.userId,
     username: data.username,
@@ -1511,7 +1518,7 @@ export async function insertAdminAuditLog(data: {
 }) {
   const { adminAuditLog } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.insert(adminAuditLog).values({
     performedBy: data.performedBy,
     action: data.action,
@@ -1532,7 +1539,7 @@ export async function getAdminAuditLogs(limit = 100) {
 export async function createAdminUserBySuperAdmin(data: { username: string; passwordHash: string; name?: string }) {
   const { users } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const existing = await db.select().from(users).where(eq(users.username, data.username)).limit(1);
   if (existing.length > 0) throw new Error("שם המשתמש כבר תפוס");
   const openId = `local-admin-${data.username}-${Date.now()}`;
@@ -1553,7 +1560,7 @@ export async function deleteAdmin(adminId: number, performedBy: number) {
   if (adminId === performedBy) throw new Error("לא ניתן למחוק את עצמך");
   const { users } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const target = await getUserById(adminId);
   if (!target) throw new Error("משתמש לא נמצא");
   if (target.role !== "admin") throw new Error("רק מנהל ניתן למחוק מכאן");
@@ -1564,7 +1571,7 @@ export async function deleteAdmin(adminId: number, performedBy: number) {
 export async function updateAdmin(adminId: number, data: { passwordHash?: string; username?: string; name?: string }) {
   const { users } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const target = await getUserById(adminId);
   if (!target) throw new Error("משתמש לא נמצא");
   if (target.role !== "admin") throw new Error("רק מנהל ניתן לערוך");
@@ -1598,7 +1605,7 @@ export async function createAgent(data: {
 }) {
   const { users } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const openId = `local-agent-${data.username}-${Date.now()}`;
   await db.insert(users).values({
     username: data.username,
@@ -1638,7 +1645,7 @@ export async function recordAgentCommission(data: {
 }) {
   const { agentCommissions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.insert(agentCommissions).values(data);
 }
 
@@ -1835,7 +1842,7 @@ export async function setTournamentResultsFinalized(
 ): Promise<void> {
   const { tournaments } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const update: Record<string, unknown> = { resultsFinalizedAt: new Date(), status: "RESULTS_UPDATED" };
   if (snapshot) {
     (update as Record<string, number>).financialParticipantCount = snapshot.participantCount;
@@ -1865,7 +1872,7 @@ export async function insertFinancialRecord(data: {
 }): Promise<void> {
   const { financialRecords } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.insert(financialRecords).values({
     competitionId: data.competitionId,
     competitionName: data.competitionName,
@@ -1978,7 +1985,7 @@ export async function getFinancialSummary(opts?: { from?: Date; to?: Date }): Pr
 export async function deleteAllFinancialRecords(): Promise<void> {
   const { financialRecords } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.delete(financialRecords);
 }
 
@@ -2133,7 +2140,7 @@ export async function getTransparencyLog(opts: GetTransparencyLogOpts = {}): Pro
 export async function deleteAllTransparencyLog(): Promise<void> {
   const { financialTransparencyLog } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.delete(financialTransparencyLog);
 }
 
@@ -2157,7 +2164,7 @@ export async function getTournamentsToCleanup(): Promise<Array<{ id: number }>> 
 export async function cleanupTournamentData(tournamentId: number): Promise<void> {
   const { tournaments } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const now = new Date();
   await db.update(tournaments).set({
     status: "ARCHIVED",
@@ -2210,7 +2217,7 @@ export async function getMatchById(id: number) {
 export async function updateMatchResult(id: number, homeScore: number, awayScore: number) {
   const { matches } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.update(matches).set({
     homeScore,
     awayScore,
@@ -2234,7 +2241,7 @@ export async function updateMatchDetails(
 ) {
   const { matches } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (data.homeTeam != null) set.homeTeam = data.homeTeam;
   if (data.awayTeam != null) set.awayTeam = data.awayTeam;
@@ -2265,7 +2272,7 @@ export async function createSubmission(data: {
 }) {
   const { submissions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.insert(submissions).values({
     userId: data.userId,
     username: data.username,
@@ -2287,7 +2294,7 @@ export async function upsertSubmission(data: {
 }): Promise<number> {
   const existing = await getSubmissionByUserAndTournament(data.userId, data.tournamentId);
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const { submissions } = await getSchema();
   const status = data.status ?? "pending";
   const paymentStatus = data.paymentStatus ?? "pending";
@@ -2360,7 +2367,7 @@ export async function updateSubmissionStatus(
 ) {
   const { submissions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const update: Record<string, unknown> = { status, updatedAt: new Date() };
   if (status === "approved") {
     update.approvedAt = new Date();
@@ -2372,21 +2379,21 @@ export async function updateSubmissionStatus(
 export async function updateSubmissionPayment(id: number, paymentStatus: "pending" | "completed" | "failed") {
   const { submissions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.update(submissions).set({ paymentStatus, updatedAt: new Date() }).where(eq(submissions.id, id));
 }
 
 export async function updateSubmissionPoints(id: number, points: number) {
   const { submissions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.update(submissions).set({ points, updatedAt: new Date() }).where(eq(submissions.id, id));
 }
 
 export async function updateSubmissionLottoResult(id: number, points: number, strongHit: boolean) {
   const { submissions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.update(submissions).set({
     points,
     strongHit: strongHit ? true : false,
@@ -2397,7 +2404,7 @@ export async function updateSubmissionLottoResult(id: number, points: number, st
 export async function deleteSubmission(id: number) {
   const { submissions, agentCommissions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.delete(agentCommissions).where(eq(agentCommissions.submissionId, id));
   await db.delete(submissions).where(eq(submissions.id, id));
 }
@@ -2406,7 +2413,7 @@ export async function deleteSubmission(id: number) {
 export async function deleteAllSubmissions(): Promise<number> {
   const { submissions, agentCommissions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const all = await db.select({ id: submissions.id }).from(submissions);
   const ids = all.map((r) => r.id);
   if (ids.length > 0) {
@@ -2420,7 +2427,7 @@ export async function deleteAllSubmissions(): Promise<number> {
 export async function deleteUser(id: number) {
   const { users } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const user = await getUserById(id);
   if (!user) throw new Error("User not found");
   if (user.role === "admin") throw new Error("Cannot delete admin");
@@ -2440,7 +2447,7 @@ export async function deleteUser(id: number) {
 export async function setUserBlocked(userId: number, isBlocked: boolean) {
   const { users } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const user = await getUserById(userId);
   if (!user) throw new Error("User not found");
   if (user.role === "admin") throw new Error("Cannot block admin");
@@ -2497,7 +2504,7 @@ export async function getUsersList(opts?: { role?: "user" | "admin" | "agent"; i
 export async function setTournamentLocked(tournamentId: number, isLocked: boolean) {
   const { tournaments } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const rows = await db.select({ status: tournaments.status, removalScheduledAt: tournaments.removalScheduledAt }).from(tournaments).where(eq(tournaments.id, tournamentId)).limit(1);
   const row = rows[0] as { status?: string; removalScheduledAt?: Date | null } | undefined;
   const status = row?.status;
@@ -2564,7 +2571,7 @@ export async function createTournament(data: {
 }) {
   const { tournaments } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const typeVal = data.type ?? "football";
   const customId = data.customIdentifier?.trim() || null;
   if (customId) {
@@ -2627,7 +2634,7 @@ export async function refundTournamentParticipants(tournamentId: number): Promis
 export async function deleteTournament(id: number): Promise<{ refundedCount: number; totalRefunded: number; refundedUserIds: number[]; amountPerUser: number }> {
   const { tournaments, submissions, agentCommissions, customFootballMatches, financialRecords } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const tournament = await getTournamentById(id);
   if (!tournament) return { refundedCount: 0, totalRefunded: 0, refundedUserIds: [], amountPerUser: 0 };
 
@@ -2866,7 +2873,7 @@ export async function getSiteSettings(): Promise<Record<string, string>> {
 export async function setSiteSetting(key: string, value: string) {
   const { siteSettings } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const existing = await db.select().from(siteSettings).where(eq(siteSettings.key, key)).limit(1);
   if (existing.length) {
     await db.update(siteSettings).set({ value, updatedAt: new Date() }).where(eq(siteSettings.key, key));
@@ -2927,7 +2934,7 @@ export async function setChanceDrawResult(
 ) {
   const { chanceDrawResults, submissions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const existing = await db.select().from(chanceDrawResults).where(eq(chanceDrawResults.tournamentId, tournamentId)).limit(1);
   if (existing.length && existing[0].locked) {
     throw new Error("לא ניתן לעדכן – תוצאות ההגרלה נעולות");
@@ -2965,7 +2972,7 @@ export async function setChanceDrawResult(
 export async function lockChanceDrawResult(tournamentId: number) {
   const { chanceDrawResults } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.update(chanceDrawResults).set({ locked: true, updatedAt: new Date() }).where(eq(chanceDrawResults.tournamentId, tournamentId));
 }
 
@@ -3032,7 +3039,7 @@ export async function setLottoDrawResult(
 ) {
   const { lottoDrawResults, submissions } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const existing = await db.select().from(lottoDrawResults).where(eq(lottoDrawResults.tournamentId, tournamentId)).limit(1);
   if (existing.length && existing[0].locked) {
     throw new Error("לא ניתן לעדכן – תוצאות ההגרלה נעולות");
@@ -3075,7 +3082,7 @@ export async function setLottoDrawResult(
 export async function lockLottoDrawResult(tournamentId: number) {
   const { lottoDrawResults } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.update(lottoDrawResults).set({ locked: true, updatedAt: new Date() }).where(eq(lottoDrawResults.tournamentId, tournamentId));
 }
 
@@ -3175,7 +3182,7 @@ export async function addCustomFootballMatch(data: {
 }) {
   const { customFootballMatches } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.insert(customFootballMatches).values({
     tournamentId: data.tournamentId,
     homeTeam: data.homeTeam.trim(),
@@ -3189,14 +3196,14 @@ export async function addCustomFootballMatch(data: {
 export async function updateCustomFootballMatchResult(matchId: number, homeScore: number, awayScore: number) {
   const { customFootballMatches } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.update(customFootballMatches).set({ homeScore, awayScore, updatedAt: new Date() }).where(eq(customFootballMatches.id, matchId));
 }
 
 export async function updateCustomFootballMatch(matchId: number, data: { homeTeam?: string; awayTeam?: string; matchDate?: string | null; matchTime?: string | null }) {
   const { customFootballMatches } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (data.homeTeam !== undefined) set.homeTeam = data.homeTeam.trim();
   if (data.awayTeam !== undefined) set.awayTeam = data.awayTeam.trim();
@@ -3208,7 +3215,7 @@ export async function updateCustomFootballMatch(matchId: number, data: { homeTea
 export async function deleteCustomFootballMatch(matchId: number) {
   const { customFootballMatches } = await getSchema();
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   await db.delete(customFootballMatches).where(eq(customFootballMatches.id, matchId));
 }
 

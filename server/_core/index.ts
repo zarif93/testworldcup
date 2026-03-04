@@ -17,7 +17,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { initPointsSocket } from "./pointsSocket";
 import { serveStatic, setupVite } from "./vite";
-import { getDb, getTournamentsToCleanup, cleanupTournamentData, runLockedTournamentsRemoval } from "../db";
+import { getDb, getTournamentsToCleanup, cleanupTournamentData, runLockedTournamentsRemoval, getDbInitError } from "../db";
 import { logger } from "./logger";
 
 const apiLimiter = rateLimit({
@@ -74,9 +74,14 @@ function getLocalNetworkIP(): string | null {
 }
 
 async function startServer() {
-  await getDb().catch((err) => {
-    logger.error("Database init failed", { error: String(err) });
-  });
+  const db = await getDb();
+  if (!db) {
+    const err = getDbInitError();
+    logger.error("Database not available. Server will start but API will fail.", {
+      error: err != null ? String(err) : "Unknown",
+      hint: "Check: SQLite needs write access to ./data (or set DATABASE_URL for MySQL).",
+    });
+  }
 
   const app = express();
   const server = createServer(app);

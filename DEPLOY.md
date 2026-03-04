@@ -1,5 +1,56 @@
 # פריסה ל-Production (Ubuntu / Docker)
 
+## איך מוסיפים שרת חדש (תוך דקות)
+
+1. **שרת** – VPS עם Ubuntu 24.04 (למשל DigitalOcean, Hetzner, AWS). התחבר ב-SSH:
+   ```bash
+   ssh root@הכתובת-של-השרת
+   ```
+
+2. **העלאת הקוד** – או עם Git:
+   ```bash
+   sudo apt update && sudo apt install -y git
+   cd /var/www
+   sudo mkdir -p worldcup2026 && sudo chown $USER worldcup2026
+   git clone https://github.com/zarif93/testworldcup.git worldcup2026
+   cd worldcup2026
+   ```
+   או העלה את התיקייה (ZIP/SFTP) ל־`/var/www/worldcup2026`.
+
+3. **קובץ סביבה** – צור `.env.production` מהתבנית והגדר לפחות `JWT_SECRET`:
+   ```bash
+   cp .env.production.example .env.production
+   nano .env.production
+   ```
+   בתוך הקובץ: מחק את הערך ליד `JWT_SECRET=` והדבק מחרוזת אקראית ארוכה (למשל מהפקודה: `openssl rand -base64 32`). אופציונלי: `BASE_URL=https://הדומיין-שלך.com`, `PORT=3000`.
+
+4. **הרצת פריסה** – מהתיקייה של הפרויקט:
+   ```bash
+   chmod +x deploy.sh
+   ./deploy.sh
+   ```
+   הסקריפט מתקין Node, תלויות, בונה, ומפעיל עם PM2.
+
+5. **Nginx (כדי שהאתר יעלה על פורט 80 בלי :3000)**:
+   ```bash
+   sudo cp deployment/nginx-worldcup2026.conf /etc/nginx/sites-available/worldcup2026
+   sudo nano /etc/nginx/sites-available/worldcup2026
+   ```
+   החלף `YOUR_DOMAIN_OR_IP` בכתובת השרת או בדומיין שלך. אחר כך:
+   ```bash
+   sudo ln -sf /etc/nginx/sites-available/worldcup2026 /etc/nginx/sites-enabled/
+   sudo rm -f /etc/nginx/sites-enabled/default
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+
+6. **גישה** – האתר זמין ב־`http://כתובת-השרת` או `http://הדומיין-שלך.com`. מנהל ראשון: על השרת הרץ:
+   ```bash
+   cd /var/www/worldcup2026
+   CREATE_ADMIN_PASSWORD="סיסמה-חזקה" npx tsx scripts/create-admin.ts
+   ```
+
+---
+
 ## Ubuntu 24.04 עם PM2 + Nginx (מומלץ)
 
 להרצה על Ubuntu 24.04 LTS x64 עם Node, PM2 ו-Nginx:
