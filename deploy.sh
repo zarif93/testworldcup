@@ -45,5 +45,5 @@ echo "=== Restarting Nginx ==="
 sudo systemctl restart nginx 2>/dev/null || true
 
 echo "=== Done ==="
-echo "App (direct): http://localhost:3000"
+echo "App (direct): http://localhost"
 echo "To enable Nginx reverse proxy: copy deployment/nginx-worldcup2026.conf to /etc/nginx/sites-available/ and enable the site."
