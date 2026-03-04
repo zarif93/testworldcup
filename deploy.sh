@@ -8,13 +8,15 @@ set -e
 
 echo "=== Updating system packages ==="
 sudo apt update
-sudo apt install -y nodejs npm nginx
+sudo apt install -y nodejs npm nginx build-essential python3
 
 echo "=== Installing dependencies ==="
 if command -v pnpm >/dev/null 2>&1; then
   pnpm install
+  pnpm rebuild better-sqlite3 2>/dev/null || true
 else
   npm install
+  npm rebuild better-sqlite3 2>/dev/null || true
 fi
 
 echo "=== Building application (client + server) ==="
