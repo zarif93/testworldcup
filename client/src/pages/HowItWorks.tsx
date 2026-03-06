@@ -85,7 +85,7 @@ export default function HowItWorks() {
   const [, setLocation] = useLocation();
 
   return (
-    <div className="min-h-screen py-8">
+    <div className="min-h-screen py-4 sm:py-8 overflow-x-hidden max-w-full">
       <div className="container mx-auto px-4 max-w-3xl">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
           <div>
@@ -102,7 +102,7 @@ export default function HowItWorks() {
             onClick={() => setLocation("/tournaments")}
             className="border-slate-600 rounded-xl hover:bg-slate-700/50"
           >
-            לטורנירים
+            לתחרויות
           </Button>
         </div>
 
@@ -194,12 +194,12 @@ export default function HowItWorks() {
             <Sparkles className="w-8 h-8 text-amber-400" />
             בהצלחה בתחרויות!
           </p>
-          <div className="flex flex-wrap justify-center gap-3 mt-4">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap justify-center gap-3 mt-4">
             <Button
               onClick={() => setLocation("/tournaments")}
               className="rounded-xl bg-emerald-600 hover:bg-emerald-700"
             >
-              מעבר לטורנירים
+              מעבר לתחרויות
             </Button>
             <Button
               variant="outline"

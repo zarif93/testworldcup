@@ -141,18 +141,29 @@ export default function PredictionForm() {
 
   const drawDate = tournament ? (tournament as { drawDate?: string | null }).drawDate : null;
   const drawTime = tournament ? (tournament as { drawTime?: string | null }).drawTime : null;
+  const closesAt = tournament ? (tournament as { closesAt?: Date | number | null }).closesAt : null;
   const { data: serverTimeData } = trpc.system.getServerTime.useQuery(undefined, {
-    enabled: isChance && !!drawDate && !!drawTime && validId > 0,
+    enabled: (isChance && !!drawDate && !!drawTime && validId > 0) || (isLotto && validId > 0),
     refetchInterval: 1000,
   });
-  const closeAtMs = isChance && drawDate && drawTime
-    ? new Date(drawDate.trim() + "T" + drawTime.trim() + ":00+02:00").getTime()
-    : 0;
+  const closeAtMs = (() => {
+    if (isChance && drawDate && drawTime) return new Date(drawDate.trim() + "T" + drawTime.trim() + ":00+02:00").getTime();
+    if (isLotto && closesAt != null) return typeof closesAt === "number" ? closesAt : new Date(closesAt).getTime();
+    return 0;
+  })();
   const nowMs = serverTimeData?.now ? new Date(serverTimeData.now).getTime() : Date.now();
   const countdownMs = closeAtMs > 0 ? Math.max(0, closeAtMs - nowMs) : 0;
   const chanceDrawClosedForUI = isChance && closeAtMs > 0 && countdownMs <= 0;
+  const lottoDrawClosedForUI = isLotto && (closeAtMs > 0 ? countdownMs <= 0 : (tournament as { status?: string })?.status !== "OPEN");
   const chanceCountdownDisplay = (() => {
     if (!isChance || countdownMs <= 0) return null;
+    const s = Math.floor(countdownMs / 1000) % 60;
+    const m = Math.floor(countdownMs / 60000) % 60;
+    const h = Math.floor(countdownMs / 3600000);
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  })();
+  const lottoCountdownDisplay = (() => {
+    if (!isLotto || countdownMs <= 0) return null;
     const s = Math.floor(countdownMs / 1000) % 60;
     const m = Math.floor(countdownMs / 60000) % 60;
     const h = Math.floor(countdownMs / 3600000);
@@ -300,7 +311,7 @@ export default function PredictionForm() {
     return (
       <div className="min-h-screen flex items-center justify-center flex-col gap-4">
         <p className="text-slate-400">טורניר לא נמצא</p>
-        <Button variant="outline" onClick={() => setLocation("/tournaments")} className="rounded-xl">חזרה לטורנירים</Button>
+        <Button variant="outline" onClick={() => setLocation("/tournaments")} className="rounded-xl">חזרה לתחרויות</Button>
       </div>
     );
   }
@@ -308,7 +319,7 @@ export default function PredictionForm() {
     return (
       <div className="min-h-screen flex items-center justify-center flex-col gap-4">
         <p className="text-slate-400">שגיאה בטעינת הטורניר. ייתכן שהטורניר לא קיים.</p>
-        <Button variant="outline" onClick={() => setLocation("/tournaments")} className="rounded-xl">חזרה לטורנירים</Button>
+        <Button variant="outline" onClick={() => setLocation("/tournaments")} className="rounded-xl">חזרה לתחרויות</Button>
       </div>
     );
   }
@@ -324,7 +335,7 @@ export default function PredictionForm() {
     return (
       <div className="min-h-screen flex items-center justify-center flex-col gap-4">
         <p className="text-slate-400">טורניר לא נמצא</p>
-        <Button variant="outline" onClick={() => setLocation("/tournaments")} className="rounded-xl">חזרה לטורנירים</Button>
+        <Button variant="outline" onClick={() => setLocation("/tournaments")} className="rounded-xl">חזרה לתחרויות</Button>
       </div>
     );
   }
@@ -532,37 +543,39 @@ export default function PredictionForm() {
     user?.role === "admin" || (typeof user?.points === "number" && user.points >= entryCost);
 
   return (
-    <div className="min-h-screen py-8">
-      <div className="container mx-auto px-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-          <h1 className="text-2xl md:text-3xl font-bold text-white flex items-center gap-2">
-            <Trophy className={`w-8 h-8 ${styles.icon}`} />
+    <div className="min-h-screen py-4 sm:py-8 overflow-x-hidden max-w-full">
+      <div className="container mx-auto px-3 sm:px-4 min-w-0">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 sm:mb-6">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-white flex items-center gap-2 break-words min-w-0 max-w-full">
+            <Trophy className={`w-7 h-7 sm:w-8 sm:h-8 shrink-0 ${styles.icon}`} />
             {isChance && drawDate && drawTime
               ? `צ'אנס – ${new Date(drawDate + "T12:00:00").toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" })} – ${drawTime}`
-              : `${tournament.name} – טופס ניחושים`}
+              : isLotto && (drawDate || closesAt)
+                ? `לוטו – ${drawDate && drawTime ? new Date(drawDate + "T" + drawTime).toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" }) + " " + drawTime : "הגרלה"}`
+                : `${tournament.name} – טופס ניחושים`}
           </h1>
           <Button
             variant="outline"
             onClick={() => setLocation("/tournaments")}
-            className="border-slate-600 rounded-xl hover:bg-slate-700/50"
+            className="border-slate-600 rounded-xl hover:bg-slate-700/50 min-h-[44px] shrink-0"
           >
-            חזרה לטורנירים
+            חזרה לתחרויות
           </Button>
         </div>
 
         {tournament.isLocked && (
-          <div className="bg-amber-500/20 border border-amber-500/50 rounded-xl p-4 mb-6 text-amber-200 flex items-center gap-2">
+          <div className="bg-amber-500/20 border border-amber-500/50 rounded-xl p-4 mb-6 text-amber-200 flex items-center gap-2 break-words min-w-0">
             🔒 הטורניר נעול – לא ניתן לשלוח ניחושים. הניחושים ששלחת סופיים ולא ניתנים לעריכה.
           </div>
         )}
 
         {isEditMode && (
-          <div className="bg-emerald-500/20 border border-emerald-500/50 rounded-xl p-4 mb-6 text-emerald-200 flex items-center gap-2">
+          <div className="bg-emerald-500/20 border border-emerald-500/50 rounded-xl p-4 mb-6 text-emerald-200 flex items-center gap-2 break-words min-w-0">
             ✏️ מצב עריכה – עדכון הטופס לא יחייב חיוב נוסף.
           </div>
         )}
         {isDuplicateMode && (
-          <div className="bg-amber-500/20 border border-amber-500/50 rounded-xl p-4 mb-6 text-amber-200 flex items-center gap-2">
+          <div className="bg-amber-500/20 border border-amber-500/50 rounded-xl p-4 mb-6 text-amber-200 flex items-center gap-2 break-words min-w-0">
             📋 מצב שכפול – שליחה תיצור טופס חדש ותחייב {entryCost} נקודות.
           </div>
         )}
@@ -583,6 +596,22 @@ export default function PredictionForm() {
           </div>
         )}
 
+        {isLotto && (closesAt != null || (drawDate && drawTime)) && (
+          <div className="mb-6 rounded-xl p-4 border border-slate-600 bg-slate-800/60 text-center">
+            {lottoDrawClosedForUI ? (
+              <p className="text-amber-300 font-medium">✔ ההגרלה נסגרה – לא ניתן לשלוח או לערוך טפסים</p>
+            ) : lottoCountdownDisplay != null ? (
+              <>
+                <p className="text-slate-400 text-sm mb-1">⏳ זמן נותר עד סגירת ההגרלה</p>
+                <p className="text-2xl font-mono font-bold text-white tabular-nums">{lottoCountdownDisplay}</p>
+                {countdownMs > 0 && countdownMs <= 10 * 60 * 1000 && (
+                  <p className="text-amber-400 text-sm mt-2">🔥 נסגרת בקרוב!</p>
+                )}
+              </>
+            ) : null}
+          </div>
+        )}
+
         {isChance ? (
           <div className="max-w-xl mx-auto space-y-4">
             <p className="text-slate-400 text-center mb-6">
@@ -591,7 +620,7 @@ export default function PredictionForm() {
             {SUITS.map(({ key, label, color }) => (
               <Card key={key} className="card-sport bg-slate-800/60 border-slate-600/50">
                 <CardContent className="py-4">
-                  <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-4">
                     <span className={`font-bold text-lg ${color}`}>{label}</span>
                     <select
                       className="bg-slate-800 text-white border border-slate-600 rounded-lg px-4 py-2 text-lg font-medium disabled:opacity-70 disabled:cursor-not-allowed"
@@ -623,9 +652,9 @@ export default function PredictionForm() {
                     <button
                       key={n}
                       type="button"
-                      disabled={tournament.isLocked}
+                      disabled={tournament.isLocked || lottoDrawClosedForUI}
                       onClick={() => {
-                        if (tournament.isLocked) return;
+                        if (tournament.isLocked || lottoDrawClosedForUI) return;
                         if (selected) {
                           setLottoNumbers((prev) => prev.filter((x) => x !== n));
                         } else if (lottoNumbers.length < 6) {
@@ -646,13 +675,13 @@ export default function PredictionForm() {
             </div>
             <div>
               <p className="text-amber-400 font-medium mb-2">שלב 2 – מספר חזק (1–7)</p>
-              <div className="flex gap-2 flex-wrap">
+              <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">
                 {[1, 2, 3, 4, 5, 6, 7].map((n) => (
                   <button
                     key={n}
                     type="button"
-                    disabled={tournament.isLocked}
-                    onClick={() => !tournament.isLocked && setLottoStrong((prev) => (prev === n ? null : n))}
+                    disabled={tournament.isLocked || lottoDrawClosedForUI}
+                    onClick={() => !(tournament.isLocked || lottoDrawClosedForUI) && setLottoStrong((prev) => (prev === n ? null : n))}
                     className={`w-12 h-12 rounded-lg font-bold transition-all ${
                       lottoStrong === n
                         ? "bg-emerald-500 text-white ring-2 ring-emerald-400"
@@ -669,19 +698,19 @@ export default function PredictionForm() {
         isLoadingMatches ? (
           <Loader2 className="w-12 h-12 animate-spin text-amber-500 mx-auto block" />
         ) : (
-          <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-2">
+          <div className="space-y-3 max-h-[65vh] overflow-y-auto overflow-x-hidden pr-2 min-w-0">
             {matchesList.map((m, idx) => (
               <Card
                 key={m.id}
-                className="card-sport bg-slate-800/60 border-slate-600/50 hover:border-slate-500/60 transition-colors"
+                className="card-sport bg-slate-800/60 border-slate-600/50 hover:border-slate-500/60 transition-colors min-w-0 max-w-full overflow-x-hidden"
               >
                 <CardContent className="py-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 overflow-hidden">
                       <span className="text-amber-400 text-sm font-mono font-bold mr-2">#{("matchNumber" in m ? m.matchNumber : idx + 1)}</span>
-                      <span className="text-white font-medium">{m.homeTeam}</span>
+                      <span className="text-white font-medium break-words">{m.homeTeam}</span>
                       <span className="text-slate-500 mx-2 font-medium">vs</span>
-                      <span className="text-white font-medium">{m.awayTeam}</span>
+                      <span className="text-white font-medium break-words">{m.awayTeam}</span>
                       {((m as { matchDate?: string; matchTime?: string }).matchDate || (m as { matchTime?: string }).matchTime) && (
                         <span className="text-slate-500 text-sm mr-2 block sm:inline mt-1 sm:mt-0">
                           {[(m as { matchDate?: string }).matchDate, (m as { matchTime?: string }).matchTime].filter(Boolean).join(" • ")}
@@ -701,12 +730,12 @@ export default function PredictionForm() {
         )
         )}
 
-        <div className="mt-8 flex justify-center">
+        <div className="mt-6 sm:mt-8 flex justify-center">
           <Button
             size="lg"
-            disabled={!allFilled || tournament.isLocked || (isChance && chanceDrawClosedForUI) || submitMutation.isPending || updateMutation.isPending}
+            disabled={!allFilled || tournament.isLocked || (isChance && chanceDrawClosedForUI) || (isLotto && lottoDrawClosedForUI) || submitMutation.isPending || updateMutation.isPending}
             onClick={handleSubmit}
-            className={`rounded-xl shadow-lg btn-sport text-lg px-10 ${styles.button}`}
+            className={`rounded-xl shadow-lg btn-sport text-base sm:text-lg px-6 sm:px-10 min-h-[48px] w-full max-w-md touch-target ${styles.button}`}
           >
             {submitMutation.isPending || updateMutation.isPending ? (
               <Loader2 className="w-5 h-5 animate-spin ml-2" />

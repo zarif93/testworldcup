@@ -13,6 +13,7 @@ import { WorldCupBackground } from "@/components/WorldCupBackground";
 
 import { AdminNewSubmissionNotifier } from "./components/AdminNewSubmissionNotifier";
 import { PointsSocketSync } from "./components/PointsSocketSync";
+import { MobileBottomNav } from "./components/MobileBottomNav";
 
 const Home = lazy(() => import("./pages/Home"));
 const Login = lazy(() => import("./pages/Login"));
@@ -86,8 +87,7 @@ function NavLinks({
         ? String(user.points)
         : "0";
 const WHATSAPP_NUMBER = "972538099212";
-  const whatsappDefaultText = "שלום\nאפשר לקבל עוד פרטים על האתר";
-  const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(whatsappDefaultText)}`;
+  const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}`;
 
   return (
     <>
@@ -122,8 +122,8 @@ const WHATSAPP_NUMBER = "972538099212";
           <span aria-hidden>💎</span>
         </button>
       )}
-      <button onClick={() => go("/tournaments")} className="text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0 truncate">
-        טורנירים
+      <button onClick={() => go("/tournaments")} className="text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0 truncate" aria-label="תחרויות">
+        תחרויות
       </button>
       {user ? (
         <>
@@ -254,34 +254,49 @@ function Layout({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="min-h-screen relative">
+    <div className="min-h-screen relative overflow-x-hidden max-w-[100vw]">
       <WorldCupBackground />
       {user?.role === "admin" && <AdminNewSubmissionNotifier />}
       <PointsSocketSync />
-      <div className="relative z-10 min-h-screen flex flex-col">
-      <header className="sticky top-0 z-50 border-b border-slate-700/50 bg-slate-950/90 backdrop-blur-md shadow-lg shadow-black/20 min-w-0 overflow-hidden">
-        <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-2 min-w-0">
+      <div className="relative z-10 min-h-screen flex flex-col min-w-0 max-w-full overflow-x-hidden">
+      <header className="sticky top-0 z-50 border-b border-slate-700/50 bg-slate-950/95 backdrop-blur-md shadow-sm min-w-0 overflow-hidden md:min-h-0">
+        <div className="container mx-auto px-3 py-2 md:px-4 md:py-3 flex items-center justify-between gap-2 min-w-0 h-[var(--header-height-mobile)] md:h-auto">
           <button
             onClick={() => setLocation("/")}
-            className="flex items-center gap-2 text-white font-bold text-lg hover:text-emerald-400 transition-colors min-w-0 shrink-0"
+            className="flex items-center gap-2 text-white font-bold text-sm md:text-lg hover:text-emerald-400 transition-colors min-w-0 shrink-0 touch-target min-h-[44px] active:opacity-90"
           >
-            <Trophy className="w-7 h-7 text-amber-400 drop-shadow-sm shrink-0" />
-            <span className="tracking-tight truncate max-w-[180px] sm:max-w-none">ניחושי מונדיאל 2026</span>
+            <Trophy className="w-5 h-5 md:w-7 md:h-7 text-amber-400 drop-shadow-sm shrink-0" />
+            <span className="tracking-tight truncate text-right sm:max-w-[180px] md:max-w-none">
+              <span className="sm:hidden">מונדיאל 2026</span>
+              <span className="hidden sm:inline">ניחושי מונדיאל 2026</span>
+            </span>
           </button>
           <nav className="hidden md:flex items-center gap-4 md:gap-6 min-w-0 flex-1 justify-end flex-wrap">
+            {user && (
+              <span className="flex items-center gap-1.5 text-slate-300 text-sm font-medium tabular-nums shrink-0" aria-label="יתרת נקודות">
+                <Gem className="w-4 h-4 text-amber-400/90 shrink-0" />
+                {user.role === "admin" ? "ללא הגבלה" : `${user.points ?? 0} נקודות`}
+              </span>
+            )}
             <ThemeToggle />
             <NavLinks setLocation={setLocation} user={user} logout={logout} onOpenTerms={() => setTermsOpen(true)} />
           </nav>
-          <div className="flex md:hidden">
-            <ThemeToggle className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition" />
+          <div className="flex md:hidden items-center gap-1.5 shrink-0">
+            {user && (
+              <span className="flex items-center gap-1 rounded-lg px-2 py-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-bold tabular-nums min-h-[36px] items-center" aria-label="יתרת נקודות">
+                <Gem className="w-3.5 h-3.5 shrink-0" />
+                {user.role === "admin" ? "∞" : `${user.points ?? 0}`}
+              </span>
+            )}
+            <ThemeToggle className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition shrink-0" />
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild>
-                <button className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition" aria-label="תפריט">
+                <button className="p-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition touch-target min-h-[44px] min-w-[44px] flex items-center justify-center active:opacity-80" aria-label="תפריט">
                   <Menu className="w-6 h-6" />
                 </button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-72 bg-slate-900 border-slate-700 text-white">
-                <div className="flex flex-col gap-4 pt-8">
+              <SheetContent side="left" className="w-[min(100vw-2rem,288px)] bg-slate-900 border-slate-700 text-white p-4 text-right" dir="rtl">
+                <div className="flex flex-col gap-2 pt-6">
                   <ThemeToggle />
                   <NavLinks setLocation={setLocation} user={user} logout={logout} onNavigate={() => setMobileOpen(false)} onOpenTerms={() => { setMobileOpen(false); setTermsOpen(true); }} />
                 </div>
@@ -298,16 +313,18 @@ function Layout({ children }: { children: React.ReactNode }) {
           {termsContent}
         </DialogContent>
       </Dialog>
-      <main className="flex-1">{children}</main>
-      {/* כפתור וואטסאפ צף – ימין למטה */}
+      <main className="flex-1 pb-safe-nav md:pb-0 min-w-0 w-full max-w-full overflow-x-hidden py-3 md:py-4 md:container md:mx-auto">{children}</main>
+      <MobileBottomNav isAdmin={user?.role === "admin"} isAgent={user?.role === "agent"} />
+      {/* כפתור וואטסאפ צף – מובייל בלבד, מעל הסרגל התחתון */}
       <a
-        href={`https://wa.me/972538099212?text=${encodeURIComponent("שלום\nאפשר לקבל עוד פרטים על האתר")}`}
+        href={`https://wa.me/972538099212`}
         target="_blank"
         rel="noopener noreferrer"
-        className="fixed bottom-6 right-6 z-40 flex items-center justify-center w-14 h-14 rounded-full bg-[#25D366] text-white shadow-lg shadow-black/30 hover:bg-[#20bd5a] hover:scale-110 transition-all duration-200"
+        className="md:hidden fixed z-[38] flex items-center justify-center w-11 h-11 rounded-full bg-[#25D366] text-white shadow-lg shadow-black/25 hover:bg-[#20bd5a] active:scale-95 transition-all duration-200"
+        style={{ bottom: "calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 10px)", right: "14px" }}
         aria-label="צור קשר בוואטסאפ"
       >
-        <MessageCircle className="w-8 h-8" strokeWidth={2} />
+        <MessageCircle className="w-5 h-5" strokeWidth={2.5} />
       </a>
       </div>
     </div>

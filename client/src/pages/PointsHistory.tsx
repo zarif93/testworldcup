@@ -57,7 +57,7 @@ export default function PointsHistory() {
   }
 
   return (
-    <div className="min-h-screen py-8">
+    <div className="min-h-screen py-4 sm:py-8 overflow-x-hidden max-w-full">
       <div className="container mx-auto px-4 max-w-2xl">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <h1 className="text-2xl md:text-3xl font-bold text-white flex items-center gap-2">
@@ -98,7 +98,7 @@ export default function PointsHistory() {
               <p className="text-slate-400 text-sm">רווח = זכיות והחזרים. הפסד = השתתפויות. ניתן לסנן לפי תאריכים וסוג תחרות.</p>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-2 items-center mb-4">
+              <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 items-stretch sm:items-center mb-4">
                 <select
                   value={tournamentType}
                   onChange={(e) => setTournamentType(e.target.value)}

@@ -29,6 +29,7 @@ import {
   ArrowLeft,
   TrendingUp,
   FileDown,
+  Menu,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import {
@@ -49,6 +50,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 type AdminSection = "dashboard" | "autoFill" | "submissions" | "competitions" | "agents" | "players" | "pnl" | "admins";
@@ -177,7 +179,7 @@ export default function AdminPanel() {
     { enabled: false }
   );
   const { data: agents, refetch: refetchAgents } = trpc.admin.getAgents.useQuery(undefined, {
-    enabled: (!!status?.verified || !status?.codeRequired) && (section === "agents" || section === "players"),
+    enabled: (!!status?.verified || !status?.codeRequired) && (section === "agents" || section === "players" || section === "dashboard"),
   });
   const { data: agentReports } = trpc.admin.getAgentReport.useQuery({}, {
     enabled: (!!status?.verified || !status?.codeRequired) && section === "agents",
@@ -251,13 +253,6 @@ export default function AdminPanel() {
   const resultMut = trpc.admin.updateMatchResult.useMutation();
   const updateMatchMut = trpc.admin.updateMatch.useMutation();
   const lockMut = trpc.admin.lockTournament.useMutation();
-  const restoreTournamentMut = trpc.admin.restoreTournamentToHomepage.useMutation({
-    onSuccess: () => {
-      utils.tournaments.getAll.invalidate();
-      toast.success("התחרות הוחזרה להצגה בדף הראשי");
-    },
-    onError: (e) => toast.error(e.message),
-  });
   const createTournamentMut = trpc.admin.createTournament.useMutation();
   const deleteTournamentMut = trpc.admin.deleteTournament.useMutation();
   const createAgentMut = trpc.admin.createAgent.useMutation();
@@ -374,6 +369,7 @@ export default function AdminPanel() {
   });
 
   const CHANCE_DRAW_TIMES = ["09:00", "11:00", "13:00", "15:00", "17:00", "19:00", "21:00"] as const;
+  const LOTTO_DRAW_TIMES = ["20:00", "22:30", "23:00", "23:30", "00:00"] as const;
 
   const filteredSubmissions = useMemo(() => {
     if (!submissions) return [];
@@ -663,6 +659,10 @@ export default function AdminPanel() {
       toast.error("בתחרות לוטו חובה להזין מזהה תחרות (לעדכון תוצאות בהמשך)");
       return;
     }
+    if (tournamentType === "lotto" && (!newTournament.drawDate?.trim() || !newTournament.drawTime?.trim())) {
+      toast.error("בתחרות לוטו חובה לבחור תאריך ושעת סגירת ההגרלה");
+      return;
+    }
     if (tournamentType === "chance" && (!newTournament.drawDate?.trim() || !newTournament.drawTime?.trim())) {
       toast.error("בתחרות צ'אנס חובה לבחור תאריך ושעת הגרלה");
       return;
@@ -687,8 +687,8 @@ export default function AdminPanel() {
         maxParticipants: newTournament.maxParticipants ? parseInt(newTournament.maxParticipants, 10) : null,
         prizeDistribution,
         drawCode: tournamentType === "lotto" ? newTournament.drawCode.trim() : undefined,
-        drawDate: tournamentType === "chance" ? newTournament.drawDate.trim() : undefined,
-        drawTime: tournamentType === "chance" ? newTournament.drawTime.trim() : undefined,
+        drawDate: tournamentType === "chance" || tournamentType === "lotto" ? newTournament.drawDate.trim() : undefined,
+        drawTime: tournamentType === "chance" || tournamentType === "lotto" ? newTournament.drawTime.trim() : undefined,
         customIdentifier: newTournament.customIdentifier?.trim() || undefined,
       });
       toast.success("תחרות נוצרה ויופיע בדף הראשי");
@@ -758,9 +758,71 @@ export default function AdminPanel() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-950 flex">
-      {/* Sidebar */}
-      <aside className="w-56 bg-slate-900 border-l border-slate-800 flex flex-col">
+    <div className="min-h-screen bg-slate-950 flex flex-col md:flex-row">
+      {/* Mobile: sticky header + nav sheet */}
+      <div className="md:hidden sticky top-0 z-40 flex items-center justify-between gap-2 px-4 py-3 bg-slate-900/95 border-b border-slate-800 backdrop-blur">
+        <Sheet>
+          <SheetTrigger asChild>
+            <Button variant="ghost" size="icon" className="text-slate-300 hover:text-white hover:bg-slate-800 shrink-0 min-h-[44px] min-w-[44px]">
+              <Menu className="w-6 h-6" aria-hidden />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="right" className="w-[min(100vw-2rem,280px)] bg-slate-900 border-slate-700 p-0">
+            <div className="p-4 border-b border-slate-800">
+              <h2 className="font-bold text-white flex items-center gap-2">
+                <Lock className="w-5 h-5 text-amber-400" />
+                ניהול
+              </h2>
+            </div>
+            <nav className="p-2 flex-1 overflow-auto">
+              {navItems.map((item) => {
+                const isSubmissions = item.id === "submissions";
+                const badge = isSubmissions && pendingSubmissionsCount > 0;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      if (item.id === "competitions") { setSection("competitions"); setCompetitionSubType(null); }
+                      else setSection(item.id);
+                    }}
+                    className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg text-right transition-colors min-h-[44px] ${
+                      section === item.id || (item.id === "competitions" && section === "competitions") ? "bg-amber-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      {item.icon}
+                      {item.label}
+                    </span>
+                    {badge && (
+                      <span className="flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-bold">
+                        {pendingSubmissionsCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+            <div className="p-2 border-t border-slate-800 space-y-1">
+              <Button variant="ghost" size="sm" className="w-full justify-start text-slate-400 min-h-[44px]" onClick={() => setLocation("/")}>
+                <Home className="w-4 h-4 ml-2" />
+                דף הבית
+              </Button>
+              <Button variant="ghost" size="sm" className="w-full justify-start text-slate-400 min-h-[44px]" onClick={() => logout()}>
+                <LogOut className="w-4 h-4 ml-2" />
+                יציאה
+              </Button>
+            </div>
+          </SheetContent>
+        </Sheet>
+        <h1 className="text-lg font-bold text-white truncate flex-1 text-center">
+          {section === "dashboard" ? "דשבורד ניהול" : navItems.find((i) => i.id === section)?.label ?? "ניהול"}
+        </h1>
+        <div className="w-10 shrink-0" aria-hidden />
+      </div>
+
+      {/* Sidebar – desktop only */}
+      <aside className="hidden md:flex w-56 flex-col bg-slate-900 border-l border-slate-800 shrink-0">
         <div className="p-4 border-b border-slate-800">
           <h2 className="font-bold text-white flex items-center gap-2">
             <Lock className="w-5 h-5 text-amber-400" />
@@ -809,72 +871,82 @@ export default function AdminPanel() {
       </aside>
 
       {/* Main */}
-      <main className="flex-1 overflow-auto p-6">
+      <main className="flex-1 overflow-auto min-w-0 flex flex-col">
+        <div className="p-4 md:p-6 space-y-6 max-w-full">
         {section === "dashboard" && (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-              <LayoutDashboard className="w-8 h-8 text-amber-400" />
+            <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2">
+              <LayoutDashboard className="w-6 h-6 md:w-8 md:h-8 text-amber-400 shrink-0" />
               דשבורד ניהול
             </h2>
-            {(balanceSummary != null) && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Card className="bg-slate-800/50 border-slate-700 border-amber-500/30">
-                  <CardContent className="pt-4">
-                    <p className="text-slate-500 text-sm">מאזן כללי כל השחקנים</p>
-                    <p className="text-2xl font-bold text-amber-400">{balanceSummary.totalPlayersBalance ?? 0} נקודות</p>
+
+            {/* סיכום עליון – מבט מהיר */}
+            <section className="space-y-3">
+              <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">סיכום מערכת</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                <Card className="bg-slate-800/60 border-slate-700/80 rounded-xl shadow-sm">
+                  <CardContent className="p-4">
+                    <p className="text-slate-400 text-xs md:text-sm">משתמשים</p>
+                    <p className="text-xl md:text-2xl font-bold text-white tabular-nums mt-0.5">{totalUsers}</p>
                   </CardContent>
                 </Card>
-                <Card className="bg-slate-800/50 border-slate-700 border-emerald-500/30">
-                  <CardContent className="pt-4">
-                    <p className="text-slate-500 text-sm">מאזן כללי כל הסוכנים</p>
-                    <p className="text-2xl font-bold text-emerald-400">{balanceSummary.totalAgentsBalance ?? 0} נקודות</p>
+                <Card className="bg-slate-800/60 border-slate-700/80 rounded-xl shadow-sm">
+                  <CardContent className="p-4">
+                    <p className="text-slate-400 text-xs md:text-sm">סוכנים</p>
+                    <p className="text-xl md:text-2xl font-bold text-white tabular-nums mt-0.5">{agents?.length ?? 0}</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-slate-800/60 border-slate-700/80 rounded-xl shadow-sm">
+                  <CardContent className="p-4">
+                    <p className="text-slate-400 text-xs md:text-sm">תחרויות פעילות</p>
+                    <p className="text-xl md:text-2xl font-bold text-emerald-400 tabular-nums mt-0.5">{activeTournamentsCount}</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-slate-800/60 border-slate-700/80 rounded-xl shadow-sm">
+                  <CardContent className="p-4">
+                    <p className="text-slate-400 text-xs md:text-sm">נקודות במערכת</p>
+                    <p className="text-xl md:text-2xl font-bold text-amber-400 tabular-nums mt-0.5">
+                      {(balanceSummary?.totalPlayersBalance ?? 0) + (balanceSummary?.totalAgentsBalance ?? 0)}
+                    </p>
                   </CardContent>
                 </Card>
               </div>
-            )}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card className="bg-slate-800/50 border-slate-700">
-                <CardContent className="pt-4">
-                  <p className="text-slate-500 text-sm">סה״כ משתמשים</p>
-                  <p className="text-2xl font-bold text-white">{totalUsers}</p>
-                </CardContent>
-              </Card>
-              <Card className="bg-slate-800/50 border-slate-700">
-                <CardContent className="pt-4">
-                  <p className="text-slate-500 text-sm">טפסים ממתינים</p>
-                  <p className="text-2xl font-bold text-amber-400">{pendingSubmissionsCount}</p>
-                </CardContent>
-              </Card>
-              <Card className="bg-slate-800/50 border-slate-700">
-                <CardContent className="pt-4">
-                  <p className="text-slate-500 text-sm">תחרויות פעילות</p>
-                  <p className="text-2xl font-bold text-emerald-400">{activeTournamentsCount}</p>
-                </CardContent>
-              </Card>
-              <Card className="bg-slate-800/50 border-slate-700">
-                <CardContent className="pt-4">
-                  <p className="text-slate-500 text-sm">סה״כ תחרויות</p>
-                  <p className="text-2xl font-bold text-slate-300">{(tournaments ?? []).length}</p>
-                </CardContent>
-              </Card>
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-white mb-3">רובריקות ניהול</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {balanceSummary != null && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Card className="bg-slate-800/50 border-slate-700 border-amber-500/20 rounded-xl">
+                    <CardContent className="p-3 md:p-4">
+                      <p className="text-slate-500 text-xs">מאזן שחקנים</p>
+                      <p className="text-lg font-bold text-amber-400 tabular-nums">{balanceSummary.totalPlayersBalance ?? 0} נקודות</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-slate-800/50 border-slate-700 border-emerald-500/20 rounded-xl">
+                    <CardContent className="p-3 md:p-4">
+                      <p className="text-slate-500 text-xs">מאזן סוכנים</p>
+                      <p className="text-lg font-bold text-emerald-400 tabular-nums">{balanceSummary.totalAgentsBalance ?? 0} נקודות</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </section>
+
+            {/* ניווט ניהול – כפתורים ברורים */}
+            <section className="space-y-3">
+              <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">ניווט</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                 {dashboardCards.map((card) => (
                   <Card
                     key={card.id}
-                    className="bg-slate-800/50 border-slate-700 hover:border-amber-500/50 hover:bg-slate-800/70 transition-all duration-200 cursor-pointer group min-w-0 overflow-hidden"
+                    className="bg-slate-800/60 border-slate-700/80 rounded-xl shadow-sm hover:border-amber-500/40 hover:bg-slate-800/80 transition-all duration-200 cursor-pointer group min-w-0 overflow-hidden"
                     onClick={() => handleDashboardCardClick(card.route)}
                   >
-                    <CardHeader className="pb-2 min-w-0">
+                    <CardHeader className="p-4 pb-2 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <div className="p-2 rounded-lg bg-slate-700/50 group-hover:bg-amber-500/20 transition-colors shrink-0">
                           {card.icon}
                         </div>
                         {card.status && (
                           <span
-                            className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${
+                            className={`text-[10px] md:text-xs font-medium px-1.5 py-0.5 rounded-full shrink-0 ${
                               card.status.color === "green"
                                 ? "bg-emerald-500/20 text-emerald-400"
                                 : card.status.color === "orange"
@@ -888,30 +960,35 @@ export default function AdminPanel() {
                           </span>
                         )}
                       </div>
-                      <h4 className="text-white font-semibold mt-2 break-words min-w-0">{card.title}</h4>
-                      <p className="text-slate-400 text-sm break-words min-w-0">{card.description}</p>
+                      <h4 className="text-white font-semibold text-sm md:text-base mt-2 break-words min-w-0">{card.title}</h4>
+                      <p className="text-slate-400 text-xs break-words min-w-0 line-clamp-2">{card.description}</p>
                     </CardHeader>
-                    <CardContent className="pt-0">
+                    <CardContent className="p-4 pt-0">
                       <Button
                         size="sm"
-                        className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+                        className="w-full bg-amber-600 hover:bg-amber-700 text-white min-h-[40px] md:min-h-[44px] text-xs md:text-sm"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleDashboardCardClick(card.route);
                         }}
                       >
-                        <ArrowLeft className="w-4 h-4 ml-1" />
+                        <ArrowLeft className="w-3.5 h-3.5 md:w-4 md:h-4 ml-1" />
                         כניסה
                       </Button>
                     </CardContent>
                   </Card>
                 ))}
               </div>
-            </div>
+            </section>
           </div>
         )}
 
         {section === "autoFill" && (
+          <div className="space-y-4">
+            <Button variant="ghost" size="sm" className="text-slate-400 -ml-2 md:ml-0" onClick={() => setSection("dashboard")}>
+              <ArrowLeft className="w-4 h-4 ml-1" />
+              חזרה לדשבורד
+            </Button>
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -985,9 +1062,15 @@ export default function AdminPanel() {
               )}
             </CardContent>
           </Card>
+          </div>
         )}
 
         {section === "submissions" && (
+          <div className="space-y-4">
+            <Button variant="ghost" size="sm" className="text-slate-400 -ml-2 md:ml-0" onClick={() => setSection("dashboard")}>
+              <ArrowLeft className="w-4 h-4 ml-1" />
+              חזרה לדשבורד
+            </Button>
           <Card className="bg-slate-800/50 border-slate-700 min-w-0 overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
               <h2 className="text-xl font-bold text-white">כל הטפסים</h2>
@@ -1138,6 +1221,7 @@ export default function AdminPanel() {
               )}
             </CardContent>
           </Card>
+          </div>
         )}
 
         {section === "competitions" && competitionSubType === null && (
@@ -1441,6 +1525,17 @@ export default function AdminPanel() {
                     <Input type="number" min={1} className="bg-slate-800 text-white w-24" value={newTournament.amount} onChange={(e) => setNewTournament((p) => ({ ...p, amount: e.target.value }))} />
                   </div>
                   <div className="flex flex-col gap-1">
+                    <label className="text-slate-400 text-sm">תאריך סגירת הגרלה</label>
+                    <Input type="date" placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 text-white w-36" value={newTournament.drawDate} onChange={(e) => setNewTournament((p) => ({ ...p, drawDate: e.target.value }))} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-slate-400 text-sm">שעת סגירת הגרלה</label>
+                    <select className="bg-slate-800 text-white rounded-lg px-3 py-2 w-24 border border-slate-600" value={newTournament.drawTime} onChange={(e) => setNewTournament((p) => ({ ...p, drawTime: e.target.value }))}>
+                      <option value="">בחר</option>
+                      {LOTTO_DRAW_TIMES.map((h) => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1">
                     <label className="text-slate-400 text-sm">מזהה תחרות</label>
                     <Input className="bg-slate-800 text-white w-36" placeholder="למשל lotto-1" value={newTournament.drawCode} onChange={(e) => setNewTournament((p) => ({ ...p, drawCode: e.target.value }))} title="מזהה ייחודי לעדכון תוצאות בהמשך" />
                   </div>
@@ -1459,16 +1554,21 @@ export default function AdminPanel() {
                   <p className="text-slate-500 text-sm">אין תחרויות לוטו. צור אחת למעלה.</p>
                 ) : (
                   <div className="space-y-2">
-                    {lottoTournaments.map((t) => (
-                      <div key={t.id} className="flex flex-wrap items-center justify-between gap-2 p-3 rounded bg-slate-700/30">
-                        <span className="text-white font-medium">{t.name} – ₪{t.amount}{(t as { drawCode?: string }).drawCode ? ` (מזהה: ${(t as { drawCode?: string }).drawCode})` : ""}</span>
+{lottoTournaments.map((t) => {
+                      const d = (t as { drawDate?: string }).drawDate;
+                      const time = (t as { drawTime?: string }).drawTime;
+                      const dateLabel = d ? new Date(d + "T12:00:00").toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" }) : "";
+                      return (
+                        <div key={t.id} className="flex flex-wrap items-center justify-between gap-2 p-3 rounded bg-slate-700/30">
+                        <span className="text-white font-medium">{t.name} – ₪{t.amount}{(t as { drawCode?: string }).drawCode ? ` (מזהה: ${(t as { drawCode?: string }).drawCode})` : ""}{d && time ? ` – ${dateLabel} ${time}` : ""}</span>
                         <div className="flex gap-2 flex-wrap">
                           <Button size="sm" variant={t.isLocked ? "outline" : "default"} onClick={() => handleLock(t.id, !t.isLocked)}>{t.isLocked ? "פתח" : "נעל"}</Button>
                           <Button size="sm" variant="outline" onClick={() => { setLottoResultTournamentId(t.id); setLottoResultForm({ num1: "", num2: "", num3: "", num4: "", num5: "", num6: "", strongNumber: "" }); }}>עדכן תוצאות</Button>
                           <Button size="sm" variant="outline" className="text-red-400 border-red-400/50 hover:bg-red-500/20" onClick={() => handleDeleteTournament(t.id, t.name)} disabled={deleteTournamentMut.isPending}><Trash2 className="w-4 h-4" /></Button>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1752,133 +1852,6 @@ export default function AdminPanel() {
             </Card>
             <Card className="bg-slate-800/50 border-slate-700">
               <CardHeader>
-                <h2 className="text-xl font-bold text-white">ארכיון תחרויות</h2>
-                <p className="text-slate-400 text-sm">תחרויות שנסגרו/חולקו להן פרסים/אורכבו. נתונים נשמרים לצמיתות – רק לא מוצגים בדף הראשי.</p>
-              </CardHeader>
-              <CardContent>
-                {(() => {
-                  const archived = (tournaments ?? []).filter((t) => {
-                    const status = (t as { status?: string }).status ?? "";
-                    return ["CLOSED", "SETTLED", "ARCHIVED", "RESULTS_UPDATED", "PRIZES_DISTRIBUTED", "SETTLING"].includes(status);
-                  });
-                  if (!archived.length) return <p className="text-slate-500 py-2">אין עדיין תחרויות בארכיון.</p>;
-
-                  const typeLabel = (type: string | undefined) => {
-                    if (type === "chance") return "צ'אנס";
-                    if (type === "lotto") return "לוטו";
-                    if (type === "football_custom") return "כדורגל";
-                    return "מונדיאל";
-                  };
-                  const fmt = (d: string | Date | null | undefined) => (d ? new Date(d).toLocaleString("he-IL") : "—");
-
-                  return (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-right">
-                        <thead>
-                          <tr className="border-b border-slate-600/50 text-slate-400 text-sm bg-slate-800/40">
-                            <th className="p-3 font-medium">שם התחרות</th>
-                            <th className="p-3 font-medium">סוג</th>
-                            <th className="p-3 font-medium">פתיחה</th>
-                            <th className="p-3 font-medium">סגירה</th>
-                            <th className="p-3 font-medium">חלוקת פרסים</th>
-                            <th className="p-3 font-medium">משתתפים</th>
-                            <th className="p-3 font-medium">סכום פרסים</th>
-                            <th className="p-3 font-medium">סטטוס סופי</th>
-                            <th className="p-3 w-40"></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {archived
-                            .slice()
-                            .sort((a, b) => {
-                              const aAt = (a as { archivedAt?: string | Date | null; resultsFinalizedAt?: string | Date | null }).archivedAt ?? (a as { resultsFinalizedAt?: string | Date | null }).resultsFinalizedAt ?? null;
-                              const bAt = (b as { archivedAt?: string | Date | null; resultsFinalizedAt?: string | Date | null }).archivedAt ?? (b as { resultsFinalizedAt?: string | Date | null }).resultsFinalizedAt ?? null;
-                              return new Date(bAt ?? 0).getTime() - new Date(aAt ?? 0).getTime();
-                            })
-                            .map((t) => {
-                              const name = (t as { name?: string }).name ?? `#${t.id}`;
-                              const type = (t as { type?: string }).type;
-                              const status = (t as { status?: string }).status ?? "—";
-                              const opensAt = (t as { opensAt?: string | Date | null }).opensAt ?? (t as { startsAt?: string | Date | null }).startsAt ?? null;
-                              const closesAt = (t as { closesAt?: string | Date | null }).closesAt ?? (t as { endsAt?: string | Date | null }).endsAt ?? null;
-                              const prizesAt = (t as { archivedAt?: string | Date | null }).archivedAt ?? (t as { resultsFinalizedAt?: string | Date | null }).resultsFinalizedAt ?? null;
-                              const participants = (t as { financialParticipantCount?: number | null }).financialParticipantCount;
-                              const prizes = (t as { financialPrizeDistributed?: number | null }).financialPrizeDistributed;
-                              return (
-                                <tr key={t.id} className="border-b border-slate-700/40 hover:bg-slate-700/30 transition-colors">
-                                  <td className="p-3 text-white font-medium">{name}</td>
-                                  <td className="p-3 text-slate-300">{typeLabel(type)}</td>
-                                  <td className="p-3 text-slate-400 text-sm">{fmt(opensAt)}</td>
-                                  <td className="p-3 text-slate-400 text-sm">{fmt(closesAt)}</td>
-                                  <td className="p-3 text-slate-400 text-sm">{fmt(prizesAt)}</td>
-                                  <td className="p-3 text-slate-300">{participants != null ? participants : "—"}</td>
-                                  <td className="p-3 text-slate-300">{prizes != null ? `₪${Number(prizes).toLocaleString("he-IL")}` : "—"}</td>
-                                  <td className="p-3"><Badge variant="secondary" className="bg-slate-700/60 text-slate-200">{status}</Badge></td>
-                                  <td className="p-3">
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="text-slate-300 border-slate-600"
-                                      onClick={() => setPrizeLogTournamentId(t.id)}
-                                    >
-                                      צפה בחלוקת פרסים
-                                    </Button>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                        </tbody>
-                      </table>
-                    </div>
-                  );
-                })()}
-              </CardContent>
-            </Card>
-            <Card className="bg-slate-800/50 border-slate-700">
-              <CardHeader>
-                <h2 className="text-xl font-bold text-white">תחרויות מוסתרות מדף ראשי</h2>
-                <p className="text-slate-400 text-sm">תחרויות שהוסתרו מהדף הראשי בידי מנהל. ניתן לשחזר להצגה.</p>
-              </CardHeader>
-              <CardContent>
-                {(() => {
-                  const hidden = (tournaments ?? []).filter(
-                    (t) => (t as { hiddenFromHomepage?: boolean }).hiddenFromHomepage === true
-                  );
-                  if (!hidden.length) {
-                    return <p className="text-slate-500 py-2">אין תחרויות מוסתרות.</p>;
-                  }
-                  return (
-                    <div className="space-y-2">
-                      {hidden.map((t) => {
-                        const name = (t as { name?: string }).name ?? `#${t.id}`;
-                        const hiddenAt = (t as { hiddenAt?: string | Date | null }).hiddenAt;
-                        const hiddenByAdminId = (t as { hiddenByAdminId?: number | null }).hiddenByAdminId;
-                        const dateStr = hiddenAt ? new Date(hiddenAt).toLocaleString("he-IL") : "";
-                        return (
-                          <div key={t.id} className="flex flex-wrap items-center gap-2 py-2 border-b border-slate-700/50 last:border-0">
-                            <Badge variant="secondary" className="bg-amber-900/50 text-amber-300 border-amber-600/50">Hidden from homepage</Badge>
-                            <span className="text-white font-medium">{name}</span>
-                            {dateStr && <span className="text-slate-500 text-sm">הוסתר: {dateStr}</span>}
-                            {hiddenByAdminId != null && <span className="text-slate-500 text-sm">מנהל #{hiddenByAdminId}</span>}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-emerald-400 border-emerald-600 hover:bg-emerald-500/20"
-                              onClick={() => restoreTournamentMut.mutate({ id: t.id })}
-                              disabled={restoreTournamentMut.isPending}
-                            >
-                              {restoreTournamentMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "שחזר לדף ראשי"}
-                            </Button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-              </CardContent>
-            </Card>
-            <Card className="bg-slate-800/50 border-slate-700">
-              <CardHeader>
                 <h2 className="text-xl font-bold text-white">משתמשים ושחקנים</h2>
                 <p className="text-slate-400 text-sm">סה״כ {usersList.length} משתמשים (לפי סינון). סוכנים מופיעים ברשימה עם סיכום עמלות.</p>
                 <div className="flex flex-wrap gap-2 items-center mt-2">
@@ -1897,69 +1870,70 @@ export default function AdminPanel() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-right">
+                <p className="text-slate-400 text-xs sm:text-sm mb-2">גלול ימינה/שמאלה לראות את כל העמודות. שם ותפקיד קבועים.</p>
+                <div className="overflow-x-auto -mx-1 min-w-0">
+                  <table className="w-full text-right text-xs sm:text-sm min-w-[640px] border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-600 text-slate-400 text-sm">
-                        <th className="py-2 px-3">שם משתמש</th>
-                        <th className="py-2 px-3">תפקיד</th>
-                        <th className="py-2 px-3">טלפון</th>
-                        <th className="py-2 px-3">נקודות</th>
+                      <tr className="border-b border-slate-600 bg-slate-800/90 text-slate-400 sticky top-0 z-10">
+                        <th className="py-1.5 sm:py-2 px-2 sm:px-3 text-right whitespace-nowrap bg-slate-800/95 sticky right-0 z-20 border-l border-slate-600/50 min-w-[4.5rem]">שם</th>
+                        <th className="py-1.5 sm:py-2 px-2 sm:px-3 text-right whitespace-nowrap bg-slate-800/95 sticky right-[4.5rem] z-20 border-l border-slate-600/50 min-w-[4rem]">תפקיד</th>
+                        <th className="py-1.5 sm:py-2 px-2 sm:px-3 whitespace-nowrap">טלפון</th>
+                        <th className="py-1.5 sm:py-2 px-2 sm:px-3 whitespace-nowrap">נקודות</th>
                         {usersListRoleFilter === "agent" && (
                           <>
-                            <th className="py-2 px-3">שחקנים משויכים</th>
-                            <th className="py-2 px-3">עמלות</th>
-                            <th className="py-2 px-3">סך הכנסות</th>
+                            <th className="py-1.5 sm:py-2 px-2 sm:px-3 whitespace-nowrap">שחקנים</th>
+                            <th className="py-1.5 sm:py-2 px-2 sm:px-3 whitespace-nowrap">עמלות</th>
+                            <th className="py-1.5 sm:py-2 px-2 sm:px-3 whitespace-nowrap">הכנסות</th>
                           </>
                         )}
                         {usersListRoleFilter === "all" && (
                           <>
-                            <th className="py-2 px-3">שחקנים</th>
-                            <th className="py-2 px-3">עמלות</th>
-                            <th className="py-2 px-3">הכנסות</th>
+                            <th className="py-1.5 sm:py-2 px-2 sm:px-3 whitespace-nowrap">שחקנים</th>
+                            <th className="py-1.5 sm:py-2 px-2 sm:px-3 whitespace-nowrap">עמלות</th>
+                            <th className="py-1.5 sm:py-2 px-2 sm:px-3 whitespace-nowrap">הכנסות</th>
                           </>
                         )}
-                        <th className="py-2 px-3">סטטוס</th>
-                        <th className="py-2 px-3">פעולות</th>
+                        <th className="py-1.5 sm:py-2 px-2 sm:px-3 whitespace-nowrap">סטטוס</th>
+                        <th className="py-1.5 sm:py-2 px-2 sm:px-3 whitespace-nowrap">פעולות</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {usersList.map((u) => (
-                        <tr key={u.id} className="border-b border-slate-700/50">
-                          <td className="py-2 px-3 text-white">{u.username || "—"}</td>
-                          <td className="py-2 px-3">
-                            {u.role === "agent" && <Badge className="bg-emerald-600/80 text-white">סוכן</Badge>}
-                            {u.role === "admin" && <Badge className="bg-amber-600/80 text-white">מנהל</Badge>}
-                            {u.role === "user" && <Badge variant="secondary" className="text-slate-300">שחקן</Badge>}
+                      {usersList.map((u, idx) => (
+                        <tr key={u.id} className={`border-b border-slate-700/50 ${idx % 2 === 1 ? "bg-slate-800/30" : ""}`}>
+                          <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-white font-medium whitespace-nowrap bg-slate-800/95 sm:bg-transparent sticky right-0 z-10 border-l border-slate-600/50 min-w-[4.5rem]">{u.username || "—"}</td>
+                          <td className="py-1.5 sm:py-2 px-2 sm:px-3 whitespace-nowrap bg-slate-800/95 sm:bg-transparent sticky right-[4.5rem] z-10 border-l border-slate-600/50">
+                            {u.role === "agent" && <Badge className="bg-emerald-600/80 text-white text-[10px] sm:text-xs">סוכן</Badge>}
+                            {u.role === "admin" && <Badge className="bg-amber-600/80 text-white text-[10px] sm:text-xs">מנהל</Badge>}
+                            {u.role === "user" && <Badge variant="secondary" className="text-slate-300 text-[10px] sm:text-xs">שחקן</Badge>}
                           </td>
-                          <td className="py-2 px-3 text-slate-300">{u.phone || "—"}</td>
-                          <td className="py-2 px-3 text-amber-400 font-medium">{u.points ?? 0}</td>
+                          <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-slate-300 whitespace-nowrap">{u.phone || "—"}</td>
+                          <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-amber-400 font-medium whitespace-nowrap">{u.points ?? 0}</td>
                           {usersListRoleFilter === "agent" && u.role === "agent" && (
                             <>
-                              <td className="py-2 px-3 text-slate-300">{u.referredCount ?? 0}</td>
-                              <td className="py-2 px-3 text-emerald-400">{u.totalCommission ?? 0} ₪</td>
-                              <td className="py-2 px-3 text-slate-300">{u.totalEntryAmount ?? 0} ₪</td>
+                              <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-slate-300 whitespace-nowrap">{u.referredCount ?? 0}</td>
+                              <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-emerald-400 whitespace-nowrap">{u.totalCommission ?? 0} ₪</td>
+                              <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-slate-300 whitespace-nowrap">{u.totalEntryAmount ?? 0} ₪</td>
                             </>
                           )}
                           {usersListRoleFilter === "all" && u.role === "agent" && (
                             <>
-                              <td className="py-2 px-3 text-slate-300">{u.referredCount ?? 0}</td>
-                              <td className="py-2 px-3 text-emerald-400">{u.totalCommission ?? 0} ₪</td>
-                              <td className="py-2 px-3 text-slate-300">{u.totalEntryAmount ?? 0} ₪</td>
+                              <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-slate-300 whitespace-nowrap">{u.referredCount ?? 0}</td>
+                              <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-emerald-400 whitespace-nowrap">{u.totalCommission ?? 0} ₪</td>
+                              <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-slate-300 whitespace-nowrap">{u.totalEntryAmount ?? 0} ₪</td>
                             </>
                           )}
                           {(usersListRoleFilter === "all" || usersListRoleFilter === "agent") && u.role !== "agent" && (
                             <>
-                              <td className="py-2 px-3 text-slate-400">—</td>
-                              <td className="py-2 px-3 text-slate-400">—</td>
-                              <td className="py-2 px-3 text-slate-400">—</td>
+                              <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-slate-400 whitespace-nowrap">—</td>
+                              <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-slate-400 whitespace-nowrap">—</td>
+                              <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-slate-400 whitespace-nowrap">—</td>
                             </>
                           )}
-                          <td className="py-2 px-3 text-slate-300">
-                            {u.deletedAt ? "מחוק" : u.isBlocked ? "חסום" : "פעיל"}
+                          <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-slate-300 whitespace-nowrap">
+                            {u.deletedAt ? "מחוק" : u.isBlocked ? "🔴 חסום" : "🟢 פעיל"}
                           </td>
-                          <td className="py-2 px-3">
-                            <div className="flex flex-wrap items-center gap-1">
+                          <td className="py-1.5 sm:py-2 px-2 sm:px-3">
+                            <div className="flex flex-nowrap items-center gap-1 overflow-x-auto min-w-0">
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -2896,21 +2870,21 @@ export default function AdminPanel() {
                     </div>
                   )}
                   {agentsWithBalances && agentsWithBalances.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm text-right">
+                    <div className="overflow-x-auto -mx-1 min-w-0">
+                      <table className="w-full text-xs sm:text-sm text-right min-w-[320px] border-collapse">
                         <thead>
-                          <tr className="border-b border-slate-600 text-slate-400">
-                            <th className="py-2 px-2">סוכן</th>
-                            <th className="py-2 px-2">יתרה נוכחית</th>
-                            <th className="py-2 px-2">מאזן כל השחקנים שלו</th>
+                          <tr className="border-b border-slate-600 bg-slate-800/90 text-slate-400 sticky top-0 z-10">
+                            <th className="py-1.5 sm:py-2 px-2 text-right whitespace-nowrap bg-slate-800/95 sticky right-0 z-20 border-l border-slate-600/50 min-w-[4.5rem]">סוכן</th>
+                            <th className="py-1.5 sm:py-2 px-2 whitespace-nowrap">יתרה</th>
+                            <th className="py-1.5 sm:py-2 px-2 whitespace-nowrap">מאזן שחקנים</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {agentsWithBalances.map((a) => (
-                            <tr key={a.id} className="border-b border-slate-700/50">
-                              <td className="py-2 px-2 text-white">{a.name || a.username || `#${a.id}`}</td>
-                              <td className="py-2 px-2 text-amber-400 font-mono">{a.points ?? 0}</td>
-                              <td className="py-2 px-2 text-emerald-400 font-mono">{a.totalPlayersBalance ?? 0}</td>
+                          {agentsWithBalances.map((a, idx) => (
+                            <tr key={a.id} className={`border-b border-slate-700/50 ${idx % 2 === 1 ? "bg-slate-800/30" : ""}`}>
+                              <td className="py-1.5 sm:py-2 px-2 text-white font-medium whitespace-nowrap bg-slate-800/95 sm:bg-transparent sticky right-0 z-10 border-l border-slate-600/50">{a.name || a.username || `#${a.id}`}</td>
+                              <td className="py-1.5 sm:py-2 px-2 text-amber-400 font-mono whitespace-nowrap">{a.points ?? 0}</td>
+                              <td className="py-1.5 sm:py-2 px-2 text-emerald-400 font-mono whitespace-nowrap">{a.totalPlayersBalance ?? 0}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -3287,26 +3261,26 @@ export default function AdminPanel() {
                   </CardHeader>
                   <CardContent>
                     {pnlSummary.agents.length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-right">
+                      <div className="overflow-x-auto -mx-1 min-w-0">
+                        <table className="w-full text-xs sm:text-sm text-right min-w-[320px] border-collapse">
                           <thead>
-                            <tr className="border-b border-slate-600 text-slate-400">
-                              <th className="py-2 px-2">סוכן</th>
-                              <th className="py-2 px-2">רווח</th>
-                              <th className="py-2 px-2">הפסד</th>
-                              <th className="py-2 px-2">רווח נטו</th>
-                              <th className="py-2 px-2"></th>
+                            <tr className="border-b border-slate-600 bg-slate-800/90 text-slate-400 sticky top-0 z-10">
+                              <th className="py-1.5 sm:py-2 px-2 text-right whitespace-nowrap bg-slate-800/95 sticky right-0 z-20 border-l border-slate-600/50 min-w-[4.5rem]">סוכן</th>
+                              <th className="py-1.5 sm:py-2 px-2 whitespace-nowrap">רווח</th>
+                              <th className="py-1.5 sm:py-2 px-2 whitespace-nowrap">הפסד</th>
+                              <th className="py-1.5 sm:py-2 px-2 whitespace-nowrap">רווח נטו</th>
+                              <th className="py-1.5 sm:py-2 px-2 whitespace-nowrap"></th>
                             </tr>
                           </thead>
                           <tbody>
-                            {pnlSummary.agents.map((a) => (
-                              <tr key={a.id} className="border-b border-slate-700/50">
-                                <td className="py-2 px-2 text-white">{a.name || a.username || `#${a.id}`}</td>
-                                <td className="py-2 px-2 text-emerald-400">{a.profit}</td>
-                                <td className="py-2 px-2 text-amber-400">{a.loss}</td>
-                                <td className="py-2 px-2 font-medium text-white">{a.net}</td>
-                                <td className="py-2 px-2">
-                                  <Button size="sm" variant="outline" className="text-slate-400" onClick={() => setPnlDetailAgentId(a.id)}>דוח מפורט</Button>
+                            {pnlSummary.agents.map((a, idx) => (
+                              <tr key={a.id} className={`border-b border-slate-700/50 ${idx % 2 === 1 ? "bg-slate-800/30" : ""}`}>
+                                <td className="py-1.5 sm:py-2 px-2 text-white font-medium whitespace-nowrap bg-slate-800/95 sm:bg-transparent sticky right-0 z-10 border-l border-slate-600/50">{a.name || a.username || `#${a.id}`}</td>
+                                <td className="py-1.5 sm:py-2 px-2 text-emerald-400 whitespace-nowrap">{a.profit}</td>
+                                <td className="py-1.5 sm:py-2 px-2 text-amber-400 whitespace-nowrap">{a.loss}</td>
+                                <td className="py-1.5 sm:py-2 px-2 font-medium text-white whitespace-nowrap">{a.net}</td>
+                                <td className="py-1.5 sm:py-2 px-2">
+                                  <Button size="sm" variant="outline" className="text-slate-400 text-xs" onClick={() => setPnlDetailAgentId(a.id)}>דוח מפורט</Button>
                                 </td>
                               </tr>
                             ))}
@@ -3924,6 +3898,7 @@ export default function AdminPanel() {
           </Card>
         )}
 
+        </div>
       </main>
     </div>
   );

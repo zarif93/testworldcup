@@ -153,7 +153,33 @@ function SingleTournamentLeaderboardCard({
           !chanceLeaderboard ? (
             <p className="text-slate-500 text-center py-12">טוען דירוג צ'אנס...</p>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              {/* Mobile: cards */}
+              <div className="md:hidden space-y-3 p-2">
+                {chanceLeaderboard.rows?.length === 0 ? (
+                  <p className="text-slate-500 text-center py-8">אין משתתפים מאושרים או שעדיין לא עודכנו תוצאות ההגרלה.</p>
+                ) : (
+                  chanceLeaderboard.rows?.map((row, i) => (
+                    <div
+                      key={row.submissionId}
+                      onClick={() => onViewSubmission(row.submissionId)}
+                      className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-4 shadow-lg active:scale-[0.99] cursor-pointer"
+                    >
+                      <div className="flex justify-between items-center gap-2 mb-1">
+                        <span className="text-slate-400 font-bold">#{i + 1}</span>
+                        <span className="text-white font-medium truncate flex-1 text-center">{row.username}</span>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); onViewSubmission(row.submissionId); }} className="text-slate-400 hover:text-emerald-400 p-2 rounded-lg shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center" title="צפייה בניחושים"><Eye className="w-5 h-5" /></button>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-sm">
+                        <span className="text-emerald-400 font-bold">{row.points}/4</span>
+                        {row.isWinner ? <Badge className="bg-amber-600/90 text-white rounded-lg">זוכה</Badge> : <span className="text-slate-500">לא זוכה</span>}
+                        {row.prizeAmount > 0 && <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span>}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-right">
                 <thead>
                   <tr className="border-b border-slate-600/50 text-slate-400 text-sm bg-slate-800/40">
@@ -191,12 +217,39 @@ function SingleTournamentLeaderboardCard({
                 {chanceLeaderboard.winnerCount > 0 && ` • ${chanceLeaderboard.winnerCount} זוכים`}
               </div>
             </div>
+            </>
           )
         ) : isLotto ? (
           !lottoLeaderboard ? (
             <p className="text-slate-500 text-center py-12">טוען דירוג לוטו...</p>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              <div className="md:hidden space-y-3 p-2">
+                {lottoLeaderboard.rows?.length === 0 ? (
+                  <p className="text-slate-500 text-center py-8">אין משתתפים או שעדיין לא עודכנו תוצאות.</p>
+                ) : (
+                  lottoLeaderboard.rows?.map((row, i) => {
+                    const baseHits = row.points - (row.strongHit ? 1 : 0);
+                    return (
+                      <div key={row.submissionId} onClick={() => onViewSubmission(row.submissionId)} className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-4 shadow-lg active:scale-[0.99] cursor-pointer">
+                        <div className="flex justify-between items-center gap-2 mb-1">
+                          <span className="text-slate-400 font-bold">#{i + 1}</span>
+                          <span className="text-white font-medium truncate flex-1 text-center">{row.username}</span>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); onViewSubmission(row.submissionId); }} className="text-slate-400 hover:text-emerald-400 p-2 rounded-lg shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center" title="צפייה בניחושים"><Eye className="w-5 h-5" /></button>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-sm">
+                          <span className="text-emerald-400 font-bold">{baseHits}/6</span>
+                          {row.strongHit && <span className="text-amber-400">חזק</span>}
+                          <span className="text-emerald-300 font-bold">{row.points}</span>
+                          {row.isWinner ? <Badge className="bg-amber-600/90 text-white rounded-lg">זוכה</Badge> : <span className="text-slate-500">לא זוכה</span>}
+                          {row.prizeAmount > 0 && <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span>}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-right">
                 <thead>
                   <tr className="border-b border-slate-600/50 text-slate-400 text-sm bg-slate-800/40">
@@ -267,12 +320,34 @@ function SingleTournamentLeaderboardCard({
                 {lottoLeaderboard.winnerCount > 0 && ` • ${lottoLeaderboard.winnerCount} זוכים`}
               </div>
             </div>
+            </>
           )
         ) : isFootballCustom ? (
           !customFootballLeaderboard ? (
             <p className="text-slate-500 text-center py-12">טוען דירוג...</p>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              <div className="md:hidden space-y-3 p-2">
+                {customFootballLeaderboard.rows.length === 0 ? (
+                  <p className="text-slate-500 text-center py-8">אין משתתפים מאושרים.</p>
+                ) : (
+                  customFootballLeaderboard.rows.map((row) => (
+                    <div key={row.submissionId} onClick={() => onViewSubmission(row.submissionId)} className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-4 shadow-lg active:scale-[0.99] cursor-pointer">
+                      <div className="flex justify-between items-center gap-2 mb-1">
+                        <span className="text-slate-400 font-bold">#{row.rank}</span>
+                        <span className="text-white font-medium truncate flex-1 text-center">{row.username}</span>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); onViewSubmission(row.submissionId); }} className="text-slate-400 hover:text-emerald-400 p-2 rounded-lg shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center" title="צפייה בניחושים"><Eye className="w-5 h-5" /></button>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-sm">
+                        <span className="text-emerald-400 font-bold">{row.correctCount}</span>
+                        <span className="text-amber-400 font-bold">{row.points} נקודות</span>
+                        {row.prizeAmount > 0 && <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span>}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-right">
                 <thead>
                   <tr className="border-b border-slate-600/50 text-slate-400 text-sm bg-slate-800/40">
@@ -306,10 +381,36 @@ function SingleTournamentLeaderboardCard({
                 {customFootballLeaderboard.winnerCount > 0 && ` • ${customFootballLeaderboard.winnerCount} זוכים`}
               </div>
             </div>
+            </>
           )
         ) : (
           <>
-            <div className="overflow-x-auto">
+            {/* Mobile: mondial cards */}
+            <div className="md:hidden space-y-3 p-2">
+              {list.length === 0 ? (
+                <p className="text-slate-500 text-center py-8">אין עדיין טפסים בטורניר זה</p>
+              ) : (
+                list.map((s) => {
+                  const isApproved = s.status === "approved";
+                  const approvedList = list.filter((x) => x.status === "approved").sort((a, b) => b.points - a.points);
+                  const displayRank = isApproved ? approvedList.findIndex((x) => x.id === s.id) + 1 : 0;
+                  return (
+                    <div key={s.id} onClick={() => onViewSubmission(s.id)} className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-4 shadow-lg active:scale-[0.99] cursor-pointer">
+                      <div className="flex justify-between items-center gap-2 mb-1">
+                        <RankBadge rank={displayRank} isApproved={isApproved} />
+                        <span className="text-white font-medium truncate flex-1 text-center">{s.username}</span>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); onViewSubmission(s.id); }} className="text-slate-400 hover:text-emerald-400 p-2 rounded-lg shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center" title="צפייה בניחושים"><Eye className="w-5 h-5" /></button>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-sm">
+                        <span className="text-emerald-400 font-bold">{s.points} נקודות</span>
+                        {statusBadge(s.status)}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-right">
                 <thead>
                   <tr className="border-b border-slate-600/50 text-slate-400 text-sm bg-slate-800/40">
@@ -428,15 +529,15 @@ export default function Leaderboard() {
   };
 
   return (
-    <div className="min-h-screen py-8">
-      <div className="container mx-auto px-4">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+    <div className="min-h-screen py-4 sm:py-6 md:py-8 overflow-x-hidden max-w-full">
+      <div className="container mx-auto px-3 sm:px-4 min-w-0">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-4 mb-6 md:mb-8">
           <div>
-            <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 flex items-center gap-2 animate-fade-in">
-              <Trophy className="w-9 h-9 text-amber-400" />
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-2 flex items-center gap-2 animate-fade-in">
+              <Trophy className="w-8 h-8 sm:w-9 sm:h-9 text-amber-400" />
               טבלת דירוג – {tabLabel(activeTab)}
             </h1>
-            <p className="text-slate-400">
+            <p className="text-slate-400 text-sm sm:text-base">
               כל הטפסים מופיעים מיד בדירוג. רק טפסים שאושרו נספרים במיקום לפי ניקוד.
             </p>
           </div>
@@ -448,7 +549,7 @@ export default function Leaderboard() {
           </div>
         ) : (
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as (typeof TAB_IDS)[number])} className="space-y-4">
-          <TabsList className="bg-slate-800/80 border border-slate-600/50 flex flex-wrap gap-1 p-1 rounded-xl">
+          <TabsList className="bg-slate-800/80 border border-slate-600/50 flex flex-wrap gap-1.5 p-1.5 sm:p-1 rounded-xl w-full max-w-full min-h-[44px] overflow-x-auto">
             <TabsTrigger value="WORLD_CUP" className="rounded-lg data-[state=active]:bg-sky-600/80 data-[state=active]:text-white">
               <Trophy className="w-4 h-4 ml-1" />
               מונדיאל

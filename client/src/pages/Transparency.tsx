@@ -50,7 +50,7 @@ export default function Transparency() {
   const byTournament = Array.isArray(data.byTournament) ? data.byTournament : [];
 
   return (
-    <div className="min-h-screen py-8">
+    <div className="min-h-screen py-4 sm:py-8 overflow-x-hidden max-w-full">
       <div className="container mx-auto px-4 max-w-4xl">
         <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 flex items-center gap-2 animate-fade-in">
           <Coins className="w-9 h-9 text-amber-400" />
@@ -84,7 +84,7 @@ export default function Transparency() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-6">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4 sm:gap-6">
               <div>
                 <p className="text-slate-500 text-sm">סך תשלומים</p>
                 <p className="text-2xl font-bold text-white">{formatNis(totalAmount)}</p>
@@ -130,7 +130,7 @@ export default function Transparency() {
                         <ChevronDown className="w-5 h-5" />
                       )}
                     </span>
-                    <div className="flex flex-wrap items-center gap-6">
+                    <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 sm:gap-6">
                       <span className="text-white font-bold">{row.name}</span>
                       <span className="text-slate-400">
                         {row.participants} משתתפים

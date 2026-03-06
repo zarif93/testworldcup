@@ -62,20 +62,20 @@ export default function Submissions() {
   }, [submissions, categoryTournamentIds, selectedTournamentId, statusFilter]);
 
   return (
-    <div className="min-h-screen py-8">
-      <div className="container mx-auto px-4">
-        <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 flex items-center gap-2 animate-fade-in">
-          <FileText className="w-9 h-9 text-emerald-400" />
+    <div className="min-h-screen py-4 sm:py-6 md:py-8 overflow-x-hidden max-w-full">
+      <div className="container mx-auto px-3 sm:px-4 min-w-0">
+        <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-2 flex items-center gap-2 animate-fade-in">
+          <FileText className="w-8 h-8 sm:w-9 sm:h-9 text-emerald-400" />
           כל הטפסים
         </h1>
-        <p className="text-slate-400 mb-6">
+        <p className="text-slate-400 text-sm sm:text-base mb-6">
           בחר קטגוריה ותחרות כדי לראות את הטפסים. רק טפסים שאושרו נספרים בדירוג.
         </p>
 
         <Tabs value={activeCategory} onValueChange={(v) => setActiveCategory(v as TabValue)} className="space-y-4">
-          <TabsList className="bg-slate-800/80 border border-slate-600/50 flex flex-wrap gap-1 p-1 rounded-xl">
+          <TabsList className="bg-slate-800/80 border border-slate-600/50 flex flex-nowrap gap-1.5 p-1.5 sm:p-1 rounded-xl w-full max-w-full min-h-[44px] overflow-x-auto overflow-y-hidden scrollbar-hide md:flex-wrap">
             {user && (
-              <TabsTrigger value="mine" className="rounded-lg data-[state=active]:bg-violet-600/80 data-[state=active]:text-white">
+              <TabsTrigger value="mine" className="rounded-lg shrink-0 data-[state=active]:bg-violet-600/80 data-[state=active]:text-white">
                 <FileText className="w-4 h-4 ml-1" />
                 הטפסים שלי
                 <span className="mr-1.5 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-slate-500/80 text-xs font-bold">
@@ -83,19 +83,19 @@ export default function Submissions() {
                 </span>
               </TabsTrigger>
             )}
-            <TabsTrigger value="chance" className="rounded-lg data-[state=active]:bg-amber-600/80 data-[state=active]:text-white">
+            <TabsTrigger value="chance" className="rounded-lg shrink-0 data-[state=active]:bg-amber-600/80 data-[state=active]:text-white">
               <Sparkles className="w-4 h-4 ml-1" />
               צ'אנס
             </TabsTrigger>
-            <TabsTrigger value="lotto" className="rounded-lg data-[state=active]:bg-emerald-600/80 data-[state=active]:text-white">
+            <TabsTrigger value="lotto" className="rounded-lg shrink-0 data-[state=active]:bg-emerald-600/80 data-[state=active]:text-white">
               <Trophy className="w-4 h-4 ml-1" />
               לוטו
             </TabsTrigger>
-            <TabsTrigger value="mondial" className="rounded-lg data-[state=active]:bg-sky-600/80 data-[state=active]:text-white">
+            <TabsTrigger value="mondial" className="rounded-lg shrink-0 data-[state=active]:bg-sky-600/80 data-[state=active]:text-white">
               <Trophy className="w-4 h-4 ml-1" />
               מונדיאל
             </TabsTrigger>
-            <TabsTrigger value="football_custom" className="rounded-lg data-[state=active]:bg-rose-600/80 data-[state=active]:text-white">
+            <TabsTrigger value="football_custom" className="rounded-lg shrink-0 data-[state=active]:bg-rose-600/80 data-[state=active]:text-white">
               <Trophy className="w-4 h-4 ml-1" />
               תחרות כדורגל
             </TabsTrigger>
@@ -107,7 +107,53 @@ export default function Submissions() {
             ) : !mySubmissions || mySubmissions.length === 0 ? (
               <p className="text-slate-500 text-center py-8">אין לך עדיין טפסים. השתתף מתחרות מהלשוניות האחרות.</p>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-slate-600/50 min-w-0">
+              <>
+                {/* Mobile: cards */}
+                <div className="space-y-3 md:hidden">
+                  {mySubmissions.map((s) => {
+                    const tour = stats.find((t) => t.id === s.tournamentId);
+                    const canEdit = tour && !tour.isLocked;
+                    return (
+                      <div
+                        key={s.id}
+                        onClick={() => setViewSubmissionId(s.id)}
+                        className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-4 shadow-lg active:scale-[0.99] transition-transform cursor-pointer min-w-0 max-w-full overflow-x-hidden"
+                      >
+                        <div className="flex justify-between items-start gap-2 mb-2 min-w-0">
+                          <span className="text-white font-medium text-base flex-1 min-w-0 break-words" title={getTourName(s.tournamentId)}>{getTourName(s.tournamentId)}</span>
+                          <span className="text-emerald-400 font-bold text-lg tabular-nums shrink-0">{s.points}</span>
+                        </div>
+                        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 text-sm">
+                          {s.status === "approved" ? (
+                            <Badge className="bg-emerald-600"><Check className="w-3 h-3 mr-1" />מאושר</Badge>
+                          ) : s.status === "rejected" ? (
+                            <Badge variant="destructive"><X className="w-3 h-3 mr-1" />נדחה</Badge>
+                          ) : (
+                            <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />ממתין</Badge>
+                          )}
+                          <span className="text-slate-400">{new Date(s.createdAt).toLocaleDateString("he-IL")}</span>
+                        </div>
+                        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 mt-3 pt-3 border-t border-slate-700/50" onClick={(e) => e.stopPropagation()}>
+                          {canEdit && (
+                            <>
+                              <Button size="sm" variant="outline" className="text-emerald-400 border-emerald-500/50 hover:bg-emerald-500/20 min-h-[44px] flex-1 sm:flex-none" onClick={() => setLocation(`/predict/${s.tournamentId}?edit=${s.id}`)}>
+                                <Pencil className="w-3.5 h-3.5 ml-1" />ערוך (חינם)
+                              </Button>
+                              <Button size="sm" variant="outline" className="text-amber-400 border-amber-500/50 hover:bg-amber-500/20 min-h-[44px] flex-1 sm:flex-none" onClick={() => setLocation(`/predict/${s.tournamentId}?duplicateFrom=${s.id}`)}>
+                                שכפל
+                              </Button>
+                            </>
+                          )}
+                          <Button size="sm" variant="ghost" className="text-slate-400 hover:text-emerald-400 min-h-[44px]" onClick={() => setViewSubmissionId(s.id)}>
+                            <Eye className="w-4 h-4 ml-1" /> צפה
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Desktop: table */}
+                <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-600/50 min-w-0">
                 <table className="w-full text-right text-sm table-fixed">
                   <thead>
                     <tr className="border-b border-slate-600 bg-slate-800/80 text-slate-400">
@@ -175,6 +221,7 @@ export default function Submissions() {
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </TabsContent>
 
@@ -246,7 +293,48 @@ export default function Submissions() {
                   {/* רשימת טפסים */}
                   <div className="space-y-3 animate-fade-in min-w-0 overflow-hidden">
                     {filtered.length > 0 ? (
-                      <div className="overflow-x-auto rounded-xl border border-slate-600/50 min-w-0">
+                      <>
+                        {/* Mobile: cards */}
+                        <div className="space-y-3 md:hidden">
+                          {filtered.map((s) => {
+                            const tour = stats.find((t) => t.id === s.tournamentId);
+                            const canEdit = user && (s as { userId?: number }).userId === user.id && tour && !tour.isLocked;
+                            return (
+                              <div
+                                key={s.id}
+                                onClick={() => setViewSubmissionId(s.id)}
+                                className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-4 shadow-lg active:scale-[0.99] transition-transform cursor-pointer min-w-0 max-w-full overflow-x-hidden"
+                              >
+                                <div className="flex justify-between items-start gap-2 mb-1 min-w-0">
+                                  <span className="text-white font-medium text-base flex-1 min-w-0 break-words" title={s.username}>{s.username}</span>
+                                  <span className="text-emerald-400 font-bold text-lg tabular-nums shrink-0">{s.points}</span>
+                                </div>
+                                <p className="text-slate-400 text-sm mb-2 min-w-0 break-words" title={getTourName(s.tournamentId)}>{getTourName(s.tournamentId)}</p>
+                                <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 text-sm">
+                                  {s.status === "approved" ? (
+                                    <Badge className="bg-emerald-600"><Check className="w-3 h-3 mr-1" />מאושר</Badge>
+                                  ) : s.status === "rejected" ? (
+                                    <Badge variant="destructive"><X className="w-3 h-3 mr-1" />נדחה</Badge>
+                                  ) : (
+                                    <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />ממתין</Badge>
+                                  )}
+                                  <span className="text-slate-400">{new Date(s.createdAt).toLocaleDateString("he-IL")}</span>
+                                </div>
+                                <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 mt-3 pt-3 border-t border-slate-700/50" onClick={(e) => e.stopPropagation()}>
+                                  {canEdit && (
+                                    <>
+                                      <Button size="sm" variant="outline" className="text-emerald-400 border-emerald-500/50 hover:bg-emerald-500/20 min-h-[44px]" onClick={() => setLocation(`/predict/${s.tournamentId}?edit=${s.id}`)}><Pencil className="w-3.5 h-3.5 ml-1" />ערוך</Button>
+                                      <Button size="sm" variant="outline" className="text-amber-400 border-amber-500/50 hover:bg-amber-500/20 min-h-[44px]" onClick={() => setLocation(`/predict/${s.tournamentId}?duplicateFrom=${s.id}`)}>שכפל</Button>
+                                    </>
+                                  )}
+                                  <Button size="sm" variant="ghost" className="text-slate-400 hover:text-emerald-400 min-h-[44px]" onClick={() => setViewSubmissionId(s.id)}><Eye className="w-4 h-4 ml-1" /> צפה</Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {/* Desktop: table */}
+                        <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-600/50 min-w-0">
                         <table className="w-full text-right text-sm table-fixed">
                           <thead>
                             <tr className="border-b border-slate-600 bg-slate-800/80 text-slate-400">
@@ -320,6 +408,7 @@ export default function Submissions() {
                           </tbody>
                         </table>
                       </div>
+                      </>
                     ) : (
                       <p className="text-slate-500 text-center py-12">
                         {selectedTournamentId

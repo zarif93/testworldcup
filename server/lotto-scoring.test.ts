@@ -65,12 +65,14 @@ describe("lotto scoring", () => {
     });
     testUserId = reg.user.id;
 
-    // יצירת תחרות לוטו בודדת
+    // יצירת תחרות לוטו בודדת (חובה תאריך ושעת סגירה)
     await adminCaller.admin.createTournament({
       name: "Lotto Scoring Test",
       amount: 10,
       type: "lotto",
       drawCode: `lotto-test-${Date.now()}`,
+      drawDate: "2030-01-15",
+      drawTime: "22:00",
     });
     const list = await adminCaller.tournaments.getAll();
     const t = list.find((tt: { name?: string }) => tt.name === "Lotto Scoring Test");

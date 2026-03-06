@@ -28,6 +28,14 @@ function toTimestamp(value: string | number | Date | null | undefined): number |
   return Number.isNaN(t) ? null : t;
 }
 
+/** תאריך ושעת הגרלה (YYYY-MM-DD + HH:MM) ל-timestamp במילישניות – שעון ישראל +02:00. לשימוש בלוטו/צ'אנס. */
+export function drawDateAndTimeToTimestamp(drawDate: string, drawTime: string): number {
+  if (!drawDate?.trim() || !drawTime?.trim()) return 0;
+  const s = drawDate.trim() + "T" + drawTime.trim() + ":00+02:00";
+  const t = new Date(s).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
 async function initSqlite() {
   const Database = (await import("better-sqlite3")).default;
   const { drizzle } = await import("drizzle-orm/better-sqlite3");
@@ -2909,20 +2917,20 @@ export async function cleanupTournamentData(tournamentId: number): Promise<void>
 }
 
 /** תחרויות שהגיע זמנן לסגירה אוטומטית (closesAt עבר) – עדיין OPEN */
-export async function getTournamentsToAutoClose(): Promise<Array<{ id: number }>> {
+export async function getTournamentsToAutoClose(): Promise<Array<{ id: number; type?: string }>> {
   const { tournaments } = await getSchema();
   const db = await getDb();
   if (!db) return [];
-  const all = await db.select({ id: tournaments.id, closesAt: tournaments.closesAt }).from(tournaments).where(
+  const all = await db.select({ id: tournaments.id, type: tournaments.type, closesAt: tournaments.closesAt }).from(tournaments).where(
     and(eq(tournaments.status, "OPEN"), isNotNull(tournaments.closesAt))
   );
   const now = Date.now();
   return all
     .filter((t) => t.closesAt != null && (t.closesAt instanceof Date ? t.closesAt.getTime() : Number(t.closesAt)) <= now)
-    .map((t) => ({ id: t.id }));
+    .map((t) => ({ id: t.id, type: (t as { type?: string }).type }));
 }
 
-/** סגירה אוטומטית: מעבר תחרות ל-LOCKED כשהזמן closesAt עבר */
+/** סגירה אוטומטית: לוטו → CLOSED, אחרת → LOCKED כשהזמן closesAt עבר */
 export async function runAutoCloseTournaments(): Promise<number[]> {
   const list = await getTournamentsToAutoClose();
   if (list.length === 0) return [];
@@ -2931,9 +2939,10 @@ export async function runAutoCloseTournaments(): Promise<number[]> {
   if (!db) return [];
   const now = new Date();
   const ids: number[] = [];
-  for (const { id } of list) {
+  for (const { id, type } of list) {
+    const status = type === "lotto" ? "CLOSED" : "LOCKED";
     await db.update(tournaments).set({
-      status: "LOCKED",
+      status,
       lockedAt: now,
     } as typeof tournaments.$inferInsert).where(eq(tournaments.id, id));
     ids.push(id);
@@ -3460,8 +3469,12 @@ export async function createTournament(data: {
   if (endsAtVal != null) row.endsAt = endsAtVal;
   const opensAtVal = toTimestamp(data.opensAt);
   if (opensAtVal != null) row.opensAt = opensAtVal;
-  const closesAtVal = toTimestamp(data.closesAt);
-  if (closesAtVal != null) row.closesAt = closesAtVal;
+  let closesAtVal = toTimestamp(data.closesAt);
+  if (typeVal === "lotto" && data.drawDate?.trim() && data.drawTime?.trim()) {
+    const lottoClose = drawDateAndTimeToTimestamp(data.drawDate.trim(), data.drawTime.trim());
+    if (lottoClose > 0) closesAtVal = closesAtVal ?? lottoClose;
+  }
+  if (closesAtVal != null) row.closesAt = new Date(closesAtVal);
   await db.insert(tournaments).values(row as typeof tournaments.$inferInsert);
 }
 
@@ -3691,7 +3704,9 @@ export type TournamentPublicStat = {
   prizePool: number;
   drawDate?: string | null;
   drawTime?: string | null;
-  /** LOCKED = תחרות נעולה, להצגת טיימר */
+  /** מועד סגירת הגרלה (timestamp) – להצגת טיימר בלוטו */
+  closesAt?: Date | number | null;
+  /** LOCKED = תחרות נעולה, CLOSED = הגרלה נסגרה (לוטו), להצגת טיימר */
   status?: string;
   lockedAt?: Date | null;
   removalScheduledAt?: Date | null;
@@ -3718,6 +3733,7 @@ export async function getTournamentPublicStats(activeOnly = true): Promise<Tourn
       drawDate: (t as { drawDate?: string | null }).drawDate ?? null,
       drawTime: (t as { drawTime?: string | null }).drawTime ?? null,
       status: (t as { status?: string }).status ?? "OPEN",
+      closesAt: (t as { closesAt?: Date | number | null }).closesAt ?? null,
       lockedAt: (t as { lockedAt?: Date | null }).lockedAt ?? null,
       removalScheduledAt: (t as { removalScheduledAt?: Date | null }).removalScheduledAt ?? null,
     };

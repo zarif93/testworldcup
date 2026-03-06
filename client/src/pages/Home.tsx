@@ -33,8 +33,8 @@ function useNow(intervalMs: number) {
   return now;
 }
 
-function getRemainingSeconds(removalScheduledAt: string | Date | null | undefined): number {
-  if (!removalScheduledAt) return 0;
+function getRemainingSeconds(removalScheduledAt: string | Date | number | null | undefined): number {
+  if (removalScheduledAt == null) return 0;
   const end = new Date(removalScheduledAt).getTime();
   return Math.max(0, Math.floor((end - Date.now()) / 1000));
 }
@@ -44,6 +44,15 @@ function formatRemaining(removalScheduledAt: string | Date | null | undefined): 
   const m = Math.floor(remaining / 60);
   const s = remaining % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function formatRemainingHms(until: string | Date | number | null | undefined): string {
+  if (until == null) return "0:00:00";
+  const remaining = getRemainingSeconds(until);
+  const h = Math.floor(remaining / 3600);
+  const m = Math.floor((remaining % 3600) / 60);
+  const s = remaining % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 export default function Home() {
@@ -90,34 +99,68 @@ export default function Home() {
   })();
   const hasAny = (byType.football?.length ?? 0) > 0 || (byType.lotto?.length ?? 0) > 0 || (byType.chance?.length ?? 0) > 0 || (byType.footballCustom?.length ?? 0) > 0;
 
+  const allTournamentsList = (() => {
+    if (!tournamentStats?.length) return [];
+    const football = (byType.football ?? []).map((t) => ({ ...t, _type: "football" as const }));
+    const lotto = (byType.lotto ?? []).map((t) => ({ ...t, _type: "lotto" as const }));
+    const chance = (byType.chance ?? []).map((t) => ({ ...t, _type: "chance" as const }));
+    const footballCustom = (byType.footballCustom ?? []).map((t) => ({ ...t, _type: "football_custom" as const }));
+    return [...football, ...lotto, ...chance, ...footballCustom];
+  })();
+  const typeLabel: Record<string, string> = { football: "מונדיאל", lotto: "לוטו", chance: "צ'אנס", football_custom: "כדורגל" };
+
+  /** שם לתצוגה: אם השם ריק או נראה כמו תאריך/נתונים שבורים – מציגים "סוג תחרות ₪סכום" */
+  function getTournamentDisplayName(
+    t: { name?: string | null; amount?: number; type?: string },
+    typeKey: "football" | "lotto" | "chance" | "football_custom"
+  ): string {
+    const name = (t.name ?? "").trim();
+    const label = typeLabel[typeKey] ?? typeLabel[t.type ?? "football"] ?? "תחרות";
+    const amount = t.amount ?? 0;
+    if (!name) return `${label} ₪${amount}`;
+    if (name.length < 2) return `${label} ₪${amount}`;
+    if (/^[\d\s\/\.\-–—]+$/i.test(name)) return `${label} ₪${amount}`;
+    if (/^\d+\.?\d*\s*[xX]?$/i.test(name)) return `${label} ₪${amount}`;
+    return name;
+  }
+
+  /** תאריך ושעת הגרלה לפורמט קריא – רק אם התאריך תקין */
+  function formatDrawLabelSafe(drawDate: string | null | undefined, drawTime: string | null | undefined): string | null {
+    if (!drawDate?.trim() || !drawTime?.trim()) return null;
+    const date = new Date(drawDate.trim() + "T12:00:00");
+    if (Number.isNaN(date.getTime())) return null;
+    const formatted = date.toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" });
+    return `${formatted} – ${drawTime.trim()}`;
+  }
+
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-x-hidden">
       {/* Hero */}
-      <section className="relative container mx-auto px-4 pt-12 pb-16 md:pt-20 md:pb-24 text-center">
-        <div className="animate-fade-in">
-          <div className="inline-flex items-center justify-center w-28 h-28 rounded-full bg-gradient-to-br from-amber-500/20 to-emerald-600/20 border border-amber-500/30 mb-8 shadow-lg">
-            <Trophy className="w-14 h-14 text-amber-400 drop-shadow" />
+      <section className="relative container mx-auto px-3 sm:px-4 pt-4 pb-6 md:pt-12 md:pb-16 lg:pt-20 lg:pb-24 text-center overflow-x-hidden max-w-full">
+        <div className="animate-fade-in min-w-0">
+          <div className="inline-flex items-center justify-center w-16 h-16 xs:w-20 xs:h-20 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-amber-500/20 to-emerald-600/20 border border-amber-500/30 mb-4 md:mb-8 shadow-lg">
+            <Trophy className="w-8 h-8 xs:w-10 xs:h-10 sm:w-14 sm:h-14 text-amber-400 drop-shadow" />
           </div>
-          <h1 className="text-4xl md:text-6xl lg:text-7xl font-black text-white mb-4 tracking-tight drop-shadow-sm">
+          <h1 className="text-xl xs:text-2xl min-[375px]:text-3xl sm:text-4xl md:text-6xl lg:text-7xl font-black text-white mb-2 md:mb-4 tracking-tight drop-shadow-sm px-1 break-words">
             תחרות ניחושי המונדיאל הגדולה
           </h1>
-          <p className="text-lg md:text-xl text-emerald-200/95 mb-4 max-w-2xl mx-auto font-medium">
+          <p className="text-sm xs:text-base sm:text-lg md:text-xl text-emerald-200/95 mb-2 md:mb-4 max-w-2xl mx-auto font-medium break-words">
             FIFA World Cup 2026 – שלב הבתים
           </p>
-          <p className="text-slate-400 mb-12 max-w-xl mx-auto">
+          <p className="text-slate-400 text-xs sm:text-base mb-6 md:mb-12 max-w-xl mx-auto px-1 break-words">
             בחר טורניר, מלא ניחושים לכל 72 המשחקים, ועקוב אחרי הדירוג והפרסים.
           </p>
         </div>
 
         {/* CTA – בחר טורניר */}
         {!isLoading && hasAny && (
-          <div className="animate-slide-up mb-16">
+          <div className="animate-slide-up mb-8 md:mb-16">
             <Button
               size="lg"
-              className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white text-lg px-10 py-6 rounded-xl shadow-lg hover:shadow-emerald-500/25 transition-all duration-300 btn-sport"
+              className="w-full max-w-xs sm:w-auto min-h-[48px] sm:min-h-[52px] bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white text-base sm:text-lg px-6 sm:px-10 py-5 sm:py-6 rounded-2xl shadow-lg hover:shadow-emerald-500/25 transition-all duration-300 btn-sport touch-target"
               onClick={() => setLocation("/tournaments")}
             >
-              <Trophy className="w-6 h-6 ml-2 text-amber-300" />
+              <Trophy className="w-5 h-5 sm:w-6 sm:h-6 ml-2 text-amber-300 shrink-0" />
               בחר טורניר
             </Button>
           </div>
@@ -128,7 +171,7 @@ export default function Home() {
           <div className="space-y-12 max-w-5xl mx-auto mb-20">
             <div>
               <Skeleton className="h-6 w-48 mx-auto mb-4 rounded" />
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 {[1, 2, 3, 4, 5, 6].map((i) => (
                   <Skeleton key={i} className="h-36 rounded-xl bg-slate-700/50" />
                 ))}
@@ -136,7 +179,7 @@ export default function Home() {
             </div>
             <div>
               <Skeleton className="h-6 w-32 mx-auto mb-4 rounded" />
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 {[1, 2, 3, 4].map((i) => (
                   <Skeleton key={i} className="h-36 rounded-xl bg-slate-700/50" />
                 ))}
@@ -149,8 +192,62 @@ export default function Home() {
             <p className="text-slate-500 text-sm">כשיפתחו תחרויות חדשות הן יופיעו כאן. תוכל לבחור טורניר ולמלא ניחושים ל־72 המשחקים.</p>
           </div>
         ) : (
+          <>
+          {/* מובייל: Grid 2–3 תחרויות בשורה, כרטיסים קומפקטיים */}
+          <div className="md:hidden max-w-6xl mx-auto mb-10 min-w-0 overflow-hidden px-2">
+            <h2 className="text-lg font-bold text-white mb-2 px-0.5">תחרויות פתוחות עכשיו</h2>
+            <div className="grid grid-cols-2 min-[414px]:grid-cols-3 gap-2">
+              {allTournamentsList.map((t) => {
+                const isLocked = t.status === "LOCKED" || t.status === "CLOSED" || t.isLocked;
+                const removalAt = (t as { removalScheduledAt?: string | Date | null }).removalScheduledAt;
+                const closesAt = (t as { closesAt?: Date | number | null }).closesAt;
+                const countdown = isLocked && removalAt ? formatRemaining(removalAt) : null;
+                const drawCountdown = t._type === "lotto" && !isLocked && closesAt != null ? formatRemainingHms(closesAt) : null;
+                const remainingSec = closesAt != null && !isLocked ? getRemainingSeconds(closesAt) : null;
+                const closingSoon = remainingSec != null && remainingSec > 0 && remainingSec < 3600;
+                const popular = (t.participants ?? 0) >= 15;
+                const showHide = canShowHide(t.status);
+                const cardBorder = closingSoon ? "border-amber-500/60" : popular ? "border-emerald-500/40" : "border-slate-600/50";
+                return (
+                  <div key={t.id} className={`relative rounded-lg border bg-slate-800/80 shadow-md overflow-hidden min-w-0 transition-all duration-200 active:scale-[0.99] ${cardBorder}`}>
+                    {showHide && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setHideConfirmId(t.id); }}
+                        className="absolute left-0.5 top-0.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-red-500/90 text-white min-h-[36px] min-w-[36px]"
+                        aria-label="הסתר מדף ראשי"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                    {(closingSoon || popular) && (
+                      <span className="absolute right-0.5 top-0.5 z-[1] text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500/90 text-slate-900 leading-none">
+                        {closingSoon ? "נסגר" : "פופולרי"}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      disabled={isLocked}
+                      onClick={() => !isLocked && setLocation(`/predict/${t.id}`)}
+                      className={`w-full text-right p-2 flex flex-col items-stretch gap-1 min-w-0 min-h-0 ${isLocked ? "opacity-90 cursor-not-allowed" : "active:scale-[0.98]"}`}
+                    >
+                      <p className="text-white font-bold text-xs leading-tight line-clamp-2 break-words">{getTournamentDisplayName(t, t._type)}</p>
+                      <p className="text-amber-400 font-semibold text-[10px] leading-tight">₪{t.prizePool.toLocaleString("he-IL")} פרס</p>
+                      <p className="text-slate-400 text-[10px]">כניסה ₪{t.amount}</p>
+                      {isLocked && countdown != null && <p className="text-red-400 text-[9px] font-mono flex items-center gap-0.5"><Lock className="w-2.5 h-2.5 shrink-0" /> {countdown}</p>}
+                      {!isLocked && drawCountdown != null && <p className="text-amber-400/90 text-[9px] font-mono">⏱ {drawCountdown}</p>}
+                      <span className={`shrink-0 text-[10px] font-bold py-1.5 px-2 rounded-md w-full flex items-center justify-center mt-0.5 min-h-[32px] ${isLocked ? "bg-slate-600 text-slate-400" : "bg-emerald-600 text-white"}`}>
+                        {isLocked ? "סגור" : "שלח טופס"}
+                      </span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <TooltipProvider>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 max-w-6xl mx-auto mb-20 min-w-0 overflow-hidden px-2">
+          <div className="hidden md:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8 max-w-6xl mx-auto mb-16 md:mb-20 min-w-0 overflow-hidden px-1">
             {/* טור 1: מונדיאל */}
             <div className="min-w-0 flex flex-col">
                 <h3 className="text-xl font-bold text-white mb-4 text-center break-words">מונדיאל – ניחושי משחקים</h3>
@@ -184,11 +281,11 @@ export default function Home() {
                           type="button"
                           disabled={isLocked}
                           onClick={() => !isLocked && setLocation(`/predict/${t.id}`)}
-                          className={`card-sport bg-slate-800/60 border-slate-600/50 px-4 py-5 text-center min-w-0 min-h-[140px] flex flex-col items-center justify-center ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40"} animate-slide-up w-full`}
+                          className={`card-sport bg-slate-800/60 border-slate-600/50 px-4 py-5 text-center min-w-0 min-h-[120px] sm:min-h-[140px] flex flex-col items-center justify-center rounded-2xl overflow-hidden w-full max-w-full ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40 active:scale-[0.99]"} animate-slide-up touch-target`}
                           style={{ animationDelay: `${i * 0.05}s` }}
                         >
                         <Trophy className={`w-8 h-8 mx-auto mb-2 shrink-0 ${styles.icon}`} />
-                        <p className="text-white font-bold text-lg break-words min-w-0 leading-tight">{t.name}</p>
+                        <p className="text-white font-bold text-lg break-words min-w-0 leading-tight">{getTournamentDisplayName(t, "football")}</p>
                         {isLocked && countdown != null ? (
                           <>
                             <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1 break-words">
@@ -215,9 +312,11 @@ export default function Home() {
                 <div className="flex flex-col gap-4 min-w-0">
                   {(byType.lotto ?? []).map((t, i) => {
                     const styles = getTournamentStyles(t.amount);
-                    const isLocked = t.status === "LOCKED" || t.isLocked;
+                    const isLocked = t.status === "LOCKED" || t.status === "CLOSED" || t.isLocked;
                     const removalAt = (t as { removalScheduledAt?: string | Date | null }).removalScheduledAt;
+                    const closesAt = (t as { closesAt?: Date | number | null }).closesAt;
                     const countdown = isLocked && removalAt ? formatRemaining(removalAt) : null;
+                    const drawCountdown = !isLocked && closesAt != null ? formatRemainingHms(closesAt) : null;
                     const showHide = canShowHide(t.status);
                     return (
                       <div key={t.id} className="relative group min-w-0">
@@ -242,15 +341,21 @@ export default function Home() {
                           type="button"
                           disabled={isLocked}
                           onClick={() => !isLocked && setLocation(`/predict/${t.id}`)}
-                          className={`card-sport bg-slate-800/60 border-slate-600/50 p-5 text-center min-w-0 overflow-hidden ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40"} animate-slide-up w-full`}
+                          className={`card-sport bg-slate-800/60 border-slate-600/50 p-5 text-center min-w-0 min-h-[120px] sm:min-h-[140px] overflow-hidden flex flex-col items-center justify-center rounded-2xl w-full max-w-full ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40 active:scale-[0.99]"} animate-slide-up touch-target`}
                           style={{ animationDelay: `${i * 0.05}s` }}
                         >
                         <Trophy className={`w-8 h-8 mx-auto mb-2 ${styles.icon}`} />
-                        <p className="text-white font-bold text-lg break-words min-w-0">{t.name}</p>
+                        <p className="text-white font-bold text-lg break-words min-w-0">{getTournamentDisplayName(t, "lotto")}</p>
                         {isLocked && countdown != null ? (
                           <>
-                            <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1"><Lock className="w-4 h-4" /> התחרות ננעלה</p>
+                            <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1"><Lock className="w-4 h-4" /> {t.status === "CLOSED" ? "ההגרלה נסגרה" : "התחרות ננעלה"}</p>
                             <p className="text-red-300 font-black text-xl mt-1">נסגרת בעוד: {countdown}</p>
+                          </>
+                        ) : drawCountdown != null ? (
+                          <>
+                            <p className="text-slate-400 text-sm mt-1">⏳ נסגר בעוד</p>
+                            <p className="text-amber-400 font-black text-xl mt-1 font-mono tabular-nums">{drawCountdown}</p>
+                            <p className="text-slate-500 text-xs mt-2 break-words">{t.participants} משתתפים</p>
                           </>
                         ) : (
                           <>
@@ -273,7 +378,7 @@ export default function Home() {
                     const styles = getTournamentStyles(t.amount);
                     const d = (t as { drawDate?: string | null }).drawDate;
                     const drawTime = (t as { drawTime?: string | null }).drawTime;
-                    const drawLabel = d && drawTime ? `${new Date(d + "T12:00:00").toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" })} – ${drawTime}` : null;
+                    const drawLabel = formatDrawLabelSafe(d, drawTime);
                     const isLocked = t.status === "LOCKED" || t.isLocked;
                     const removalAt = (t as { removalScheduledAt?: string | Date | null }).removalScheduledAt;
                     const countdown = isLocked && removalAt ? formatRemaining(removalAt) : null;
@@ -301,11 +406,11 @@ export default function Home() {
                           type="button"
                           disabled={isLocked}
                           onClick={() => !isLocked && setLocation(`/predict/${t.id}`)}
-                          className={`card-sport bg-slate-800/60 border-slate-600/50 px-4 py-5 text-center min-w-0 min-h-[160px] flex flex-col items-center justify-center ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40"} animate-slide-up w-full`}
+                          className={`card-sport bg-slate-800/60 border-slate-600/50 px-4 py-5 text-center min-w-0 min-h-[120px] sm:min-h-[160px] flex flex-col items-center justify-center rounded-2xl overflow-hidden w-full max-w-full ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40 active:scale-[0.99]"} animate-slide-up touch-target`}
                           style={{ animationDelay: `${i * 0.05}s` }}
                         >
                         <Trophy className={`w-8 h-8 mx-auto mb-2 shrink-0 ${styles.icon}`} />
-                        <p className="text-white font-bold text-base break-words min-w-0 leading-tight">{t.name}</p>
+                        <p className="text-white font-bold text-base break-words min-w-0 leading-tight">{getTournamentDisplayName(t, "chance")}</p>
                         {drawLabel && !isLocked && <p className="text-slate-400 text-xs mt-1 break-words min-w-0 leading-tight">⏰ {drawLabel}</p>}
                         {isLocked && countdown != null ? (
                           <>
@@ -359,11 +464,11 @@ export default function Home() {
                           type="button"
                           disabled={isLocked}
                           onClick={() => !isLocked && setLocation(`/predict/${t.id}`)}
-                          className={`card-sport bg-slate-800/60 border-slate-600/50 px-4 py-5 text-center min-w-0 min-h-[140px] flex flex-col items-center justify-center ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40"} animate-slide-up w-full`}
+                          className={`card-sport bg-slate-800/60 border-slate-600/50 px-4 py-5 text-center min-w-0 min-h-[120px] sm:min-h-[140px] flex flex-col items-center justify-center rounded-2xl overflow-hidden w-full max-w-full ${isLocked ? "opacity-90 cursor-not-allowed border-red-500/40" : "hover:border-emerald-500/40 active:scale-[0.99]"} animate-slide-up touch-target`}
                           style={{ animationDelay: `${i * 0.05}s` }}
                         >
                         <Trophy className={`w-8 h-8 mx-auto mb-2 shrink-0 ${styles.icon}`} />
-                        <p className="text-white font-bold text-lg break-words min-w-0 leading-tight">{t.name}</p>
+                        <p className="text-white font-bold text-lg break-words min-w-0 leading-tight">{getTournamentDisplayName(t, "football_custom")}</p>
                         {isLocked && countdown != null ? (
                           <>
                             <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1 break-words"><Lock className="w-4 h-4 shrink-0" /> התחרות ננעלה</p>
@@ -384,6 +489,7 @@ export default function Home() {
             </div>
           </div>
           </TooltipProvider>
+          </>
         )}
 
         <AlertDialog open={hideConfirmId != null} onOpenChange={(open) => !open && setHideConfirmId(null)}>
@@ -407,12 +513,12 @@ export default function Home() {
         </AlertDialog>
 
         {/* כפתורי משתמש */}
-        <div className="flex gap-4 justify-center flex-wrap">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center flex-wrap px-2">
           {!isAuthenticated && (
             <>
               <Button
                 size="lg"
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-lg px-8 rounded-xl btn-sport"
+                className="w-full sm:w-auto min-h-[48px] bg-emerald-600 hover:bg-emerald-700 text-white text-base sm:text-lg px-8 rounded-2xl btn-sport"
                 onClick={() => setLocation("/register")}
               >
                 הרשמה
@@ -420,7 +526,7 @@ export default function Home() {
               <Button
                 size="lg"
                 variant="outline"
-                className="border-emerald-500 text-emerald-400 hover:bg-emerald-500/20 text-lg px-8 rounded-xl"
+                className="w-full sm:w-auto min-h-[48px] border-emerald-500 text-emerald-400 hover:bg-emerald-500/20 text-base sm:text-lg px-8 rounded-2xl"
                 onClick={() => setLocation("/login")}
               >
                 התחברות
@@ -430,15 +536,15 @@ export default function Home() {
           <Button
             size="lg"
             variant="outline"
-            className="border-slate-500 text-slate-300 hover:bg-slate-700/50 text-lg px-6 rounded-xl"
+            className="w-full sm:w-auto min-h-[48px] border-slate-500 text-slate-300 hover:bg-slate-700/50 text-base sm:text-lg px-6 rounded-2xl"
             onClick={() => setLocation("/tournaments")}
           >
-            כל הטורנירים
+            כל התחרויות
           </Button>
           <Button
             size="lg"
             variant="outline"
-            className="border-amber-500/50 text-amber-400 hover:bg-amber-500/20 text-lg px-6 rounded-xl"
+            className="w-full sm:w-auto min-h-[48px] border-amber-500/50 text-amber-400 hover:bg-amber-500/20 text-base sm:text-lg px-6 rounded-2xl"
             onClick={() => setLocation("/leaderboard")}
           >
             טבלת דירוג

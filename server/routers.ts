@@ -26,6 +26,7 @@ import {
   getTournamentByDrawCode,
   getTournamentByDrawDateAndTime,
   isChanceDrawClosed,
+  drawDateAndTimeToTimestamp,
   getMatches,
   getMatchById,
   updateMatchResult,
@@ -409,10 +410,15 @@ export const appRouter = router({
         const tournament = await getTournamentById(input.tournamentId);
         if (!tournament) throw new TRPCError({ code: "NOT_FOUND" });
         const tournamentStatus = (tournament as { status?: string }).status;
-        if (tournamentStatus !== "OPEN") throw new TRPCError({ code: "BAD_REQUEST", message: "התחרות לא פתוחה לשליחת טפסים" });
+        const tournamentType = (tournament as { type?: string }).type;
+        if (tournamentStatus !== "OPEN") {
+          const msg = tournamentType === "lotto" ? "ההגרלה נסגרה ולא ניתן לשלוח טפסים" : "התחרות לא פתוחה לשליחת טפסים";
+          throw new TRPCError({ code: "BAD_REQUEST", message: msg });
+        }
         const closesAt = (tournament as { closesAt?: Date | null }).closesAt;
         if (closesAt != null && (closesAt instanceof Date ? closesAt.getTime() : Number(closesAt)) <= Date.now()) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "מועד הסגירה עבר – לא ניתן לשלוח טופס" });
+          const msg = tournamentType === "lotto" ? "ההגרלה נסגרה ולא ניתן לשלוח טפסים" : "מועד הסגירה עבר – לא ניתן לשלוח טופס";
+          throw new TRPCError({ code: "BAD_REQUEST", message: msg });
         }
         if (tournament.isLocked) throw new TRPCError({ code: "BAD_REQUEST", message: "הטורניר נעול – לא ניתן לשלוח או לערוך ניחושים" });
         const user = await getUserById(ctx.user.id);
@@ -681,8 +687,17 @@ export const appRouter = router({
         const tournament = await getTournamentById(submission.tournamentId);
         if (!tournament) throw new TRPCError({ code: "NOT_FOUND", message: "תחרות לא נמצאה" });
         const status = (tournament as { status?: string }).status;
+        const tTypeEdit = (tournament as { type?: string }).type;
+        const closesAtEdit = (tournament as { closesAt?: Date | null }).closesAt;
+        const lottoClosed = tTypeEdit === "lotto" && (
+          status !== "OPEN" ||
+          (closesAtEdit != null && (closesAtEdit instanceof Date ? closesAtEdit.getTime() : Number(closesAtEdit)) <= Date.now())
+        );
         if (status !== "OPEN") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "אי אפשר לערוך אחרי סגירת התחרות" });
+          throw new TRPCError({ code: "BAD_REQUEST", message: lottoClosed ? "ההגרלה נסגרה ולא ניתן לערוך טפסים" : "אי אפשר לערוך אחרי סגירת התחרות" });
+        }
+        if (closesAtEdit != null && (closesAtEdit instanceof Date ? closesAtEdit.getTime() : Number(closesAtEdit)) <= Date.now()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: lottoClosed ? "ההגרלה נסגרה ולא ניתן לערוך טפסים" : "מועד הסגירה עבר – לא ניתן לערוך" });
         }
         if (tournament.isLocked) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "הטורניר נעול – לא ניתן לערוך ניחושים" });
@@ -1405,6 +1420,16 @@ export const appRouter = router({
         if (input.type === "lotto" && (!input.drawCode || !String(input.drawCode).trim())) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "בתחרות לוטו חובה להזין מזהה תחרות (לעדכון תוצאות בהמשך)" });
         }
+        if (input.type === "lotto") {
+          if (!input.drawDate?.trim() || !input.drawTime?.trim()) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "בתחרות לוטו חובה לבחור תאריך ושעת סגירת ההגרלה" });
+          }
+          const allowedLottoTimes = ["20:00", "22:30", "23:00", "23:30", "00:00"];
+          const drawTimeTrim = input.drawTime.trim();
+          if (!allowedLottoTimes.includes(drawTimeTrim)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "שעת סגירת הגרלת לוטו חייבת להיות אחת מהשעות: 20:00, 22:30, 23:00, 23:30, 00:00" });
+          }
+        }
         if (input.type === "chance") {
           if (!input.drawDate?.trim() || !input.drawTime?.trim()) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "בתחרות צ'אנס חובה לבחור תאריך ושעת הגרלה" });
@@ -1424,12 +1449,14 @@ export const appRouter = router({
           startsAt: input.startsAt ?? undefined,
           endsAt: input.endsAt ?? undefined,
           opensAt: input.opensAt ?? undefined,
-          closesAt: input.closesAt ?? undefined,
+          closesAt: input.type === "lotto" && input.drawDate?.trim() && input.drawTime?.trim()
+            ? drawDateAndTimeToTimestamp(input.drawDate.trim(), input.drawTime.trim())
+            : input.closesAt ?? undefined,
           maxParticipants: input.maxParticipants ?? undefined,
           prizeDistribution: input.prizeDistribution ?? undefined,
           drawCode: input.drawCode?.trim() || undefined,
-          drawDate: input.type === "chance" ? input.drawDate?.trim() : undefined,
-          drawTime: input.type === "chance" ? input.drawTime?.trim() : undefined,
+          drawDate: input.type === "chance" ? input.drawDate?.trim() : (input.type === "lotto" ? input.drawDate?.trim() : undefined),
+          drawTime: input.type === "chance" ? input.drawTime?.trim() : (input.type === "lotto" ? input.drawTime?.trim() : undefined),
           customIdentifier: input.customIdentifier?.trim() || undefined,
         });
         return { success: true };
