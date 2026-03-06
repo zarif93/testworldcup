@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { trpc } from "@/lib/trpc";
@@ -12,6 +12,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Loader2, Send, LogIn, Trophy } from "lucide-react";
 import { getTournamentStyles } from "@/lib/tournamentStyles";
@@ -88,6 +98,19 @@ export default function PredictionForm() {
   const parsedId = rawId != null && rawId !== "" ? parseInt(String(rawId), 10) : NaN;
   const validId = Number.isFinite(parsedId) && parsedId > 0 ? parsedId : 0;
 
+  const editSubmissionId =
+    typeof window !== "undefined" ? parseInt(new URLSearchParams(window.location.search).get("edit") ?? "", 10) || 0 : 0;
+  const duplicateFromSubmissionId =
+    typeof window !== "undefined" ? parseInt(new URLSearchParams(window.location.search).get("duplicateFrom") ?? "", 10) || 0 : 0;
+  const submissionIdToLoad = editSubmissionId || duplicateFromSubmissionId;
+  const isEditMode = editSubmissionId > 0;
+  const isDuplicateMode = duplicateFromSubmissionId > 0;
+
+  const { data: loadedSubmission } = trpc.submissions.getById.useQuery(
+    { id: submissionIdToLoad },
+    { enabled: submissionIdToLoad > 0 && validId > 0 }
+  );
+
   const { data: tournament, isLoading: tournamentLoading, isFetched: tournamentFetched, isError: tournamentError } = trpc.tournaments.getById.useQuery(
     { id: validId },
     { enabled: validId > 0, retry: false }
@@ -108,7 +131,12 @@ export default function PredictionForm() {
   const { data: mySubmissions } = trpc.submissions.getMine.useQuery(undefined, {
     enabled: !!isAuthenticated && validId > 0,
   });
+  const { data: myEntriesForTournament } = trpc.submissions.getMyEntriesForTournament.useQuery(
+    { tournamentId: validId },
+    { enabled: !!isAuthenticated && validId > 0 }
+  );
   const submitMutation = trpc.submissions.submit.useMutation();
+  const updateMutation = trpc.submissions.update.useMutation();
   const utils = trpc.useUtils();
 
   const drawDate = tournament ? (tournament as { drawDate?: string | null }).drawDate : null;
@@ -135,6 +163,9 @@ export default function PredictionForm() {
   const [notified10, setNotified10] = useState(false);
   const [notified1, setNotified1] = useState(false);
   useEffect(() => {
+    if (validId > 0 && isAuthenticated) utils.auth.me.refetch();
+  }, [validId, isAuthenticated, utils]);
+  useEffect(() => {
     if (!isChance || countdownMs <= 0) return;
     const minLeft = countdownMs / (60 * 1000);
     if (minLeft <= 1 && !notified1) {
@@ -155,10 +186,36 @@ export default function PredictionForm() {
   const [lottoStrong, setLottoStrong] = useState<number | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [hasPreloadedExisting, setHasPreloadedExisting] = useState(false);
+  const [showAddEntryConfirm, setShowAddEntryConfirm] = useState(false);
+  const confirmedAddEntryRef = useRef(false);
 
   useEffect(() => {
     setHasPreloadedExisting(false);
   }, [validId]);
+
+  useEffect(() => {
+    if (submissionIdToLoad <= 0 || !loadedSubmission || loadedSubmission.tournamentId !== validId) return;
+    const pred = loadedSubmission.predictions;
+    const t = tournamentType;
+    if (t === "chance" && pred && typeof pred === "object" && !Array.isArray(pred) && "heart" in pred && "club" in pred) {
+      const p = pred as { heart: string; club: string; diamond: string; spade: string };
+      setChanceCards({ heart: p.heart || "", club: p.club || "", diamond: p.diamond || "", spade: p.spade || "" });
+    } else if (t === "lotto" && pred && typeof pred === "object" && "numbers" in pred && "strongNumber" in pred) {
+      const p = pred as { numbers: number[]; strongNumber: number };
+      if (Array.isArray(p.numbers)) setLottoNumbers([...p.numbers]);
+      if (typeof p.strongNumber === "number") setLottoStrong(p.strongNumber);
+    } else if (Array.isArray(pred) && (t === "football" || t === "football_custom" || !t)) {
+      const byId: Record<number, "1" | "X" | "2"> = {};
+      if (matchesList.length > 0) {
+        for (const m of matchesList) byId[m.id] = "1";
+      }
+      for (const x of pred as Array<{ matchId: number; prediction: "1" | "X" | "2" }>) {
+        byId[x.matchId] = x.prediction;
+      }
+      setPredictions(byId);
+    }
+    setHasPreloadedExisting(true);
+  }, [submissionIdToLoad, loadedSubmission, validId, tournamentType, matchesList]);
 
   useEffect(() => {
     if (validId) {
@@ -170,25 +227,29 @@ export default function PredictionForm() {
 
   useEffect(() => {
     if (!matchesList.length || !validId) return;
-    const myExisting =
-      isAuthenticated && mySubmissions
-        ? mySubmissions.find((s) => s.tournamentId === validId)
-        : null;
-    if (
-      myExisting &&
-      myExisting.predictions &&
-      Array.isArray(myExisting.predictions) &&
-      (myExisting.predictions as Array<{ matchId: number; prediction: "1" | "X" | "2" }>).length === matchesList.length
-    ) {
+    // אחרי טעינה ראשונית – אל תדרוס שינויים של המשתמש (הוא עשוי לרצות לשלוח כניסה נוספת עם ניחושים שונים)
+    if (hasPreloadedExisting) return;
+    const entries = isAuthenticated && myEntriesForTournament?.length ? myEntriesForTournament : [];
+    const hasEntriesAlready = entries.length > 0;
+    const latest = entries[0];
+    // במונדיאל/כדורגל: כשיש כבר כניסות, אל תמלא מהכניסה האחרונה — תציג טופס ריק (או sessionStorage) כדי שהמשתמש ימלא כניסה חדשה בלי דריסה
+    const shouldPreloadFromLatest =
+      latest &&
+      latest.predictions &&
+      Array.isArray(latest.predictions) &&
+      (latest.predictions as Array<{ matchId: number; prediction: "1" | "X" | "2" }>).length === matchesList.length &&
+      (!hasEntriesAlready || isChance || isLotto);
+    if (shouldPreloadFromLatest) {
       const byId: Record<number, "1" | "X" | "2"> = {};
-      for (const p of myExisting.predictions as Array<{ matchId: number; prediction: "1" | "X" | "2" }>) {
+      for (const m of matchesList) byId[m.id] = "1";
+      for (const p of latest.predictions as Array<{ matchId: number; prediction: "1" | "X" | "2" }>) {
         byId[p.matchId] = p.prediction;
       }
       setPredictions(byId);
       setHasPreloadedExisting(true);
       return;
     }
-    if (isAuthenticated && mySubmissions) {
+    if (isAuthenticated && (mySubmissions || hasEntriesAlready)) {
       setHasPreloadedExisting(true);
     }
     const stored = sessionStorage.getItem(PREDICTIONS_STORAGE_KEY(validId));
@@ -206,24 +267,26 @@ export default function PredictionForm() {
     const init: Record<number, "1" | "X" | "2"> = {};
     for (const m of matchesList) init[m.id] = "1";
     setPredictions(init);
-  }, [matchesList, validId, isAuthenticated, mySubmissions, hasPreloadedExisting]);
+  }, [matchesList, validId, isAuthenticated, mySubmissions, myEntriesForTournament, hasPreloadedExisting, isChance, isLotto]);
 
   useEffect(() => {
     if (!isChance || !validId) return;
-    const myExisting = isAuthenticated && mySubmissions ? mySubmissions.find((s) => s.tournamentId === validId) : null;
-    const pred = myExisting?.predictions;
+    const entries = isAuthenticated && myEntriesForTournament?.length ? myEntriesForTournament : [];
+    const latest = entries[0];
+    const pred = latest?.predictions;
     if (pred && typeof pred === "object" && !Array.isArray(pred) && "heart" in pred && "club" in pred && "diamond" in pred && "spade" in pred) {
       const p = pred as { heart: string; club: string; diamond: string; spade: string };
       if (CHANCE_CARDS.includes(p.heart as ChanceCard) && CHANCE_CARDS.includes(p.club as ChanceCard) && CHANCE_CARDS.includes(p.diamond as ChanceCard) && CHANCE_CARDS.includes(p.spade as ChanceCard)) {
         setChanceCards({ heart: p.heart as ChanceCard, club: p.club as ChanceCard, diamond: p.diamond as ChanceCard, spade: p.spade as ChanceCard });
       }
     }
-  }, [isChance, validId, isAuthenticated, mySubmissions]);
+  }, [isChance, validId, isAuthenticated, myEntriesForTournament]);
 
   useEffect(() => {
     if (!isLotto || !validId) return;
-    const myExisting = isAuthenticated && mySubmissions ? mySubmissions.find((s) => s.tournamentId === validId) : null;
-    const pred = myExisting?.predictions;
+    const entries = isAuthenticated && myEntriesForTournament?.length ? myEntriesForTournament : [];
+    const latest = entries[0];
+    const pred = latest?.predictions;
     if (pred && typeof pred === "object" && !Array.isArray(pred) && "numbers" in pred && "strongNumber" in pred) {
       const p = pred as { numbers: number[]; strongNumber: number };
       if (Array.isArray(p.numbers) && p.numbers.length === 6 && p.numbers.every((n) => n >= 1 && n <= 37) && new Set(p.numbers).size === 6 && p.strongNumber >= 1 && p.strongNumber <= 7) {
@@ -231,7 +294,7 @@ export default function PredictionForm() {
         setLottoStrong(p.strongNumber);
       }
     }
-  }, [isLotto, validId, isAuthenticated, mySubmissions]);
+  }, [isLotto, validId, isAuthenticated, myEntriesForTournament]);
 
   if (!validId) {
     return (
@@ -279,6 +342,60 @@ export default function PredictionForm() {
       setShowLoginModal(true);
       return;
     }
+    if (isEditMode && editSubmissionId > 0) {
+      try {
+        if (isLotto) {
+          if (lottoNumbers.length !== 6 || lottoStrong == null || lottoStrong < 1 || lottoStrong > 7) {
+            toast.error("יש לבחור בדיוק 6 מספרים (1–37) ומספר חזק אחד (1–7)");
+            return;
+          }
+          await updateMutation.mutateAsync({
+            submissionId: editSubmissionId,
+            predictionsLotto: { numbers: lottoNumbers, strongNumber: lottoStrong },
+          });
+        } else if (isChance) {
+          if (!chanceCards.heart || !chanceCards.club || !chanceCards.diamond || !chanceCards.spade) {
+            toast.error("יש לבחור קלף אחד מכל צורה (לב, תלתן, יהלום, עלה)");
+            return;
+          }
+          await updateMutation.mutateAsync({
+            submissionId: editSubmissionId,
+            predictionsChance: {
+              heart: chanceCards.heart as "7" | "8" | "9" | "10" | "J" | "Q" | "K" | "A",
+              club: chanceCards.club as "7" | "8" | "9" | "10" | "J" | "Q" | "K" | "A",
+              diamond: chanceCards.diamond as "7" | "8" | "9" | "10" | "J" | "Q" | "K" | "A",
+              spade: chanceCards.spade as "7" | "8" | "9" | "10" | "J" | "Q" | "K" | "A",
+            },
+          });
+        } else {
+          const preds = Object.entries(predictions).map(([matchId, prediction]) => ({
+            matchId: Number(matchId),
+            prediction,
+          }));
+          if (preds.length !== matchesList.length) {
+            toast.error(`יש למלא ניחוש לכל ${matchesList.length} המשחקים`);
+            return;
+          }
+          await updateMutation.mutateAsync({ submissionId: editSubmissionId, predictions: preds });
+        }
+        await utils.submissions.getAll.invalidate();
+        await utils.submissions.getMine.invalidate();
+        await utils.submissions.getByTournament.invalidate({ tournamentId: validId });
+        await utils.submissions.getMyEntriesForTournament.invalidate({ tournamentId: validId });
+        toast.success("הטופס עודכן בהצלחה (ללא חיוב)");
+        setLocation("/submissions");
+      } catch (e: unknown) {
+        const err = e as { message?: string };
+        toast.error(err instanceof Error ? err.message : "שגיאה");
+      }
+      return;
+    }
+    if (hasEntries && entryCost > 0 && !confirmedAddEntryRef.current) {
+      setShowAddEntryConfirm(true);
+      return;
+    }
+    confirmedAddEntryRef.current = false;
+    setShowAddEntryConfirm(false);
     if (isLotto) {
       if (lottoNumbers.length !== 6 || lottoStrong == null || lottoStrong < 1 || lottoStrong > 7) {
         toast.error("יש לבחור בדיוק 6 מספרים (1–37) ומספר חזק אחד (1–7)");
@@ -288,14 +405,22 @@ export default function PredictionForm() {
         const result = await submitMutation.mutateAsync({
           tournamentId: validId,
           predictionsLotto: { numbers: lottoNumbers, strongNumber: lottoStrong },
+          idempotencyKey: `sub-${validId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
         });
         sessionStorage.removeItem(PREDICTIONS_STORAGE_KEY(validId));
         await utils.submissions.getAll.invalidate();
         await utils.submissions.getMine.invalidate();
+        await utils.submissions.getMyEntriesForTournament.invalidate({ tournamentId: validId });
+        await utils.auth.me.invalidate();
+        const balanceAfter = (result as { balanceAfter?: number }).balanceAfter;
+        if (typeof balanceAfter === "number") {
+          const prev = utils.auth.me.getData();
+          if (prev != null) utils.auth.me.setData(undefined, { ...prev, points: balanceAfter });
+        }
         if ((result as { pendingApproval?: boolean }).pendingApproval) {
           toast.success("הטופס נשלח וממתין לאישור מנהל.");
         } else {
-          toast.success(isEditing ? "הטופס עודכן בהצלחה" : "הטופס נשלח בהצלחה!");
+          toast.success(hasEntries ? "כניסה נוספת נשלחה בהצלחה!" : "הטופס נשלח בהצלחה!");
         }
         setLocation("/");
       } catch (e: unknown) {
@@ -318,14 +443,22 @@ export default function PredictionForm() {
             diamond: chanceCards.diamond as "7" | "8" | "9" | "10" | "J" | "Q" | "K" | "A",
             spade: chanceCards.spade as "7" | "8" | "9" | "10" | "J" | "Q" | "K" | "A",
           },
+          idempotencyKey: `sub-${validId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
         });
         sessionStorage.removeItem(PREDICTIONS_STORAGE_KEY(validId));
         await utils.submissions.getAll.invalidate();
         await utils.submissions.getMine.invalidate();
+        await utils.submissions.getMyEntriesForTournament.invalidate({ tournamentId: validId });
+        await utils.auth.me.invalidate();
+        const balanceAfterChance = (result as { balanceAfter?: number }).balanceAfter;
+        if (typeof balanceAfterChance === "number") {
+          const prev = utils.auth.me.getData();
+          if (prev != null) utils.auth.me.setData(undefined, { ...prev, points: balanceAfterChance });
+        }
         if ((result as { pendingApproval?: boolean }).pendingApproval) {
           toast.success("הטופס נשלח וממתין לאישור מנהל.");
         } else {
-          toast.success(isEditing ? "הטופס עודכן בהצלחה" : "הטופס נשלח בהצלחה!");
+          toast.success(hasEntries ? "כניסה נוספת נשלחה בהצלחה!" : "הטופס נשלח בהצלחה!");
         }
         setLocation("/");
       } catch (e: unknown) {
@@ -343,15 +476,26 @@ export default function PredictionForm() {
       return;
     }
     try {
-      const result = await submitMutation.mutateAsync({ tournamentId: validId, predictions: preds });
+      const result = await submitMutation.mutateAsync({
+        tournamentId: validId,
+        predictions: preds,
+        idempotencyKey: `sub-${validId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      });
       sessionStorage.removeItem(PREDICTIONS_STORAGE_KEY(validId));
       await utils.submissions.getAll.invalidate();
       await utils.submissions.getMine.invalidate();
       await utils.submissions.getByTournament.invalidate({ tournamentId: validId });
+      await utils.submissions.getMyEntriesForTournament.invalidate({ tournamentId: validId });
+      await utils.auth.me.invalidate();
+      const balanceAfterDefault = (result as { balanceAfter?: number }).balanceAfter;
+      if (typeof balanceAfterDefault === "number") {
+        const prev = utils.auth.me.getData();
+        if (prev != null) utils.auth.me.setData(undefined, { ...prev, points: balanceAfterDefault });
+      }
       if ((result as { pendingApproval?: boolean }).pendingApproval) {
         toast.success("הטופס נשלח וממתין לאישור מנהל.");
       } else {
-        toast.success(isEditing ? "הטופס עודכן בהצלחה" : "הטופס נשלח בהצלחה! נוספת לטבלת הדירוג.");
+        toast.success(hasEntries ? "כניסה נוספת נשלחה בהצלחה!" : "הטופס נשלח בהצלחה! נוספת לטבלת הדירוג.");
       }
       setLocation("/");
     } catch (e: unknown) {
@@ -382,19 +526,10 @@ export default function PredictionForm() {
       ? lottoNumbers.length === 6 && lottoStrong != null && lottoStrong >= 1 && lottoStrong <= 7
       : matchesList.length > 0 && Object.keys(predictions).length === matchesList.length;
   const styles = getTournamentStyles(tournament.amount);
-  const isEditing =
-    !!isAuthenticated &&
-    !!mySubmissions?.find((s) => s.tournamentId === validId);
-  const cost = (tournament as { amount?: number }).amount ?? 0;
+  const entryCost = (tournament as { entryCostPoints?: number }).entryCostPoints ?? (tournament as { amount?: number }).amount ?? 0;
+  const hasEntries = !!isAuthenticated && (myEntriesForTournament?.length ?? 0) > 0;
   const hasEnoughPoints =
-    user?.role === "admin" || (typeof user?.points === "number" && user.points >= cost);
-  const showPendingApprovalMessage =
-    !!isAuthenticated &&
-    !!user &&
-    user.role !== "admin" &&
-    typeof user.points === "number" &&
-    cost > 0 &&
-    user.points < cost;
+    user?.role === "admin" || (typeof user?.points === "number" && user.points >= entryCost);
 
   return (
     <div className="min-h-screen py-8">
@@ -421,9 +556,14 @@ export default function PredictionForm() {
           </div>
         )}
 
-        {showPendingApprovalMessage && (
+        {isEditMode && (
+          <div className="bg-emerald-500/20 border border-emerald-500/50 rounded-xl p-4 mb-6 text-emerald-200 flex items-center gap-2">
+            ✏️ מצב עריכה – עדכון הטופס לא יחייב חיוב נוסף.
+          </div>
+        )}
+        {isDuplicateMode && (
           <div className="bg-amber-500/20 border border-amber-500/50 rounded-xl p-4 mb-6 text-amber-200 flex items-center gap-2">
-            💎 אין מספיק נקודות ({user?.points ?? 0} / {cost}). הטופס יישלח וימתין לאישור מנהל.
+            📋 מצב שכפול – שליחה תיצור טופס חדש ותחייב {entryCost} נקודות.
           </div>
         )}
 
@@ -564,16 +704,16 @@ export default function PredictionForm() {
         <div className="mt-8 flex justify-center">
           <Button
             size="lg"
-            disabled={!allFilled || tournament.isLocked || (isChance && chanceDrawClosedForUI) || submitMutation.isPending}
+            disabled={!allFilled || tournament.isLocked || (isChance && chanceDrawClosedForUI) || submitMutation.isPending || updateMutation.isPending}
             onClick={handleSubmit}
             className={`rounded-xl shadow-lg btn-sport text-lg px-10 ${styles.button}`}
           >
-            {submitMutation.isPending ? (
+            {submitMutation.isPending || updateMutation.isPending ? (
               <Loader2 className="w-5 h-5 animate-spin ml-2" />
             ) : (
               <Send className="w-5 h-5 ml-2" />
             )}
-            {isEditing ? "עדכן טופס" : "שלח טופס"}
+            {isEditMode ? "עדכן טופס (ללא חיוב)" : hasEntries ? "הוסף כניסה" : "שלח טופס"}
           </Button>
         </div>
       </div>
@@ -597,6 +737,30 @@ export default function PredictionForm() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={showAddEntryConfirm} onOpenChange={setShowAddEntryConfirm}>
+        <AlertDialogContent className="bg-slate-900 border-slate-700 text-white rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>כניסה נוספת</AlertDialogTitle>
+            <AlertDialogDescription>
+              פעולה זו תיצור כניסה נוספת לתחרות ותוריד {entryCost} נקודות מיתרתך. להמשיך?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-xl">ביטול</AlertDialogCancel>
+            <AlertDialogAction
+              className="rounded-xl bg-emerald-600 hover:bg-emerald-700"
+              onClick={() => {
+                setShowAddEntryConfirm(false);
+                confirmedAddEntryRef.current = true;
+                handleSubmit();
+              }}
+            >
+              המשך
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

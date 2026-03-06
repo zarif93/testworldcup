@@ -4,12 +4,13 @@
 
 const BOM = "\uFEFF";
 
+/** מניעת CSV Injection: שדה שמתחיל ב-=+@\t\r מקבל prefix גרש כדי שב-Excel לא יופעלו נוסחאות */
 function escapeCsvCell(value: string | number | null | undefined): string {
   const s = String(value ?? "");
-  if (s.includes('"') || s.includes(",") || s.includes("\n") || s.includes("\r")) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
+  const quoted = s.includes('"') || s.includes(",") || s.includes("\n") || s.includes("\r");
+  const safe = quoted ? `"${s.replace(/"/g, '""')}"` : s;
+  if (/^[=+\-@\t\r]/.test(s)) return `'${safe}`;
+  return safe;
 }
 
 function rowToCsvLine(cells: Array<string | number | null | undefined>): string {
@@ -91,6 +92,108 @@ export type PlayerPnLTransaction = {
   kind: "profit" | "loss";
   referenceId?: number | null;
 };
+
+export type AdminPnLReportRow = {
+  id: number;
+  createdAt: Date | null;
+  actionType: string;
+  playerName: string | null;
+  agentName: string | null;
+  tournamentType: string | null;
+  participationAmount: number;
+  prizeAmount: number;
+  siteCommission: number;
+  agentCommission: number;
+  pointsDelta: number;
+  balanceAfter: number;
+};
+
+export function adminPnLReportToCsv(rows: AdminPnLReportRow[]): string {
+  const lines: string[] = [];
+  lines.push(rowToCsvLine(["דוח רווח והפסד – תנועות מלאות (מנהל)"]));
+  lines.push("");
+  lines.push(
+    rowToCsvLine([
+      "תאריך ושעה",
+      "סוג פעולה",
+      "שם שחקן",
+      "שם סוכן",
+      "סוג תחרות",
+      "סכום השתתפות",
+      "זכייה",
+      "עמלת אתר",
+      "עמלת סוכן",
+      "שינוי נקודות",
+      "יתרה לאחר פעולה",
+      "מזהה רשומה",
+    ])
+  );
+  for (const r of rows) {
+    const dateStr = r.createdAt ? r.createdAt.toISOString().slice(0, 19).replace("T", " ") : "";
+    lines.push(
+      rowToCsvLine([
+        dateStr,
+        r.actionType,
+        r.playerName ?? "",
+        r.agentName ?? "",
+        r.tournamentType ?? "",
+        r.participationAmount || "",
+        r.prizeAmount || "",
+        r.siteCommission || "",
+        r.agentCommission || "",
+        r.pointsDelta,
+        r.balanceAfter,
+        r.id,
+      ])
+    );
+  }
+  return BOM + lines.join("\r\n");
+}
+
+export type AgentPnLReportRow = {
+  id: number;
+  createdAt: Date | null;
+  playerName: string | null;
+  tournamentType: string | null;
+  participationAmount: number;
+  agentCommission: number;
+  pointsDelta: number;
+  agentBalanceAfter: number;
+};
+
+export function agentPnLReportToCsv(rows: AgentPnLReportRow[]): string {
+  const lines: string[] = [];
+  lines.push(rowToCsvLine(["דוח רווח והפסד – סוכן (תנועות + עמלות)"]));
+  lines.push("");
+  lines.push(
+    rowToCsvLine([
+      "תאריך",
+      "שם שחקן",
+      "סוג תחרות",
+      "סכום השתתפות",
+      "עמלת סוכן",
+      "שינוי נקודות",
+      "יתרת סוכן",
+      "מזהה רשומה",
+    ])
+  );
+  for (const r of rows) {
+    const dateStr = r.createdAt ? r.createdAt.toISOString().slice(0, 19).replace("T", " ") : "";
+    lines.push(
+      rowToCsvLine([
+        dateStr,
+        r.playerName ?? "",
+        r.tournamentType ?? "",
+        r.participationAmount || "",
+        r.agentCommission || "",
+        r.pointsDelta || "",
+        r.agentBalanceAfter,
+        r.id,
+      ])
+    );
+  }
+  return BOM + lines.join("\r\n");
+}
 
 export function playerPnLToCsv(
   transactions: PlayerPnLTransaction[],

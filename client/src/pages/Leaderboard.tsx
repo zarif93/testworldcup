@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, type ReactElement } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -37,26 +37,43 @@ function RankBadge({ rank, isApproved }: { rank: number; isApproved: boolean }) 
 
 type TournamentLike = { id: number; name: string; amount: number; type?: string; status?: string; resultsFinalizedAt?: Date | string | null; dataCleanedAt?: Date | string | null };
 
+type PublicTournamentType = "WORLD_CUP" | "FOOTBALL" | "CHANCE" | "LOTTO";
+
+function parseTournamentTypeParam(raw: string | null): PublicTournamentType | null {
+  if (!raw) return null;
+  const t = raw.trim().toUpperCase();
+  if (t === "WORLD_CUP" || t === "WORLDCUP") return "WORLD_CUP";
+  if (t === "FOOTBALL") return "FOOTBALL";
+  if (t === "CHANCE") return "CHANCE";
+  if (t === "LOTTO") return "LOTTO";
+  return null;
+}
+
+function tabLabel(tab: PublicTournamentType): string {
+  if (tab === "WORLD_CUP") return "מונדיאל";
+  if (tab === "FOOTBALL") return "תחרות כדורגל";
+  if (tab === "CHANCE") return "צ'אנס";
+  return "לוטו";
+}
+
 /** כרטיס דירוג בודד לטורניר – טוען דאטה לפי סוג התחרות */
 function SingleTournamentLeaderboardCard({
   tournament,
   tabId,
   onViewSubmission,
   statusBadge,
-  byTournament,
 }: {
   tournament: TournamentLike;
-  tabId: "chance" | "lotto" | "mondial" | "football_custom";
+  tabId: PublicTournamentType;
   onViewSubmission: (id: number) => void;
-  statusBadge: (status: string) => JSX.Element;
-  byTournament: (tid: number) => Array<{ id: number; username: string; status: string; points: number; updatedAt: Date | string }>;
+  statusBadge: (status: string) => ReactElement;
 }) {
   const t = tournament;
   const st = getTournamentStyles(t.amount);
-  const isChance = tabId === "chance";
-  const isLotto = tabId === "lotto";
-  const isFootballCustom = tabId === "football_custom";
-  const isMondial = tabId === "mondial";
+  const isChance = tabId === "CHANCE";
+  const isLotto = tabId === "LOTTO";
+  const isFootballCustom = tabId === "FOOTBALL";
+  const isMondial = tabId === "WORLD_CUP";
 
   const [isCardOpen, setIsCardOpen] = useState(true);
 
@@ -72,7 +89,21 @@ function SingleTournamentLeaderboardCard({
     { tournamentId: t.id },
     { enabled: isFootballCustom && t.id > 0 }
   );
-  const list = isMondial ? byTournament(t.id) : [];
+  const { data: mondialSubs } = trpc.submissions.getByTournament.useQuery(
+    { tournamentId: t.id },
+    { enabled: isMondial && t.id > 0 }
+  );
+  const list = useMemo(() => {
+    if (isMondial && mondialSubs) {
+      return [...mondialSubs].sort((a, b) => {
+        if (a.status === "approved" && b.status !== "approved") return -1;
+        if (a.status !== "approved" && b.status === "approved") return 1;
+        if (a.status === "approved" && b.status === "approved") return b.points - a.points;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
+    }
+    return [];
+  }, [isMondial, mondialSubs]);
 
   const tour = t as { resultsFinalizedAt?: Date | string | null; dataCleanedAt?: Date | string | null; status?: string };
   const finalizedAt = tour.resultsFinalizedAt ? new Date(tour.resultsFinalizedAt).getTime() : 0;
@@ -86,7 +117,7 @@ function SingleTournamentLeaderboardCard({
           <div className="min-w-0 flex-1">
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               {isChance ? <Sparkles className="w-6 h-6 text-amber-400 shrink-0" /> : <Trophy className={`w-6 h-6 shrink-0 ${st.icon}`} />}
-              {t.name} – דירוג {isChance ? "צ'אנס" : isLotto ? "לוטו" : isFootballCustom ? "תחרות כדורגל" : "מונדיאל"}
+              {t.name} – דירוג {tabLabel(tabId)}
             </h2>
             {isChance && chanceLeaderboard?.drawResult && (
               <p className="text-slate-400 text-sm mt-1">
@@ -171,8 +202,9 @@ function SingleTournamentLeaderboardCard({
                   <tr className="border-b border-slate-600/50 text-slate-400 text-sm bg-slate-800/40">
                     <th className="p-3 font-medium w-24">מיקום</th>
                     <th className="p-3 font-medium">שם משתמש</th>
-                    <th className="p-3 font-medium">פגיעות (0–6)</th>
+                    <th className="p-3 font-medium">ניחושים נכונים</th>
                     <th className="p-3 font-medium">מספר חזק</th>
+                    <th className="p-3 font-medium">ניקוד סופי</th>
                     <th className="p-3 font-medium">סטטוס</th>
                     <th className="p-3 font-medium">סכום זכייה</th>
                     <th className="p-3 w-14"></th>
@@ -182,17 +214,51 @@ function SingleTournamentLeaderboardCard({
                   {lottoLeaderboard.rows?.length === 0 ? (
                     <tr><td colSpan={7} className="p-8 text-center text-slate-500">אין משתתפים או שעדיין לא עודכנו תוצאות.</td></tr>
                   ) : (
-                    lottoLeaderboard.rows?.map((row, i) => (
-                      <tr key={row.submissionId} onClick={() => onViewSubmission(row.submissionId)} className="border-b border-slate-700/40 hover:bg-slate-700/40 transition-colors cursor-pointer">
-                        <td className="p-3"><span className="text-slate-400 font-bold">#{i + 1}</span></td>
-                        <td className="p-3 text-white font-medium">{row.username}</td>
-                        <td className="p-3"><span className="text-emerald-400 font-bold">{row.points}</span><span className="text-slate-500 text-sm mr-1">/ 6</span></td>
-                        <td className="p-3">{row.strongHit ? <span className="text-amber-400">כן</span> : <span className="text-slate-500">לא</span>}</td>
-                        <td className="p-3">{row.isWinner ? <Badge className="bg-amber-600/90 text-white rounded-lg">זוכה</Badge> : <span className="text-slate-500">לא זוכה</span>}</td>
-                        <td className="p-3">{row.prizeAmount > 0 ? <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span> : <span className="text-slate-500">—</span>}</td>
-                        <td className="p-3"><button type="button" onClick={(e) => { e.stopPropagation(); onViewSubmission(row.submissionId); }} className="text-slate-400 hover:text-emerald-400 p-1.5 rounded-lg hover:bg-slate-600/50" title="צפייה בניחושים"><Eye className="w-4 h-4" /></button></td>
-                      </tr>
-                    ))
+                    lottoLeaderboard.rows?.map((row, i) => {
+                      const baseHits = row.points - (row.strongHit ? 1 : 0);
+                      const finalScore = row.points;
+                      return (
+                        <tr
+                          key={row.submissionId}
+                          onClick={() => onViewSubmission(row.submissionId)}
+                          className="border-b border-slate-700/40 hover:bg-slate-700/40 transition-colors cursor-pointer"
+                        >
+                          <td className="p-3"><span className="text-slate-400 font-bold">#{i + 1}</span></td>
+                          <td className="p-3 text-white font-medium">{row.username}</td>
+                          <td className="p-3">
+                            <span className="text-emerald-400 font-bold">{baseHits}</span>
+                            <span className="text-slate-500 text-sm mr-1">/ 6</span>
+                          </td>
+                          <td className="p-3">{row.strongHit ? <span className="text-amber-400">נכון</span> : <span className="text-slate-500">לא</span>}</td>
+                          <td className="p-3">
+                            <span className="text-emerald-300 font-bold">{finalScore}</span>
+                          </td>
+                          <td className="p-3">
+                            {row.isWinner ? <Badge className="bg-amber-600/90 text-white rounded-lg">זוכה</Badge> : <span className="text-slate-500">לא זוכה</span>}
+                          </td>
+                          <td className="p-3">
+                            {row.prizeAmount > 0 ? (
+                              <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span>
+                            ) : (
+                              <span className="text-slate-500">—</span>
+                            )}
+                          </td>
+                          <td className="p-3">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onViewSubmission(row.submissionId);
+                              }}
+                              className="text-slate-400 hover:text-emerald-400 p-1.5 rounded-lg hover:bg-slate-600/50"
+                              title="צפייה בניחושים"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -282,51 +348,61 @@ function SingleTournamentLeaderboardCard({
 }
 
 export default function Leaderboard() {
-  const [, setLocation] = useLocation();
-  const { user } = useAuth();
+  const [location] = useLocation();
+  useAuth();
 
   const [viewSubmissionId, setViewSubmissionId] = useState<number | null>(null);
-  const { data: tournaments, isLoading: tournamentsLoading } = trpc.tournaments.getAll.useQuery();
-  const { data: submissions } = trpc.submissions.getAll.useQuery();
 
-  const sortedTournaments = tournaments?.slice().sort((a, b) => a.amount - b.amount) ?? [];
-  const chanceTournaments = sortedTournaments.filter((t) => (t as { type?: string }).type === "chance");
-  const lottoTournaments = sortedTournaments.filter((t) => (t as { type?: string }).type === "lotto");
-  const mondialTournaments = sortedTournaments.filter((t) => {
-    const type = (t as { type?: string }).type;
-    return type === "football" || type === undefined;
-  });
-  const footballCustomTournaments = sortedTournaments.filter((t) => (t as { type?: string }).type === "football_custom");
+  const search = useMemo(() => {
+    const idx = location.indexOf("?");
+    return idx >= 0 ? location.slice(idx + 1) : "";
+  }, [location]);
+  const tournamentTypeParam = useMemo(() => parseTournamentTypeParam(new URLSearchParams(search).get("tournamentType")), [search]);
 
-  const TAB_IDS = ["chance", "lotto", "mondial", "football_custom"] as const;
-  const [activeTab, setActiveTab] = useState<(typeof TAB_IDS)[number]>("chance");
+  const TAB_IDS = ["WORLD_CUP", "FOOTBALL", "CHANCE", "LOTTO"] as const;
+  const [activeTab, setActiveTab] = useState<(typeof TAB_IDS)[number]>(tournamentTypeParam ?? "WORLD_CUP");
 
   useEffect(() => {
-    if (chanceTournaments.length > 0 || lottoTournaments.length > 0 || mondialTournaments.length > 0 || footballCustomTournaments.length > 0) {
-      const currentHasTournaments =
-        (activeTab === "chance" && chanceTournaments.length > 0) ||
-        (activeTab === "lotto" && lottoTournaments.length > 0) ||
-        (activeTab === "mondial" && mondialTournaments.length > 0) ||
-        (activeTab === "football_custom" && footballCustomTournaments.length > 0);
-      if (!currentHasTournaments) {
-        if (chanceTournaments.length > 0) setActiveTab("chance");
-        else if (lottoTournaments.length > 0) setActiveTab("lotto");
-        else if (mondialTournaments.length > 0) setActiveTab("mondial");
-        else if (footballCustomTournaments.length > 0) setActiveTab("football_custom");
-      }
+    if (tournamentTypeParam && tournamentTypeParam !== activeTab) {
+      setActiveTab(tournamentTypeParam);
     }
-  }, [chanceTournaments.length, lottoTournaments.length, mondialTournaments.length, footballCustomTournaments.length, activeTab]);
+  }, [tournamentTypeParam, activeTab]);
 
-  const tabValue = activeTab;
-  const byTournament = (tid: number) =>
-    (submissions ?? [])
-      .filter((s) => s.tournamentId === tid)
-      .sort((a, b) => {
-        if (a.status === "approved" && b.status !== "approved") return -1;
-        if (a.status !== "approved" && b.status === "approved") return 1;
-        if (a.status === "approved" && b.status === "approved") return b.points - a.points;
-        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-      });
+  const { data: worldCupTournaments, isLoading: worldCupLoading } = trpc.tournaments.getByType.useQuery(
+    { tournamentType: "WORLD_CUP" },
+    { enabled: activeTab === "WORLD_CUP" }
+  );
+  const { data: footballTournaments, isLoading: footballLoading } = trpc.tournaments.getByType.useQuery(
+    { tournamentType: "FOOTBALL" },
+    { enabled: activeTab === "FOOTBALL" }
+  );
+  const { data: chanceTournaments, isLoading: chanceLoading } = trpc.tournaments.getByType.useQuery(
+    { tournamentType: "CHANCE" },
+    { enabled: activeTab === "CHANCE" }
+  );
+  const { data: lottoTournaments, isLoading: lottoLoading } = trpc.tournaments.getByType.useQuery(
+    { tournamentType: "LOTTO" },
+    { enabled: activeTab === "LOTTO" }
+  );
+
+  const tournamentsLoading =
+    (activeTab === "WORLD_CUP" && worldCupLoading) ||
+    (activeTab === "FOOTBALL" && footballLoading) ||
+    (activeTab === "CHANCE" && chanceLoading) ||
+    (activeTab === "LOTTO" && lottoLoading);
+
+  const activeTournamentsUnsorted =
+    activeTab === "WORLD_CUP"
+      ? (worldCupTournaments ?? [])
+      : activeTab === "FOOTBALL"
+        ? (footballTournaments ?? [])
+        : activeTab === "CHANCE"
+          ? (chanceTournaments ?? [])
+          : (lottoTournaments ?? []);
+  const activeTournaments = useMemo(
+    () => activeTournamentsUnsorted.slice().sort((a, b) => a.amount - b.amount),
+    [activeTournamentsUnsorted]
+  );
 
   const statusBadge = (status: string) => {
     if (status === "approved")
@@ -358,7 +434,7 @@ export default function Leaderboard() {
           <div>
             <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 flex items-center gap-2 animate-fade-in">
               <Trophy className="w-9 h-9 text-amber-400" />
-              טבלת דירוג
+              טבלת דירוג – {tabLabel(activeTab)}
             </h1>
             <p className="text-slate-400">
               כל הטפסים מופיעים מיד בדירוג. רק טפסים שאושרו נספרים במיקום לפי ניקוד.
@@ -370,60 +446,46 @@ export default function Leaderboard() {
           <div className="flex justify-center py-16">
             <p className="text-slate-400">טוען טורנירים...</p>
           </div>
-        ) : sortedTournaments.length === 0 ? (
-          <p className="text-slate-500 text-center py-12">אין טורנירים להצגה.</p>
         ) : (
-        <Tabs value={tabValue} onValueChange={(v) => setActiveTab(v as (typeof TAB_IDS)[number])} className="space-y-4">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as (typeof TAB_IDS)[number])} className="space-y-4">
           <TabsList className="bg-slate-800/80 border border-slate-600/50 flex flex-wrap gap-1 p-1 rounded-xl">
-            <TabsTrigger value="chance" className="rounded-lg data-[state=active]:bg-amber-600/80 data-[state=active]:text-white">
-              <Trophy className="w-4 h-4 ml-1" />
-              צ'אנס
-            </TabsTrigger>
-            <TabsTrigger value="lotto" className="rounded-lg data-[state=active]:bg-emerald-600/80 data-[state=active]:text-white">
-              <Trophy className="w-4 h-4 ml-1" />
-              לוטו
-            </TabsTrigger>
-            <TabsTrigger value="mondial" className="rounded-lg data-[state=active]:bg-sky-600/80 data-[state=active]:text-white">
+            <TabsTrigger value="WORLD_CUP" className="rounded-lg data-[state=active]:bg-sky-600/80 data-[state=active]:text-white">
               <Trophy className="w-4 h-4 ml-1" />
               מונדיאל
             </TabsTrigger>
-            <TabsTrigger value="football_custom" className="rounded-lg data-[state=active]:bg-rose-600/80 data-[state=active]:text-white">
+            <TabsTrigger value="FOOTBALL" className="rounded-lg data-[state=active]:bg-rose-600/80 data-[state=active]:text-white">
               <Trophy className="w-4 h-4 ml-1" />
               תחרות כדורגל
             </TabsTrigger>
+            <TabsTrigger value="CHANCE" className="rounded-lg data-[state=active]:bg-amber-600/80 data-[state=active]:text-white">
+              <Trophy className="w-4 h-4 ml-1" />
+              צ'אנס
+            </TabsTrigger>
+            <TabsTrigger value="LOTTO" className="rounded-lg data-[state=active]:bg-emerald-600/80 data-[state=active]:text-white">
+              <Trophy className="w-4 h-4 ml-1" />
+              לוטו
+            </TabsTrigger>
           </TabsList>
-          {TAB_IDS.map((tabId) => {
-            const tournamentsOfType =
-              tabId === "chance"
-                ? chanceTournaments
-                : tabId === "lotto"
-                  ? lottoTournaments
-                  : tabId === "mondial"
-                    ? mondialTournaments
-                    : footballCustomTournaments;
-            return (
-              <TabsContent key={tabId} value={tabId} className="mt-4 animate-fade-in space-y-0">
-                {tournamentsOfType.length === 0 ? (
-                  <Card className="card-sport bg-slate-800/60 border-slate-600/50 overflow-hidden">
-                    <CardContent className="p-6 text-center text-slate-500">
-                      אין טורנירים מסוג זה כרגע.
-                    </CardContent>
-                  </Card>
-                ) : (
-                  tournamentsOfType.map((t) => (
-                    <SingleTournamentLeaderboardCard
-                      key={t.id}
-                      tournament={t as TournamentLike}
-                      tabId={tabId}
-                      onViewSubmission={setViewSubmissionId}
-                      statusBadge={statusBadge}
-                      byTournament={byTournament}
-                    />
-                  ))
-                )}
-              </TabsContent>
-            );
-          })}
+          <TabsContent key={activeTab} value={activeTab} className="mt-4 animate-fade-in space-y-0">
+            {activeTournaments.length === 0 ? (
+              <Card className="card-sport bg-slate-800/60 border-slate-600/50 overflow-hidden">
+                <CardContent className="p-6 text-center text-slate-500">
+                  <p className="mb-2">אין טורנירים בקטגוריה «{tabLabel(activeTab)}».</p>
+                  <p className="text-sm text-slate-400">בחר קטגוריה אחרת בלשוניות למעלה (למשל צ'אנס או לוטו) כדי לראות דירוגים.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              activeTournaments.map((t) => (
+                <SingleTournamentLeaderboardCard
+                  key={t.id}
+                  tournament={t as TournamentLike}
+                  tabId={activeTab}
+                  onViewSubmission={setViewSubmissionId}
+                  statusBadge={statusBadge}
+                />
+              ))
+            )}
+          </TabsContent>
         </Tabs>
         )}
         </>

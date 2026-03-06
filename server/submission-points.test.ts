@@ -6,7 +6,7 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
-import { getDb } from "./db";
+import { getDb, getUserPoints } from "./db";
 import { users } from "../drizzle/schema-sqlite";
 import { eq } from "drizzle-orm";
 
@@ -62,20 +62,29 @@ describe("submission points validation", () => {
     });
     testUserId = reg.user.id;
 
+    // תאריך/שעה ייחודיים לכל הרצה כדי למנוע "כבר קיימת תחרות צ'אנס באותו תאריך ובאותה שעה"
+    const unique = Date.now();
+    const day1 = (unique % 28) + 1;
+    const day2 = (Math.floor(unique / 28) % 28) + 1;
+    const drawDate1 = `2030-01-${String(day1).padStart(2, "0")}`;
+    const drawDate2 = `2030-02-${String(day2).padStart(2, "0")}`;
+    const drawTime1 = `10:${String(unique % 60).padStart(2, "0")}`;
+    const drawTime2 = `11:${String(unique % 60).padStart(2, "0")}`;
+
     // יצירת שתי תחרויות צ'אנס (הגרלה בעתיד – פתוח להרשמה)
     await adminCaller.admin.createTournament({
       name: "Test Points Tournament 1",
       amount: COST,
       type: "chance",
-      drawDate: "2030-01-01",
-      drawTime: "10:00",
+      drawDate: drawDate1,
+      drawTime: drawTime1,
     });
     await adminCaller.admin.createTournament({
       name: "Test Points Tournament 2",
       amount: COST,
       type: "chance",
-      drawDate: "2030-01-02",
-      drawTime: "10:00",
+      drawDate: drawDate2,
+      drawTime: drawTime2,
     });
     const list = await adminCaller.tournaments.getAll();
     const t1 = list.find((t: { name?: string }) => t.name === "Test Points Tournament 1");
@@ -95,6 +104,11 @@ describe("submission points validation", () => {
     const db = await getDb();
     if (!db) throw new Error("DB not available");
     await db.update(users).set({ points, updatedAt: new Date() }).where(eq(users.id, testUserId));
+    // וידוא שהיתרה נראית בשרת (אותו מקור כמו ב-validateTournamentEntry)
+    const readBack = await getUserPoints(testUserId);
+    if (readBack !== points) {
+      throw new Error(`setUserPoints(${points}) but getUserPoints returned ${readBack}`);
+    }
   }
 
   function testUserContext() {
@@ -161,7 +175,8 @@ describe("submission points validation", () => {
       tournamentId: tournament1Id,
       predictionsChance: validChancePayload,
     });
-    expect(result).toEqual({ success: true, pendingApproval: false });
+    expect(result).toMatchObject({ success: true, pendingApproval: false });
+    expect(typeof (result as { balanceAfter?: number }).balanceAfter).toBe("number");
   });
 
   it("משתמש עם יותר מהנדרש – עובר", async () => {
@@ -171,6 +186,7 @@ describe("submission points validation", () => {
       tournamentId: tournament2Id,
       predictionsChance: validChancePayload,
     });
-    expect(result).toEqual({ success: true, pendingApproval: false });
+    expect(result).toMatchObject({ success: true, pendingApproval: false });
+    expect(typeof (result as { balanceAfter?: number }).balanceAfter).toBe("number");
   });
 });

@@ -14,9 +14,7 @@ const getJwtSecret = (): Uint8Array => {
   const raw = ENV.cookieSecret;
   if (!raw) {
     if (ENV.isProduction) {
-      console.warn(
-        "[auth] WARNING: JWT_SECRET is not set. Using a fallback. Set JWT_SECRET in .env or environment for production security!"
-      );
+      throw new Error("JWT_SECRET is required in production. Set JWT_SECRET in environment.");
     }
     return new TextEncoder().encode("change-me-set-JWT_SECRET");
   }
@@ -92,8 +90,8 @@ export async function registerUser(data: {
     throw new Error("Invalid phone number");
   }
 
-  if (!data.password || data.password.length < 6) {
-    throw new Error("Password must be at least 6 characters");
+  if (!data.password || data.password.length < 8) {
+    throw new Error("Password must be at least 8 characters");
   }
 
   if (!data.name || !data.name.trim()) {

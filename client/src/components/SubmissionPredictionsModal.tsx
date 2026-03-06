@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Dialog,
   DialogContent,
@@ -28,9 +29,10 @@ export function SubmissionPredictionsModal({
   onOpenChange,
   title,
 }: SubmissionPredictionsModalProps) {
-  const { data: submission, isLoading } = trpc.submissions.getById.useQuery(
+  const { isAuthenticated } = useAuth();
+  const { data: submission, isLoading, isError, error } = trpc.submissions.getById.useQuery(
     { id: submissionId! },
-    { enabled: open && !!submissionId }
+    { enabled: open && !!submissionId && isAuthenticated }
   );
   const { data: matches } = trpc.matches.getAll.useQuery(undefined, {
     enabled: open && !!submissionId,
@@ -84,6 +86,10 @@ export function SubmissionPredictionsModal({
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-10 h-10 animate-spin text-emerald-500" />
           </div>
+        ) : !isAuthenticated ? (
+          <p className="text-slate-400 text-center py-8">התחבר כדי לצפות בפרטי טופס</p>
+        ) : isError ? (
+          <p className="text-slate-400 text-center py-8">{error?.message ?? "אין הרשאה לצפות בטופס זה"}</p>
         ) : (
           <div className="overflow-y-auto flex-1 min-h-0 rounded border border-slate-700 bg-slate-800/50">
             {chancePred && (isChance || ("heart" in chancePred && "club" in chancePred)) ? (

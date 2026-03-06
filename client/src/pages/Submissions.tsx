@@ -12,6 +12,7 @@ import { getTournamentStyles } from "@/lib/tournamentStyles";
 type StatusFilter = "all" | "approved" | "pending" | "rejected";
 const CATEGORY_IDS = ["chance", "lotto", "mondial", "football_custom"] as const;
 type CategoryId = (typeof CATEGORY_IDS)[number];
+type TabValue = CategoryId | "mine";
 
 type TournamentStat = { id: number; name: string; amount: number; type?: string; isLocked?: boolean };
 
@@ -27,17 +28,18 @@ export default function Submissions() {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const [viewSubmissionId, setViewSubmissionId] = useState<number | null>(null);
-  const [activeCategory, setActiveCategory] = useState<CategoryId>("chance");
+  const [activeCategory, setActiveCategory] = useState<TabValue>("chance");
   const [selectedTournamentId, setSelectedTournamentId] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   const { data: submissions } = trpc.submissions.getAll.useQuery();
+  const { data: mySubmissions } = trpc.submissions.getMine.useQuery(undefined, { enabled: !!user });
   const { data: tournamentStats } = trpc.tournaments.getPublicStats.useQuery();
 
   const stats = tournamentStats ?? [];
   const byCategory = useMemo(() => getTournamentsByCategory(stats), [stats]);
 
-  const tournamentsInCategory = byCategory[activeCategory];
+  const tournamentsInCategory = byCategory[activeCategory as CategoryId] ?? [];
   const categoryTournamentIds = useMemo(() => tournamentsInCategory.map((t) => t.id), [tournamentsInCategory]);
 
   useEffect(() => {
@@ -70,8 +72,17 @@ export default function Submissions() {
           בחר קטגוריה ותחרות כדי לראות את הטפסים. רק טפסים שאושרו נספרים בדירוג.
         </p>
 
-        <Tabs value={activeCategory} onValueChange={(v) => setActiveCategory(v as CategoryId)} className="space-y-4">
+        <Tabs value={activeCategory} onValueChange={(v) => setActiveCategory(v as TabValue)} className="space-y-4">
           <TabsList className="bg-slate-800/80 border border-slate-600/50 flex flex-wrap gap-1 p-1 rounded-xl">
+            {user && (
+              <TabsTrigger value="mine" className="rounded-lg data-[state=active]:bg-violet-600/80 data-[state=active]:text-white">
+                <FileText className="w-4 h-4 ml-1" />
+                הטפסים שלי
+                <span className="mr-1.5 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-slate-500/80 text-xs font-bold">
+                  {mySubmissions?.length ?? 0}
+                </span>
+              </TabsTrigger>
+            )}
             <TabsTrigger value="chance" className="rounded-lg data-[state=active]:bg-amber-600/80 data-[state=active]:text-white">
               <Sparkles className="w-4 h-4 ml-1" />
               צ'אנס
@@ -89,6 +100,83 @@ export default function Submissions() {
               תחרות כדורגל
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="mine" className="mt-4 space-y-4">
+            {!user ? (
+              <p className="text-slate-500 text-center py-8">התחבר כדי לראות את הטפסים שלך.</p>
+            ) : !mySubmissions || mySubmissions.length === 0 ? (
+              <p className="text-slate-500 text-center py-8">אין לך עדיין טפסים. השתתף מתחרות מהלשוניות האחרות.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-600/50 min-w-0">
+                <table className="w-full text-right text-sm table-fixed">
+                  <thead>
+                    <tr className="border-b border-slate-600 bg-slate-800/80 text-slate-400">
+                      <th className="py-2 px-3 w-[22%]">תחרות</th>
+                      <th className="py-2 px-3">נקודות</th>
+                      <th className="py-2 px-3">סטטוס</th>
+                      <th className="py-2 px-3">תאריך</th>
+                      <th className="py-2 px-3">פעולות</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mySubmissions.map((s) => {
+                      const tour = stats.find((t) => t.id === s.tournamentId);
+                      const canEdit = tour && !tour.isLocked;
+                      return (
+                        <tr
+                          key={s.id}
+                          className="border-b border-slate-700/50 hover:bg-slate-700/30 cursor-pointer"
+                          onClick={() => setViewSubmissionId(s.id)}
+                        >
+                          <td className="py-2 px-3 text-white font-medium min-w-0 max-w-0 break-words" title={getTourName(s.tournamentId)}>{getTourName(s.tournamentId)}</td>
+                          <td className="py-2 px-3 text-emerald-400 font-bold">{s.points}</td>
+                          <td className="py-2 px-3">
+                            {s.status === "approved" ? (
+                              <Badge className="bg-emerald-600"><Check className="w-3 h-3 mr-1" />מאושר</Badge>
+                            ) : s.status === "rejected" ? (
+                              <Badge variant="destructive"><X className="w-3 h-3 mr-1" />נדחה</Badge>
+                            ) : (
+                              <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />ממתין</Badge>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-slate-400">{new Date(s.createdAt).toLocaleDateString("he-IL")}</td>
+                          <td className="py-2 px-3" onClick={(e) => e.stopPropagation()}>
+                            {canEdit && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-emerald-400 border-emerald-500/50 hover:bg-emerald-500/20 mr-1"
+                                  onClick={() => setLocation(`/predict/${s.tournamentId}?edit=${s.id}`)}
+                                >
+                                  <Pencil className="w-3.5 h-3.5 ml-1" />ערוך טופס (חינם)
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-amber-400 border-amber-500/50 hover:bg-amber-500/20 mr-1"
+                                  onClick={() => setLocation(`/predict/${s.tournamentId}?duplicateFrom=${s.id}`)}
+                                >
+                                  שכפל כטופס חדש
+                                </Button>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setViewSubmissionId(s.id)}
+                              className="text-slate-400 hover:text-emerald-400 text-sm"
+                            >
+                              <Eye className="w-4 h-4 inline" /> צפה
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </TabsContent>
 
           {CATEGORY_IDS.map((catId) => (
             <TabsContent key={catId} value={catId} className="mt-4 space-y-4">
@@ -199,14 +287,24 @@ export default function Submissions() {
                                   <td className="py-2 px-3 text-slate-400">{new Date(s.createdAt).toLocaleDateString("he-IL")}</td>
                                   <td className="py-2 px-3" onClick={(e) => e.stopPropagation()}>
                                     {canEdit && (
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="text-emerald-400 border-emerald-500/50 hover:bg-emerald-500/20 mr-1"
-                                        onClick={() => setLocation(`/predict/${s.tournamentId}`)}
-                                      >
-                                        <Pencil className="w-3.5 h-3.5 ml-1" />ערוך
-                                      </Button>
+                                      <>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="text-emerald-400 border-emerald-500/50 hover:bg-emerald-500/20 mr-1"
+                                          onClick={() => setLocation(`/predict/${s.tournamentId}?edit=${s.id}`)}
+                                        >
+                                          <Pencil className="w-3.5 h-3.5 ml-1" />ערוך (חינם)
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="text-amber-400 border-amber-500/50 hover:bg-amber-500/20 mr-1"
+                                          onClick={() => setLocation(`/predict/${s.tournamentId}?duplicateFrom=${s.id}`)}
+                                        >
+                                          שכפל כחדש
+                                        </Button>
+                                      </>
                                     )}
                                     <button
                                       type="button"

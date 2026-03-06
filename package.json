@@ -12,6 +12,8 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:production": "vitest run server/production-readiness.test.ts",
+    "test:security": "vitest run server/security-audit.test.ts",
+    "test:simulation": "vitest run server/security-simulation.test.ts",
     "backup-db": "tsx scripts/backup-db.ts",
     "load-test": "tsx scripts/load-test.ts",
     "db:push": "drizzle-kit generate && drizzle-kit migrate"

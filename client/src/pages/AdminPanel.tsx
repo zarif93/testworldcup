@@ -127,10 +127,18 @@ export default function AdminPanel() {
   const [exportAgentTo, setExportAgentTo] = useState("");
   const [exportAgentError, setExportAgentError] = useState("");
   const [pnlTournamentType, setPnlTournamentType] = useState("");
+  const [pnlFilterAgentId, setPnlFilterAgentId] = useState<number | "">("");
+  const [pnlFilterPlayerId, setPnlFilterPlayerId] = useState<number | "">("");
   const [pnlDetailAgentId, setPnlDetailAgentId] = useState<number | null>(null);
   const [pnlDetailPlayerId, setPnlDetailPlayerId] = useState<number | null>(null);
   const [pnlExporting, setPnlExporting] = useState(false);
+  const [pnlDetailedExporting, setPnlDetailedExporting] = useState(false);
   const [pnlDetailExporting, setPnlDetailExporting] = useState<"agent" | "player" | null>(null);
+
+  const [assignAgentModalOpen, setAssignAgentModalOpen] = useState(false);
+  const [assignAgentPlayerId, setAssignAgentPlayerId] = useState<number | null>(null);
+  const [assignAgentPlayerName, setAssignAgentPlayerName] = useState("");
+  const [assignAgentSelectedId, setAssignAgentSelectedId] = useState<number | "">("");
 
   const PNL_TOURNAMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
     { value: "", label: "כל הסוגים" },
@@ -192,6 +200,17 @@ export default function AdminPanel() {
     { userId: pnlDetailPlayerId!, from: pnlFrom || undefined, to: pnlTo || undefined, tournamentType: pnlTournamentType || undefined },
     { enabled: (!!status?.verified || !status?.codeRequired) && section === "pnl" && pnlDetailPlayerId != null }
   );
+  const { data: pnlReportRows, isLoading: pnlReportRowsLoading } = trpc.admin.getPnLReport.useQuery(
+    {
+      from: pnlFrom || undefined,
+      to: pnlTo || undefined,
+      tournamentType: pnlTournamentType || undefined,
+      agentId: pnlFilterAgentId === "" ? undefined : pnlFilterAgentId,
+      playerId: pnlFilterPlayerId === "" ? undefined : pnlFilterPlayerId,
+      limit: 2000,
+    },
+    { enabled: (!!status?.verified || !status?.codeRequired) && section === "pnl" }
+  );
   const { data: playersData } = trpc.admin.getPlayers.useQuery(undefined, {
     enabled: (!!status?.verified || !status?.codeRequired) && (section === "players" || section === "dashboard"),
   });
@@ -248,6 +267,18 @@ export default function AdminPanel() {
   const withdrawPointsMut = trpc.admin.withdrawPoints.useMutation();
   const distributePrizesMut = trpc.admin.distributePrizes.useMutation();
   const resetUserPasswordMut = trpc.admin.resetUserPassword.useMutation();
+  const assignAgentMut = trpc.admin.assignAgent.useMutation({
+    onSuccess: () => {
+      refetchUsersList();
+      utils.admin.getUsersList.invalidate();
+      setAssignAgentModalOpen(false);
+      setAssignAgentPlayerId(null);
+      setAssignAgentPlayerName("");
+      setAssignAgentSelectedId("");
+      toast.success("השיוך עודכן");
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const deletePointsLogsHistoryMut = trpc.admin.deletePointsLogsHistory.useMutation();
   const utils = trpc.useUtils();
 
@@ -1721,38 +1752,83 @@ export default function AdminPanel() {
             </Card>
             <Card className="bg-slate-800/50 border-slate-700">
               <CardHeader>
-                <h2 className="text-xl font-bold text-white">תחרויות שסתיימו</h2>
-                <p className="text-slate-400 text-sm">רשימת תחרויות שנסיימו והוסרו מהדף הראשי. צפייה בלוג חלוקת הפרסים.</p>
+                <h2 className="text-xl font-bold text-white">ארכיון תחרויות</h2>
+                <p className="text-slate-400 text-sm">תחרויות שנסגרו/חולקו להן פרסים/אורכבו. נתונים נשמרים לצמיתות – רק לא מוצגים בדף הראשי.</p>
               </CardHeader>
               <CardContent>
                 {(() => {
-                  const finished = (tournaments ?? []).filter(
-                    (t) => (t as { resultsFinalizedAt?: string | Date | null }).resultsFinalizedAt != null
-                  );
-                  if (!finished.length) {
-                    return <p className="text-slate-500 py-2">אין עדיין תחרויות שסתיימו.</p>;
-                  }
+                  const archived = (tournaments ?? []).filter((t) => {
+                    const status = (t as { status?: string }).status ?? "";
+                    return ["CLOSED", "SETTLED", "ARCHIVED", "RESULTS_UPDATED", "PRIZES_DISTRIBUTED", "SETTLING"].includes(status);
+                  });
+                  if (!archived.length) return <p className="text-slate-500 py-2">אין עדיין תחרויות בארכיון.</p>;
+
+                  const typeLabel = (type: string | undefined) => {
+                    if (type === "chance") return "צ'אנס";
+                    if (type === "lotto") return "לוטו";
+                    if (type === "football_custom") return "כדורגל";
+                    return "מונדיאל";
+                  };
+                  const fmt = (d: string | Date | null | undefined) => (d ? new Date(d).toLocaleString("he-IL") : "—");
+
                   return (
-                    <div className="space-y-2">
-                      {finished.map((t) => {
-                        const name = (t as { name?: string }).name ?? `#${t.id}`;
-                        const finalizedAt = (t as { resultsFinalizedAt?: string | Date | null }).resultsFinalizedAt;
-                        const dateStr = finalizedAt ? new Date(finalizedAt).toLocaleString("he-IL") : "";
-                        return (
-                          <div key={t.id} className="flex flex-wrap items-center gap-2 py-2 border-b border-slate-700/50 last:border-0">
-                            <span className="text-white font-medium">{name}</span>
-                            {dateStr && <span className="text-slate-500 text-sm">סיום: {dateStr}</span>}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-slate-300 border-slate-600"
-                              onClick={() => setPrizeLogTournamentId(t.id)}
-                            >
-                              צפה בחלוקת פרסים
-                            </Button>
-                          </div>
-                        );
-                      })}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-right">
+                        <thead>
+                          <tr className="border-b border-slate-600/50 text-slate-400 text-sm bg-slate-800/40">
+                            <th className="p-3 font-medium">שם התחרות</th>
+                            <th className="p-3 font-medium">סוג</th>
+                            <th className="p-3 font-medium">פתיחה</th>
+                            <th className="p-3 font-medium">סגירה</th>
+                            <th className="p-3 font-medium">חלוקת פרסים</th>
+                            <th className="p-3 font-medium">משתתפים</th>
+                            <th className="p-3 font-medium">סכום פרסים</th>
+                            <th className="p-3 font-medium">סטטוס סופי</th>
+                            <th className="p-3 w-40"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {archived
+                            .slice()
+                            .sort((a, b) => {
+                              const aAt = (a as { archivedAt?: string | Date | null; resultsFinalizedAt?: string | Date | null }).archivedAt ?? (a as { resultsFinalizedAt?: string | Date | null }).resultsFinalizedAt ?? null;
+                              const bAt = (b as { archivedAt?: string | Date | null; resultsFinalizedAt?: string | Date | null }).archivedAt ?? (b as { resultsFinalizedAt?: string | Date | null }).resultsFinalizedAt ?? null;
+                              return new Date(bAt ?? 0).getTime() - new Date(aAt ?? 0).getTime();
+                            })
+                            .map((t) => {
+                              const name = (t as { name?: string }).name ?? `#${t.id}`;
+                              const type = (t as { type?: string }).type;
+                              const status = (t as { status?: string }).status ?? "—";
+                              const opensAt = (t as { opensAt?: string | Date | null }).opensAt ?? (t as { startsAt?: string | Date | null }).startsAt ?? null;
+                              const closesAt = (t as { closesAt?: string | Date | null }).closesAt ?? (t as { endsAt?: string | Date | null }).endsAt ?? null;
+                              const prizesAt = (t as { archivedAt?: string | Date | null }).archivedAt ?? (t as { resultsFinalizedAt?: string | Date | null }).resultsFinalizedAt ?? null;
+                              const participants = (t as { financialParticipantCount?: number | null }).financialParticipantCount;
+                              const prizes = (t as { financialPrizeDistributed?: number | null }).financialPrizeDistributed;
+                              return (
+                                <tr key={t.id} className="border-b border-slate-700/40 hover:bg-slate-700/30 transition-colors">
+                                  <td className="p-3 text-white font-medium">{name}</td>
+                                  <td className="p-3 text-slate-300">{typeLabel(type)}</td>
+                                  <td className="p-3 text-slate-400 text-sm">{fmt(opensAt)}</td>
+                                  <td className="p-3 text-slate-400 text-sm">{fmt(closesAt)}</td>
+                                  <td className="p-3 text-slate-400 text-sm">{fmt(prizesAt)}</td>
+                                  <td className="p-3 text-slate-300">{participants != null ? participants : "—"}</td>
+                                  <td className="p-3 text-slate-300">{prizes != null ? `₪${Number(prizes).toLocaleString("he-IL")}` : "—"}</td>
+                                  <td className="p-3"><Badge variant="secondary" className="bg-slate-700/60 text-slate-200">{status}</Badge></td>
+                                  <td className="p-3">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="text-slate-300 border-slate-600"
+                                      onClick={() => setPrizeLogTournamentId(t.id)}
+                                    >
+                                      צפה בחלוקת פרסים
+                                    </Button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
                     </div>
                   );
                 })()}
@@ -1928,6 +2004,44 @@ export default function AdminPanel() {
                                   <FileDown className="w-4 h-4 ml-1" />
                                   ייצוא דוח שחקן
                                 </Button>
+                              )}
+                              {u.role === "user" && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 text-xs border-emerald-500/50 text-emerald-400"
+                                    onClick={() => {
+                                      setAssignAgentPlayerId(u.id);
+                                      setAssignAgentPlayerName(u.username ?? u.name ?? `#${u.id}`);
+                                      setAssignAgentSelectedId(u.agentId ?? "");
+                                      setAssignAgentModalOpen(true);
+                                    }}
+                                    title="שייך שחקן לסוכן"
+                                  >
+                                    <UserPlus className="w-4 h-4 ml-1" />
+                                    שייך לסוכן
+                                  </Button>
+                                  {u.agentId != null && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 text-xs border-slate-500 text-slate-400"
+                                      onClick={async () => {
+                                        try {
+                                          await assignAgentMut.mutateAsync({ playerId: u.id, agentId: null });
+                                          toast.success("השיוך הוסר");
+                                        } catch (e) {
+                                          toast.error(e instanceof Error ? e.message : "שגיאה");
+                                        }
+                                      }}
+                                      disabled={assignAgentMut.isPending}
+                                      title="הסר שיוך סוכן"
+                                    >
+                                      הסר שיוך
+                                    </Button>
+                                  )}
+                                </>
                               )}
                               {!u.deletedAt && u.role !== "admin" && (
                                 <Button
@@ -2463,6 +2577,53 @@ export default function AdminPanel() {
           </DialogContent>
         </Dialog>
 
+        <Dialog open={assignAgentModalOpen} onOpenChange={(open) => { if (!open) { setAssignAgentModalOpen(false); setAssignAgentPlayerId(null); setAssignAgentPlayerName(""); setAssignAgentSelectedId(""); } }}>
+          <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-white text-right">שיוך שחקן לסוכן</DialogTitle>
+              <DialogDescription className="text-slate-400 text-right">בחר סוכן לשחקן. פעילות השחקן תופיע בדוחות הסוכן ועמלות יחושבו בהתאם.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-3 py-2">
+              <div>
+                <label className="block text-sm text-slate-400 mb-1 text-right">שחקן</label>
+                <p className="text-white font-medium text-right">{assignAgentPlayerName}</p>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-1 text-right">סוכן</label>
+                <select
+                  value={assignAgentSelectedId === "" ? "" : String(assignAgentSelectedId)}
+                  onChange={(e) => setAssignAgentSelectedId(e.target.value === "" ? "" : Number(e.target.value))}
+                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-right"
+                >
+                  <option value="">ללא סוכן (הסר שיוך)</option>
+                  {(agents ?? []).map((a) => (
+                    <option key={a.id} value={a.id}>{(a as { username?: string | null }).username ?? (a as { name?: string | null }).name ?? `#${a.id}`}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0 flex-row-reverse">
+              <Button variant="outline" className="border-slate-600 text-slate-300" onClick={() => { setAssignAgentModalOpen(false); setAssignAgentPlayerId(null); setAssignAgentPlayerName(""); setAssignAgentSelectedId(""); }}>
+                ביטול
+              </Button>
+              <Button
+                className="bg-emerald-600 hover:bg-emerald-700"
+                disabled={assignAgentMut.isPending || assignAgentPlayerId == null}
+                onClick={() => {
+                  if (assignAgentPlayerId == null) return;
+                  assignAgentMut.mutate({
+                    playerId: assignAgentPlayerId,
+                    agentId: assignAgentSelectedId === "" ? null : assignAgentSelectedId,
+                  });
+                }}
+              >
+                {assignAgentMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                שמירה
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {section === "admins" && !user?.isSuperAdmin && (
           <Card className="bg-slate-800/50 border-slate-700">
             <CardContent className="pt-6">
@@ -2952,6 +3113,32 @@ export default function AdminPanel() {
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="text-slate-400 text-xs block mb-1">סוכן</label>
+                <select
+                  value={pnlFilterAgentId === "" ? "" : pnlFilterAgentId}
+                  onChange={(e) => setPnlFilterAgentId(e.target.value === "" ? "" : Number(e.target.value))}
+                  className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm w-48"
+                >
+                  <option value="">כל הסוכנים</option>
+                  {(users ?? []).filter((u) => (u as { role?: string }).role === "agent").map((u) => (
+                    <option key={u.id} value={u.id}>{(u as { name?: string }).name || (u as { username?: string }).username || `#${u.id}`}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-slate-400 text-xs block mb-1">שחקן</label>
+                <select
+                  value={pnlFilterPlayerId === "" ? "" : pnlFilterPlayerId}
+                  onChange={(e) => setPnlFilterPlayerId(e.target.value === "" ? "" : Number(e.target.value))}
+                  className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm w-48"
+                >
+                  <option value="">כל השחקנים</option>
+                  {(users ?? []).filter((u) => (u as { role?: string }).role === "user").map((u) => (
+                    <option key={u.id} value={u.id}>{(u as { name?: string }).name || (u as { username?: string }).username || `#${u.id}`}</option>
+                  ))}
+                </select>
+              </div>
               <Button
                 type="button"
                 variant="outline"
@@ -2983,6 +3170,41 @@ export default function AdminPanel() {
               >
                 {pnlExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
                 <span className="mr-1">ייצא דוח</span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-slate-600 text-slate-300 hover:bg-slate-700/40"
+                disabled={pnlDetailedExporting}
+                onClick={async () => {
+                  setPnlDetailedExporting(true);
+                  try {
+                    const { csv } = await utils.admin.exportPnLReportCSV.fetch({
+                      from: pnlFrom || undefined,
+                      to: pnlTo || undefined,
+                      tournamentType: pnlTournamentType || undefined,
+                      agentId: pnlFilterAgentId === "" ? undefined : pnlFilterAgentId,
+                      playerId: pnlFilterPlayerId === "" ? undefined : pnlFilterPlayerId,
+                      limit: 5000,
+                    });
+                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `pnl-detailed-${pnlFrom || "all"}-${pnlTo || "all"}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    toast.success("הורדת CSV החלה");
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "שגיאה בייצוא");
+                  } finally {
+                    setPnlDetailedExporting(false);
+                  }
+                }}
+              >
+                {pnlDetailedExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+                <span className="mr-1">ייצא דוח מפורט</span>
               </Button>
             </div>
             {pnlSummaryLoading ? (
@@ -3137,6 +3359,58 @@ export default function AdminPanel() {
                       </div>
                     ) : (
                       <p className="text-slate-500 py-4">אין שחקנים</p>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card className="bg-slate-800/50 border-slate-700">
+                  <CardHeader>
+                    <h3 className="text-lg font-bold text-white">תנועות מלאות (עמלות + נקודות)</h3>
+                    <p className="text-slate-400 text-sm">כולל השתתפויות, זכיות, הפקדות/משיכות והעברות סוכן. פילטרים למעלה חלים גם כאן.</p>
+                  </CardHeader>
+                  <CardContent>
+                    {pnlReportRowsLoading ? (
+                      <div className="flex items-center justify-center py-10"><Loader2 className="w-8 h-8 animate-spin text-amber-500" /></div>
+                    ) : pnlReportRows && pnlReportRows.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-right">
+                          <thead>
+                            <tr className="border-b border-slate-600/50 text-slate-400 bg-slate-800/40">
+                              <th className="py-2 px-2">תאריך ושעה</th>
+                              <th className="py-2 px-2">סוג פעולה</th>
+                              <th className="py-2 px-2">שחקן</th>
+                              <th className="py-2 px-2">סוכן</th>
+                              <th className="py-2 px-2">סוג תחרות</th>
+                              <th className="py-2 px-2">השתתפות</th>
+                              <th className="py-2 px-2">זכייה</th>
+                              <th className="py-2 px-2">עמלת אתר</th>
+                              <th className="py-2 px-2">עמלת סוכן</th>
+                              <th className="py-2 px-2">שינוי נק׳</th>
+                              <th className="py-2 px-2">יתרה לאחר</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pnlReportRows.map((r) => (
+                              <tr key={r.id} className="border-b border-slate-700/40 hover:bg-slate-700/30">
+                                <td className="py-2 px-2 text-slate-300">{r.createdAt ? new Date(r.createdAt).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
+                                <td className="py-2 px-2 text-white">{r.actionType}</td>
+                                <td className="py-2 px-2 text-slate-200">{r.playerName ?? "—"}</td>
+                                <td className="py-2 px-2 text-slate-200">{r.agentName ?? "—"}</td>
+                                <td className="py-2 px-2 text-slate-400">{r.tournamentType ?? "—"}</td>
+                                <td className="py-2 px-2 text-slate-200">{r.participationAmount ? r.participationAmount : "—"}</td>
+                                <td className="py-2 px-2 text-emerald-400">{r.prizeAmount ? `+${r.prizeAmount}` : "—"}</td>
+                                <td className="py-2 px-2 text-amber-400">{r.siteCommission ? r.siteCommission : "—"}</td>
+                                <td className="py-2 px-2 text-emerald-400">{r.agentCommission ? r.agentCommission : "—"}</td>
+                                <td className="py-2 px-2 font-mono">
+                                  {r.pointsDelta >= 0 ? <span className="text-emerald-400">+{r.pointsDelta}</span> : <span className="text-amber-400">{r.pointsDelta}</span>}
+                                </td>
+                                <td className="py-2 px-2 font-mono text-white">{r.balanceAfter}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-slate-500 py-6 text-center">אין תנועות להצגה בטווח/פילטר שנבחר.</p>
                     )}
                   </CardContent>
                 </Card>

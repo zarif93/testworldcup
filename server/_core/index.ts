@@ -17,7 +17,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { initPointsSocket } from "./pointsSocket";
 import { serveStatic, setupVite } from "./vite";
-import { getDb, getTournamentsToCleanup, cleanupTournamentData, runLockedTournamentsRemoval, getDbInitError } from "../db";
+import { getDb, getTournamentsToCleanup, cleanupTournamentData, runLockedTournamentsRemoval, runAutoCloseTournaments, getDbInitError, getTournamentsWithStatusSettling, runRecoverSettlements, runFinancialIntegrityCheck } from "../db";
 import { logger } from "./logger";
 
 const apiLimiter = rateLimit({
@@ -87,7 +87,13 @@ async function startServer() {
   const server = createServer(app);
   initPointsSocket(server);
   app.disable("x-powered-by");
-  app.use(helmet({ contentSecurityPolicy: false }));
+  app.use(helmet({
+    contentSecurityPolicy: false,
+    xFrameOptions: { action: "deny" },
+    xContentTypeOptions: true,
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+  }));
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   app.get("/ping", (_req, res) => {
@@ -96,10 +102,13 @@ async function startServer() {
   app.use(
     (req, res, next) => {
       const origin = req.headers.origin;
+      const allowList = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean) : [];
       const allowOrigin =
-        process.env.NODE_ENV === "production" && origin
-          ? origin
-          : req.headers.origin || "*";
+        process.env.NODE_ENV === "production" && allowList.length > 0
+          ? (origin && allowList.includes(origin) ? origin : allowList[0])
+          : process.env.NODE_ENV === "production" && origin
+            ? origin
+            : req.headers.origin || "*";
       res.setHeader("Access-Control-Allow-Origin", allowOrigin);
       res.setHeader("Access-Control-Allow-Credentials", "true");
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -165,6 +174,14 @@ async function startServer() {
     }, 60 * 1000);
     setInterval(async () => {
       try {
+        const closed = await runAutoCloseTournaments();
+        if (closed.length > 0) logger.info("Auto-close: tournaments locked by closesAt", { tournamentIds: closed });
+      } catch (e) {
+        logger.warn("Auto-close error", { error: String(e) });
+      }
+    }, 60 * 1000);
+    setInterval(async () => {
+      try {
         const removed = await runLockedTournamentsRemoval();
         const rowsAffected = removed.length;
         if (rowsAffected > 0) logger.info("Locked tournaments removed from homepage", { rowsAffected, tournamentIds: removed, serverTime: new Date().toISOString() });
@@ -172,6 +189,36 @@ async function startServer() {
         logger.warn("Locked removal error", { error: String(e) });
       }
     }, 60 * 1000);
+    const SETTLING_RECOVERY_MS = 5 * 60 * 1000;
+    const settlingFirstSeen = new Map<number, number>();
+    setInterval(async () => {
+      try {
+        const stuck = await getTournamentsWithStatusSettling();
+        const now = Date.now();
+        for (const { id } of stuck) {
+          if (!settlingFirstSeen.has(id)) settlingFirstSeen.set(id, now);
+        }
+        const toRecover = stuck.filter(({ id }) => now - (settlingFirstSeen.get(id) ?? now) >= SETTLING_RECOVERY_MS).map((r) => r.id);
+        if (toRecover.length > 0) {
+          const { recovered, errors } = await runRecoverSettlements({ onlyTournamentIds: toRecover });
+          for (const id of recovered) settlingFirstSeen.delete(id);
+          if (recovered.length > 0) logger.info("Settling recovery", { recovered });
+          if (errors.length > 0) logger.warn("Settling recovery errors", { errors });
+        }
+      } catch (e) {
+        logger.warn("Settling recovery error", { error: String(e) });
+      }
+    }, 60 * 1000);
+    setInterval(async () => {
+      try {
+        const integrity = await runFinancialIntegrityCheck();
+        if (!integrity.ok) {
+          logger.warn("Financial integrity check: delta detected", { ...integrity });
+        }
+      } catch (e) {
+        logger.warn("Financial integrity check error", { error: String(e) });
+      }
+    }, 5 * 60 * 1000);
   });
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {

@@ -208,9 +208,27 @@ pm2 save
 
 | בעיה | מה לבדוק |
 |------|-----------|
-| **better-sqlite3: Could not locate the bindings file** | המודול ה-native לא נבנה על השרת. **תיקון מלא על השרת:** `sudo apt install -y build-essential python3` ואז מהתיקייה של הפרויקט: `rm -rf node_modules && pnpm install` (או `npm install`). אחרי שההתקנה מסתיימת בלי שגיאות, `pnpm run build` ואז `pm2 restart worldcup2026`. וודא ש-`node -v` זהה כשמריצים את הפקודות וכש-PM2 מריץ את האפליקציה (אותו Node). אל תעתיק `node_modules` ממחשב אחר. |
+| **better-sqlite3: Could not locate the bindings file** | ראה **להלן** – התקנה עם npm על השרת או Docker. |
 | פורט האפליקציה תפוס | `sudo lsof -i :$PORT` (ברירת מחדל 3000) או שנה ב־docker-compose את הפורט (למשל `3001:3000`) |
 | אין הרשאות ל-Docker | `sudo usermod -aG docker $USER` ואז התנתק והתחבר מחדש |
 | Build נכשל | וודא ש־`git pull` מעודכן ו־`tailwindcss` ו־`@tailwindcss/vite` ב־dependencies ב־package.json |
 | קונטיינר ב־Restarting / האתר לא עולה | הרץ `docker logs worldcup2026-app` ובדוק את השגיאה. אם מופיע JWT_SECRET – הוסף ל־.env והפעל מחדש. אם מופיע Cannot find package – וודא ש־git pull ובנה מחדש. |
 | שגיאה על קובץ .env לא קיים | הרץ `touch .env` ואז `docker-compose up -d` שוב. |
+
+### תיקון better-sqlite3 (bindings file not found)
+
+המודול דורש קומפילציה על השרת. אם אחרי `pnpm install` + `pnpm rebuild better-sqlite3` השגיאה נשארת, **השתמש ב-npm על השרת** (מבנה תיקיות שונה עוזר ל-node-gyp):
+
+```bash
+sudo apt install -y build-essential python3
+cd /root/testworldcup
+rm -rf node_modules
+# התקנה עם npm (לא pnpm) – לרוב בונה את better-sqlite3 בהצלחה
+npm install
+npm run build
+pm2 delete worldcup2026 2>/dev/null || true
+pm2 start ecosystem.config.cjs --env production
+pm2 save
+```
+
+אם אתה מעדיף **Docker**: בניית התמונה על השרת תבנה את better-sqlite3 בתוך הקונטיינר. הרץ מהתיקייה של הפרויקט: `docker-compose build --no-cache && docker-compose up -d`.

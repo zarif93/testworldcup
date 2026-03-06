@@ -1,10 +1,11 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck - db uses dynamic schema (SQLite/MySQL) so union types cause false errors at compile time; runtime uses SQLite when DATABASE_URL is not set.
-import { eq, and, desc, inArray, gte, lte, or, isNull, like, sql } from "drizzle-orm";
+import { eq, and, desc, inArray, gte, lte, or, isNull, isNotNull, like, sql, notInArray } from "drizzle-orm";
 import { ENV } from "./_core/env";
 import { WORLD_CUP_2026_MATCHES } from "@shared/matchesData";
 
 const USE_SQLITE = !process.env.DATABASE_URL;
+export { USE_SQLITE };
 
 let _db: Awaited<ReturnType<typeof initSqlite>> | Awaited<ReturnType<typeof initMysql>> | null = null;
 let _dbInitError: unknown = null;
@@ -261,6 +262,22 @@ async function initSqlite() {
     sqlite.exec(`ALTER TABLE submissions ADD COLUMN strongHit INTEGER`);
     console.log("[DB] Added column submissions.strongHit");
   }
+  if (!subCols.some((c) => c.name === "agentId")) {
+    sqlite.exec(`ALTER TABLE submissions ADD COLUMN agentId INTEGER`);
+    console.log("[DB] Added column submissions.agentId");
+  }
+  if (!subCols.some((c) => c.name === "submissionNumber")) {
+    sqlite.exec(`ALTER TABLE submissions ADD COLUMN submissionNumber INTEGER`);
+    console.log("[DB] Added column submissions.submissionNumber");
+  }
+  if (!subCols.some((c) => c.name === "editedCount")) {
+    sqlite.exec(`ALTER TABLE submissions ADD COLUMN editedCount INTEGER DEFAULT 0`);
+    console.log("[DB] Added column submissions.editedCount");
+  }
+  if (!subCols.some((c) => c.name === "lastEditedAt")) {
+    sqlite.exec(`ALTER TABLE submissions ADD COLUMN lastEditedAt INTEGER`);
+    console.log("[DB] Added column submissions.lastEditedAt");
+  }
 
   const tourCols = sqlite.prepare("PRAGMA table_info(tournaments)").all() as Array<{ name: string }>;
   const tourColNames = new Set(tourCols.map((c) => c.name));
@@ -287,6 +304,21 @@ async function initSqlite() {
     ["hiddenFromHomepage", "INTEGER"],
     ["hiddenAt", "INTEGER"],
     ["hiddenByAdminId", "INTEGER"],
+    ["removalScheduledAt", "INTEGER"],
+    ["visibility", "TEXT"],
+    ["lockedAt", "INTEGER"],
+    ["minParticipants", "INTEGER"],
+    ["totalPoolPoints", "INTEGER"],
+    ["totalCommissionPoints", "INTEGER"],
+    ["totalPrizePoolPoints", "INTEGER"],
+    ["opensAt", "INTEGER"],
+    ["closesAt", "INTEGER"],
+    ["entryCostPoints", "INTEGER"],
+    ["houseFeeRate", "INTEGER"],
+    ["agentShareOfHouseFee", "INTEGER"],
+    ["rulesJson", "TEXT"],
+    ["createdBy", "INTEGER"],
+    ["leagueId", "INTEGER"],
     ["customIdentifier", "TEXT"],
   ];
   for (const [col, typ] of optionalCols) {
@@ -343,7 +375,80 @@ async function initSqlite() {
     sqlite.exec(`CREATE INDEX IF NOT EXISTS point_transactions_reference_action_idx ON point_transactions(referenceId, actionType)`);
   } catch (_) { /* index may already exist */ }
 
-  const db = drizzle(sqlite, { schema: { users, tournaments, matches, submissions, agentCommissions, siteSettings, chanceDrawResults, lottoDrawResults, customFootballMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog } });
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS leagues (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      deletedAt INTEGER,
+      createdAt INTEGER,
+      updatedAt INTEGER
+    )
+  `);
+  const leagueInfo = sqlite.prepare("PRAGMA table_info(leagues)").all() as Array<{ name: string }>;
+  if (leagueInfo.length > 0 && !leagueInfo.some((c) => c.name === "enabled")) {
+    sqlite.exec(`ALTER TABLE leagues ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`);
+    console.log("[DB] Added column leagues.enabled");
+  }
+  if (leagueInfo.length > 0 && !leagueInfo.some((c) => c.name === "deletedAt")) {
+    sqlite.exec(`ALTER TABLE leagues ADD COLUMN deletedAt INTEGER`);
+    console.log("[DB] Added column leagues.deletedAt");
+  }
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS results (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tournamentId INTEGER NOT NULL UNIQUE,
+      resultsJson TEXT NOT NULL,
+      updatedBy INTEGER,
+      updatedAt INTEGER
+    )
+  `);
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS settlement (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tournamentId INTEGER NOT NULL UNIQUE,
+      settledAt INTEGER NOT NULL,
+      totalEntries INTEGER NOT NULL,
+      totalPrizePool INTEGER NOT NULL,
+      winnersCount INTEGER NOT NULL,
+      payoutPerWinner INTEGER NOT NULL,
+      siteFeePoints INTEGER NOT NULL,
+      agentFeePoints INTEGER NOT NULL,
+      netToWinners INTEGER NOT NULL,
+      createdAt INTEGER
+    )
+  `);
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS ledger_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      createdAt INTEGER,
+      actorUserId INTEGER,
+      subjectUserId INTEGER,
+      agentId INTEGER,
+      tournamentId INTEGER,
+      type TEXT NOT NULL,
+      amountPoints INTEGER NOT NULL,
+      balanceAfter INTEGER,
+      metaJson TEXT
+    )
+  `);
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      createdAt INTEGER,
+      actorId INTEGER NOT NULL,
+      actorRole TEXT NOT NULL,
+      action TEXT NOT NULL,
+      entityType TEXT,
+      entityId INTEGER,
+      diffJson TEXT,
+      ip TEXT,
+      userAgent TEXT
+    )
+  `);
+
+  const { leagues, results, settlement, ledgerTransactions, auditLogs } = await import("../drizzle/schema-sqlite");
+  const db = drizzle(sqlite, { schema: { users, tournaments, matches, submissions, agentCommissions, siteSettings, chanceDrawResults, lottoDrawResults, customFootballMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog, leagues, results, settlement, ledgerTransactions, auditLogs } });
 
   // עדכון רשימת המשחקים מהקבוע – מוחק את הקיימים ומכניס את 72 המשחקים המעודכנים (כולל דגלים)
   sqlite.prepare("DELETE FROM matches").run();
@@ -550,6 +655,25 @@ export async function getUserPoints(userId: number): Promise<number> {
   return Number(val);
 }
 
+/**
+ * בדיקה מרכזית לכל סוגי התחרויות: האם למשתמש יש מספיק נקודות להשתתפות.
+ * משתמש ב-DB בלבד (getUserPoints) – מקור אמת יחיד.
+ * @returns { allowed, cost, currentBalance } – allowed=true רק אם מנהל / עלות 0 / יתרה >= עלות
+ */
+export async function validateTournamentEntry(
+  userId: number,
+  tournament: { amount?: number; entryCostPoints?: number | null },
+  isAdmin: boolean
+): Promise<{ allowed: boolean; cost: number; currentBalance: number }> {
+  const cost = Number((tournament as { entryCostPoints?: number }).entryCostPoints ?? tournament.amount ?? 0);
+  if (isAdmin || cost <= 0) {
+    const currentBalance = cost <= 0 ? 0 : await getUserPoints(userId);
+    return { allowed: true, cost, currentBalance };
+  }
+  const currentBalance = await getUserPoints(userId);
+  return { allowed: currentBalance >= cost, cost, currentBalance };
+}
+
 export type PointActionType = "deposit" | "withdraw" | "participation" | "prize" | "admin_approval" | "refund" | "agent_transfer";
 
 /** מוסיף נקודות למשתמש ורושם לוג */
@@ -557,7 +681,7 @@ export async function addUserPoints(
   userId: number,
   amount: number,
   actionType: PointActionType,
-  opts?: { performedBy?: number; referenceId?: number; description?: string }
+  opts?: { performedBy?: number; referenceId?: number; description?: string; agentId?: number }
 ): Promise<void> {
   if (amount <= 0) return;
   const { users, pointTransactions } = await getSchema();
@@ -574,6 +698,17 @@ export async function addUserPoints(
     performedBy: opts?.performedBy ?? null,
     referenceId: opts?.referenceId ?? null,
     description: opts?.description ?? null,
+  });
+  const ledgerType: LedgerType = actionType === "prize" ? "PRIZE_CREDIT" : actionType === "deposit" ? "DEPOSIT" : actionType === "admin_approval" ? "ADMIN_ADJUST" : actionType === "refund" ? "REFUND" : actionType === "agent_transfer" ? "AGENT_TRANSFER" : "PRIZE_CREDIT";
+  await insertLedgerTransaction({
+    actorUserId: opts?.performedBy ?? null,
+    subjectUserId: userId,
+    agentId: opts?.agentId ?? null,
+    tournamentId: opts?.referenceId ?? null,
+    type: ledgerType,
+    amountPoints: amount,
+    balanceAfter,
+    metaJson: opts?.description ? { description: opts.description } : undefined,
   });
 }
 
@@ -604,7 +739,82 @@ export async function deductUserPoints(
     commissionSite: opts?.commissionSite ?? null,
     agentId: opts?.agentId ?? null,
   });
+  const ledgerType: LedgerType = actionType === "participation" ? "ENTRY_DEBIT" : actionType === "withdraw" ? "WITHDRAW" : actionType === "admin_approval" ? "ADMIN_ADJUST" : actionType === "refund" ? "REFUND" : actionType === "agent_transfer" ? "AGENT_TRANSFER" : "ENTRY_DEBIT";
+  await insertLedgerTransaction({
+    actorUserId: opts?.performedBy ?? null,
+    subjectUserId: userId,
+    agentId: opts?.agentId ?? null,
+    tournamentId: opts?.referenceId ?? null,
+    type: ledgerType,
+    amountPoints: -amount,
+    balanceAfter,
+    metaJson: opts?.description || opts?.commissionAgent != null ? { description: opts?.description, commissionAgent: opts?.commissionAgent, commissionSite: opts?.commissionSite } : undefined,
+  });
   return true;
+}
+
+/** חיוב נקודות + יצירת submission בטרנזקציה אחת עם נעילת שורת משתמש – מונע race condition ויתרה שלילית. */
+export async function executeParticipationWithLock(params: {
+  userId: number;
+  username: string;
+  tournamentId: number;
+  cost: number;
+  agentId: number | null;
+  predictions: unknown;
+  status: "approved" | "pending";
+  paymentStatus: "completed" | "pending";
+  description: string;
+  referenceId: number;
+  commissionAgent?: number;
+  commissionSite?: number;
+  strongHit?: boolean | null;
+}): Promise<{ success: true; submissionId: number; balanceAfter: number } | { success: false }> {
+  const { users, pointTransactions, submissions } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [row] = await tx.select({ points: users.points }).from(users).where(eq(users.id, params.userId)).limit(1);
+      if (!row || Number(row.points ?? 0) < params.cost) return { success: false as const };
+      const balanceAfter = Number(row.points ?? 0) - params.cost;
+      await tx.update(users).set({ points: balanceAfter }).where(eq(users.id, params.userId));
+      await tx.insert(pointTransactions).values({
+        userId: params.userId,
+        amount: -params.cost,
+        balanceAfter,
+        actionType: "participation",
+        performedBy: null,
+        referenceId: params.referenceId,
+        description: params.description,
+        commissionAgent: params.commissionAgent ?? null,
+        commissionSite: params.commissionSite ?? null,
+        agentId: params.agentId,
+      });
+      const countRows = await tx.select().from(submissions).where(eq(submissions.tournamentId, params.tournamentId));
+      const nextNum = countRows.length + 1;
+      await tx.insert(submissions).values({
+        userId: params.userId,
+        username: params.username,
+        tournamentId: params.tournamentId,
+        agentId: params.agentId,
+        submissionNumber: nextNum,
+        predictions: params.predictions as never,
+        points: 0,
+        status: params.status,
+        paymentStatus: params.paymentStatus,
+        strongHit: params.strongHit ?? null,
+      });
+      const created = await tx.select({ id: submissions.id }).from(submissions)
+        .where(and(eq(submissions.userId, params.userId), eq(submissions.tournamentId, params.tournamentId)))
+        .orderBy(desc(submissions.id))
+        .limit(1);
+      const submissionId = created[0]?.id ?? 0;
+      return { success: true as const, submissionId, balanceAfter };
+    });
+    return result;
+  } catch {
+    return { success: false };
+  }
 }
 
 /** היסטוריית תנועות נקודות למשתמש – אופציונלי עם טווח תאריכים */
@@ -882,6 +1092,298 @@ export async function getPlayerPnL(
     }
   }
   return { profit, loss, net: profit - loss, transactions };
+}
+
+function displayNameFromUser(u: unknown, fallbackId?: number): string {
+  const name = (u as { name?: string | null })?.name ?? null;
+  const username = (u as { username?: string | null })?.username ?? null;
+  return (name && String(name).trim()) || (username && String(username).trim()) || (fallbackId != null ? `#${fallbackId}` : "—");
+}
+
+export type AdminPnLReportRow = {
+  id: number;
+  createdAt: Date | null;
+  actionType: string;
+  playerId: number | null;
+  playerName: string | null;
+  agentId: number | null;
+  agentName: string | null;
+  tournamentId: number | null;
+  tournamentName: string | null;
+  tournamentType: string | null;
+  participationAmount: number;
+  prizeAmount: number;
+  siteCommission: number;
+  agentCommission: number;
+  pointsDelta: number;
+  balanceAfter: number;
+};
+
+export async function getAdminPnLReportRows(opts?: {
+  from?: string;
+  to?: string;
+  tournamentType?: string;
+  playerId?: number;
+  agentId?: number;
+  limit?: number;
+}): Promise<AdminPnLReportRow[]> {
+  const { pointTransactions, users, tournaments } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  const limit = opts?.limit ?? 2000;
+
+  const conditions: Array<ReturnType<typeof eq> | ReturnType<typeof gte> | ReturnType<typeof lte>> = [];
+  if (opts?.playerId != null) conditions.push(eq(pointTransactions.userId, opts.playerId));
+  if (opts?.from) conditions.push(gte(pointTransactions.createdAt, new Date(opts.from)));
+  if (opts?.to) {
+    const toEnd = new Date(opts.to);
+    toEnd.setHours(23, 59, 59, 999);
+    conditions.push(lte(pointTransactions.createdAt, toEnd));
+  }
+  const whereClause = conditions.length ? and(...conditions) : undefined;
+  const rows = whereClause
+    ? await db.select().from(pointTransactions).where(whereClause).orderBy(desc(pointTransactions.createdAt)).limit(limit)
+    : await db.select().from(pointTransactions).orderBy(desc(pointTransactions.createdAt)).limit(limit);
+
+  const userIds = new Set<number>();
+  const tournamentIds = new Set<number>();
+  for (const r of rows) {
+    const uid = (r as { userId?: number }).userId;
+    if (typeof uid === "number") userIds.add(uid);
+    const agentId = (r as { agentId?: number | null }).agentId;
+    if (typeof agentId === "number") userIds.add(agentId);
+    const ref = (r as { referenceId?: number | null }).referenceId;
+    const actionType = (r as { actionType?: string }).actionType ?? "";
+    // referenceId is tournamentId for tournament-related actions; for agent_transfer it is counterparty userId
+    if (typeof ref === "number" && ["participation", "prize", "refund"].includes(actionType)) tournamentIds.add(ref);
+    if (actionType === "agent_transfer" && typeof ref === "number") userIds.add(ref);
+  }
+
+  const usersRows = userIds.size
+    ? await db.select().from(users).where(inArray(users.id, Array.from(userIds)))
+    : [];
+  const userMap = new Map<number, unknown>();
+  for (const u of usersRows) userMap.set((u as { id: number }).id, u);
+
+  const tournamentRows = tournamentIds.size
+    ? await db.select().from(tournaments).where(inArray(tournaments.id, Array.from(tournamentIds)))
+    : [];
+  const tournamentMap = new Map<number, unknown>();
+  for (const t of tournamentRows) tournamentMap.set((t as { id: number }).id, t);
+
+  const out: AdminPnLReportRow[] = [];
+  for (const r of rows) {
+    const actionType = (r as { actionType?: string }).actionType ?? "";
+    const amount = Number((r as { amount?: number }).amount ?? 0);
+    const balanceAfter = Number((r as { balanceAfter?: number }).balanceAfter ?? 0);
+    const referenceId = (r as { referenceId?: number | null }).referenceId ?? null;
+    const baseUserId = Number((r as { userId?: number }).userId ?? 0);
+    const baseUser = userMap.get(baseUserId);
+    const baseRole = (baseUser as { role?: string })?.role ?? "user";
+
+    const tournamentId = referenceId != null && ["participation", "prize", "refund"].includes(actionType) ? referenceId : null;
+    const tournament = tournamentId != null ? tournamentMap.get(tournamentId) : undefined;
+    const tournamentType = tournament ? ((tournament as { type?: string | null }).type ?? null) : null;
+    if (opts?.tournamentType && tournamentType !== opts.tournamentType) continue;
+
+    // Derive player/agent for transfers and for tournament-related actions
+    const rowAgentIdRaw = (r as { agentId?: number | null }).agentId ?? null;
+    const derivedPlayerId =
+      actionType === "agent_transfer" && baseRole === "agent"
+        ? (typeof referenceId === "number" ? referenceId : null)
+        : baseRole === "user"
+          ? baseUserId
+          : null;
+    const derivedAgentId =
+      actionType === "agent_transfer" && baseRole === "agent"
+        ? baseUserId
+        : actionType === "agent_transfer" && baseRole === "user"
+          ? (typeof referenceId === "number" ? referenceId : null)
+          : baseRole === "user"
+            ? (rowAgentIdRaw ?? null)
+            : null;
+
+    if (opts?.agentId != null && derivedAgentId !== opts.agentId) continue;
+
+    const playerUser = derivedPlayerId != null ? userMap.get(derivedPlayerId) : null;
+    const agentUser = derivedAgentId != null ? userMap.get(derivedAgentId) : null;
+
+    const participationAmount = actionType === "participation" ? Math.abs(amount) : 0;
+    const prizeAmount = actionType === "prize" || actionType === "refund" ? amount : 0;
+    const siteCommission = Number((r as { commissionSite?: number | null }).commissionSite ?? 0);
+    const agentCommission = Number((r as { commissionAgent?: number | null }).commissionAgent ?? 0);
+
+    out.push({
+      id: Number((r as { id?: number }).id ?? 0),
+      createdAt: (r as { createdAt?: Date | null }).createdAt ?? null,
+      actionType,
+      playerId: derivedPlayerId,
+      playerName: derivedPlayerId != null ? displayNameFromUser(playerUser, derivedPlayerId) : null,
+      agentId: derivedAgentId,
+      agentName: derivedAgentId != null ? displayNameFromUser(agentUser, derivedAgentId) : null,
+      tournamentId,
+      tournamentName: tournament ? ((tournament as { name?: string | null }).name ?? null) : null,
+      tournamentType,
+      participationAmount,
+      prizeAmount,
+      siteCommission,
+      agentCommission,
+      pointsDelta: amount,
+      balanceAfter,
+    });
+  }
+  return out;
+}
+
+export type AgentPnLReportRow = {
+  id: number;
+  createdAt: Date | null;
+  playerId: number | null;
+  playerName: string | null;
+  tournamentType: string | null;
+  participationAmount: number;
+  agentCommission: number;
+  pointsDelta: number;
+  agentBalanceAfter: number;
+};
+
+export async function getAgentPnLReportRows(
+  agentId: number,
+  opts?: { from?: string; to?: string; tournamentType?: string; playerId?: number; limit?: number }
+): Promise<AgentPnLReportRow[]> {
+  const { pointTransactions, users, tournaments } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  const limit = opts?.limit ?? 2000;
+
+  // Agent wallet movements (real balanceAfter exists here)
+  const agentTxConditions: Array<ReturnType<typeof eq> | ReturnType<typeof gte> | ReturnType<typeof lte>> = [
+    eq(pointTransactions.userId, agentId),
+  ];
+  if (opts?.from) agentTxConditions.push(gte(pointTransactions.createdAt, new Date(opts.from)));
+  if (opts?.to) {
+    const toEnd = new Date(opts.to);
+    toEnd.setHours(23, 59, 59, 999);
+    agentTxConditions.push(lte(pointTransactions.createdAt, toEnd));
+  }
+  const agentTx = await db
+    .select()
+    .from(pointTransactions)
+    .where(and(...agentTxConditions))
+    .orderBy(desc(pointTransactions.createdAt))
+    .limit(limit);
+
+  const agentBalanceTimeline = agentTx
+    .map((r) => ({
+      at: ((r as { createdAt?: Date | null }).createdAt ?? null) as Date | null,
+      balanceAfter: Number((r as { balanceAfter?: number }).balanceAfter ?? 0),
+    }))
+    .filter((x) => x.at != null)
+    .sort((a, b) => (a.at ? a.at.getTime() : 0) - (b.at ? b.at.getTime() : 0));
+
+  const getBalanceAt = (d: Date | null): number => {
+    if (!d) return 0;
+    // find last <= d (timeline is small; linear scan is OK)
+    let last = agentBalanceTimeline[0]?.balanceAfter ?? 0;
+    for (const x of agentBalanceTimeline) {
+      if (!x.at) continue;
+      if (x.at.getTime() <= d.getTime()) last = x.balanceAfter;
+      else break;
+    }
+    return last;
+  };
+
+  // Commission rows: derived from player participation rows where agentId is set
+  const commissionConditions: Array<ReturnType<typeof eq> | ReturnType<typeof gte> | ReturnType<typeof lte>> = [
+    eq(pointTransactions.actionType, "participation"),
+    eq(pointTransactions.agentId, agentId),
+  ];
+  if (opts?.playerId != null) commissionConditions.push(eq(pointTransactions.userId, opts.playerId));
+  if (opts?.from) commissionConditions.push(gte(pointTransactions.createdAt, new Date(opts.from)));
+  if (opts?.to) {
+    const toEnd = new Date(opts.to);
+    toEnd.setHours(23, 59, 59, 999);
+    commissionConditions.push(lte(pointTransactions.createdAt, toEnd));
+  }
+  const commissionRows = await db
+    .select()
+    .from(pointTransactions)
+    .where(and(...commissionConditions))
+    .orderBy(desc(pointTransactions.createdAt))
+    .limit(limit);
+
+  const userIds = new Set<number>();
+  const tournamentIds = new Set<number>();
+  for (const r of commissionRows) {
+    const uid = (r as { userId?: number }).userId;
+    if (typeof uid === "number") userIds.add(uid);
+    const ref = (r as { referenceId?: number | null }).referenceId;
+    if (typeof ref === "number") tournamentIds.add(ref);
+  }
+  for (const r of agentTx) {
+    const ref = (r as { referenceId?: number | null }).referenceId;
+    const actionType = (r as { actionType?: string }).actionType ?? "";
+    if (actionType === "agent_transfer" && typeof ref === "number") userIds.add(ref);
+  }
+
+  const usersRows = userIds.size
+    ? await db.select().from(users).where(inArray(users.id, Array.from(userIds)))
+    : [];
+  const userMap = new Map<number, unknown>();
+  for (const u of usersRows) userMap.set((u as { id: number }).id, u);
+
+  const tournamentRows = tournamentIds.size
+    ? await db.select().from(tournaments).where(inArray(tournaments.id, Array.from(tournamentIds)))
+    : [];
+  const tournamentMap = new Map<number, unknown>();
+  for (const t of tournamentRows) tournamentMap.set((t as { id: number }).id, t);
+
+  const out: AgentPnLReportRow[] = [];
+
+  for (const r of commissionRows) {
+    const createdAt = (r as { createdAt?: Date | null }).createdAt ?? null;
+    const tournamentId = (r as { referenceId?: number | null }).referenceId ?? null;
+    const tournament = tournamentId != null ? tournamentMap.get(tournamentId) : undefined;
+    const tournamentType = tournament ? ((tournament as { type?: string | null }).type ?? null) : null;
+    if (opts?.tournamentType && tournamentType !== opts.tournamentType) continue;
+    const playerId = Number((r as { userId?: number }).userId ?? 0);
+    const player = userMap.get(playerId);
+    out.push({
+      id: Number((r as { id?: number }).id ?? 0),
+      createdAt,
+      playerId,
+      playerName: displayNameFromUser(player, playerId),
+      tournamentType,
+      participationAmount: Math.abs(Number((r as { amount?: number }).amount ?? 0)),
+      agentCommission: Number((r as { commissionAgent?: number | null }).commissionAgent ?? 0),
+      pointsDelta: 0,
+      agentBalanceAfter: getBalanceAt(createdAt),
+    });
+  }
+
+  for (const r of agentTx) {
+    const actionType = (r as { actionType?: string }).actionType ?? "";
+    const createdAt = (r as { createdAt?: Date | null }).createdAt ?? null;
+    const amount = Number((r as { amount?: number }).amount ?? 0);
+    const balanceAfter = Number((r as { balanceAfter?: number }).balanceAfter ?? 0);
+    const ref = (r as { referenceId?: number | null }).referenceId ?? null;
+    const playerId = actionType === "agent_transfer" && typeof ref === "number" ? ref : null;
+    const player = playerId != null ? userMap.get(playerId) : null;
+    out.push({
+      id: Number((r as { id?: number }).id ?? 0) + 10_000_000,
+      createdAt,
+      playerId,
+      playerName: playerId != null ? displayNameFromUser(player, playerId) : null,
+      tournamentType: null,
+      participationAmount: 0,
+      agentCommission: 0,
+      pointsDelta: amount,
+      agentBalanceAfter: balanceAfter,
+    });
+  }
+
+  out.sort((a, b) => (b.createdAt ? b.createdAt.getTime() : 0) - (a.createdAt ? a.createdAt.getTime() : 0));
+  return out;
 }
 
 /** הפקדות סוכן לשחקנים בטווח תאריכים – להפסד בדוח רווח/הפסד. מחזיר גם שם שחקן. */
@@ -1352,9 +1854,9 @@ export async function fullResetForSuperAdmin(): Promise<{ keptAdminUsernames: st
   return { keptAdminUsernames, deletedUsers };
 }
 
-/** חלוקת פרסים לזוכים בתחרות – קוראים פעם אחת כשהתחרות נגמרת. עיגול פרס למטה. */
+/** חלוקת פרסים לזוכים בתחרות – כל כניסה (submission) נספרת בנפרד; אם לאותו משתמש כמה כניסות זוכות הוא מקבל פרס לכל כניסה. נעילת SETTLING מונעת חלוקה כפולה. */
 export async function distributePrizesForTournament(tournamentId: number): Promise<{ winnerCount: number; prizePerWinner: number; distributed: number; winnerIds: number[] }> {
-  const { pointTransactions } = await getSchema();
+  const { pointTransactions, tournaments } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const tournament = await getTournamentById(tournamentId);
@@ -1366,40 +1868,68 @@ export async function distributePrizesForTournament(tournamentId: number): Promi
     .limit(1);
   if (already.length > 0) throw new Error("פרסים כבר חולקו לתחרות זו");
 
+  /** נעילה: רק תהליך אחד יכול לעבור – עדכון ל-SETTLING; השני יקבל 0 rows */
+  const updated = await db
+    .update(tournaments)
+    .set({ status: "SETTLING" } as typeof tournaments.$inferInsert)
+    .where(and(eq(tournaments.id, tournamentId), notInArray(tournaments.status, ["PRIZES_DISTRIBUTED", "ARCHIVED", "SETTLING"])))
+    .returning({ id: tournaments.id });
+  if (updated.length === 0) {
+    const recheck = await db
+      .select({ id: pointTransactions.id })
+      .from(pointTransactions)
+      .where(and(eq(pointTransactions.actionType, "prize"), eq(pointTransactions.referenceId, tournamentId)))
+      .limit(1);
+    if (recheck.length > 0) throw new Error("פרסים כבר חולקו לתחרות זו");
+    throw new Error("תחרות כבר בתהליך חלוקת פרסים או שפרסים חולקו");
+  }
+  return doDistributePrizesBody(tournamentId, tournament);
+}
+
+/** גוף חלוקת פרסים – משמש גם recovery כשהתחרות כבר ב-SETTLING. לא מעדכן ל-SETTLING ולא בודק "כבר חולקו". */
+async function doDistributePrizesBody(
+  tournamentId: number,
+  tournament: NonNullable<Awaited<ReturnType<typeof getTournamentById>>>
+): Promise<{ winnerCount: number; prizePerWinner: number; distributed: number; winnerIds: number[] }> {
+  const { tournaments } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const subs = (await getSubmissionsByTournament(tournamentId)).filter((s) => s.status === "approved");
   const prizePool = Math.round(subs.length * tournament.amount * 0.875);
   const tType = (tournament as { type?: string }).type ?? "football";
 
-  let winnerIds: number[];
+  let winnerSubmissions: typeof subs;
   if (tType === "chance") {
     const maxPoints = subs.length ? Math.max(...subs.map((s) => s.points)) : 0;
-    winnerIds = maxPoints > 0 ? subs.filter((s) => s.points === maxPoints).map((s) => s.userId) : [];
+    winnerSubmissions = maxPoints > 0 ? subs.filter((s) => s.points === maxPoints) : [];
   } else if (tType === "lotto") {
-    const score = (s: { points: number; strongHit?: boolean | null }) => s.points * 10 + (s.strongHit ? 1 : 0);
-    const maxScore = subs.length ? Math.max(...subs.map(score)) : 0;
-    winnerIds = maxScore > 0 ? subs.filter((s) => score(s) === maxScore).map((s) => s.userId) : [];
+    // בלוטו הדירוג והפרסים מתבססים על הניקוד הכולל:
+    // נקודה לכל מספר רגיל שנפגע + נקודה נוספת לפגיעה במספר החזק.
+    const lottoScore = (s: { points: number }) => s.points;
+    const maxScore = subs.length ? Math.max(...subs.map(lottoScore)) : 0;
+    winnerSubmissions = maxScore > 0 ? subs.filter((s) => lottoScore(s) === maxScore) : [];
   } else {
     const maxPoints = subs.length ? Math.max(...subs.map((s) => s.points), 0) : 0;
-    winnerIds = maxPoints > 0 ? subs.filter((s) => s.points === maxPoints).map((s) => s.userId) : [];
+    winnerSubmissions = maxPoints > 0 ? subs.filter((s) => s.points === maxPoints) : [];
   }
 
-  const winnerCount = winnerIds.length;
+  const winnerCount = winnerSubmissions.length;
   const prizePerWinner = winnerCount > 0 ? Math.floor(prizePool / winnerCount) : 0;
   const distributed = prizePerWinner * winnerCount;
   const tournamentName = (tournament as { name?: string }).name ?? String(tournamentId);
+  const winnerSubIds = new Set(winnerSubmissions.map((s) => s.id));
 
-  for (const userId of winnerIds) {
+  for (const sub of winnerSubmissions) {
     if (prizePerWinner > 0) {
-      await addUserPoints(userId, prizePerWinner, "prize", {
+      await addUserPoints(sub.userId, prizePerWinner, "prize", {
         referenceId: tournamentId,
         description: `זכייה בתחרות: ${tournamentName}`,
       });
-      const sub = subs.find((s) => s.userId === userId);
       await insertTransparencyLog({
         competitionId: tournamentId,
         competitionName: tournamentName,
-        userId,
-        username: sub?.username ?? `#${userId}`,
+        userId: sub.userId,
+        username: sub.username ?? `#${sub.userId}`,
         type: "Prize",
         amount: prizePerWinner,
         siteProfit: 0,
@@ -1433,16 +1963,102 @@ export async function distributePrizesForTournament(tournamentId: number): Promi
     closedAt,
     participantSnapshot: {
       participants: subs.map((s) => ({
+        submissionId: s.id,
         userId: s.userId,
         username: s.username ?? `#${s.userId}`,
         amountPaid: tournament.amount,
-        prizeWon: winnerIds.includes(s.userId) ? prizePerWinner : 0,
+        prizeWon: winnerSubIds.has(s.id) ? prizePerWinner : 0,
       })),
     },
   });
+  await db.update(tournaments).set({
+    status: "ARCHIVED",
+    visibility: "HIDDEN",
+    archivedAt: closedAt,
+    dataCleanedAt: closedAt,
+  } as typeof tournaments.$inferInsert).where(eq(tournaments.id, tournamentId));
+  return { winnerCount, prizePerWinner, distributed, winnerIds: winnerSubmissions.map((s) => s.userId) };
+}
+
+/** מחזיר תחרויות עם status=SETTLING (לצורך recovery). */
+export async function getTournamentsWithStatusSettling(): Promise<{ id: number }[]> {
   const { tournaments } = await getSchema();
-  await db.update(tournaments).set({ status: "PRIZES_DISTRIBUTED" } as typeof tournaments.$inferInsert).where(eq(tournaments.id, tournamentId));
-  return { winnerCount, prizePerWinner, distributed, winnerIds };
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ id: tournaments.id }).from(tournaments).where(eq(tournaments.status, "SETTLING"));
+  return rows;
+}
+
+/** Recovery מתחרויות תקועות ב-SETTLING: אם הפרסים כבר חולקו – מעדכן ל-PRIZES_DISTRIBUTED; אחרת מריץ חלוקה. אפשר לציין רק תחרויות מסוימות (למשל תקועות >5 דקות). */
+export async function runRecoverSettlements(opts?: { onlyTournamentIds?: number[] }): Promise<{ recovered: number[]; errors: { tournamentId: number; error: string }[] }> {
+  const { pointTransactions, tournaments } = await getSchema();
+  const db = await getDb();
+  if (!db) return { recovered: [], errors: [] };
+  let stuck = await getTournamentsWithStatusSettling();
+  if (opts?.onlyTournamentIds?.length) {
+    const set = new Set(opts.onlyTournamentIds);
+    stuck = stuck.filter((r) => set.has(r.id));
+  }
+  const recovered: number[] = [];
+  const errors: { tournamentId: number; error: string }[] = [];
+  for (const { id: tournamentId } of stuck) {
+    try {
+      const prizeRows = await db
+        .select({ id: pointTransactions.id })
+        .from(pointTransactions)
+        .where(and(eq(pointTransactions.actionType, "prize"), eq(pointTransactions.referenceId, tournamentId)))
+        .limit(1);
+      if (prizeRows.length > 0) {
+        const now = new Date();
+        await db.update(tournaments).set({
+          status: "ARCHIVED",
+          visibility: "HIDDEN",
+          archivedAt: now,
+          dataCleanedAt: now,
+        } as typeof tournaments.$inferInsert).where(eq(tournaments.id, tournamentId));
+        recovered.push(tournamentId);
+      } else {
+        const tournament = await getTournamentById(tournamentId);
+        if (tournament) {
+          await doDistributePrizesBody(tournamentId, tournament);
+          recovered.push(tournamentId);
+        } else {
+          errors.push({ tournamentId, error: "תחרות לא נמצאה" });
+        }
+      }
+    } catch (e) {
+      errors.push({ tournamentId, error: String(e) });
+    }
+  }
+  return { recovered, errors };
+}
+
+/** בדיקת יושרה כספית: Total Entry Points = Total Payouts + System Balance. אם יש סטייה – מחזיר פרטים ללוג. */
+export async function runFinancialIntegrityCheck(): Promise<{
+  totalEntryPoints: number;
+  totalPayouts: number;
+  systemBalance: number;
+  delta: number;
+  ok: boolean;
+}> {
+  const { users, pointTransactions } = await getSchema();
+  const db = await getDb();
+  if (!db) return { totalEntryPoints: 0, totalPayouts: 0, systemBalance: 0, delta: 0, ok: true };
+  const partRows = await db
+    .select({ s: sql<number>`coalesce(sum(abs(${pointTransactions.amount})), 0)` })
+    .from(pointTransactions)
+    .where(eq(pointTransactions.actionType, "participation"));
+  const prizeRows = await db
+    .select({ s: sql<number>`coalesce(sum(${pointTransactions.amount}), 0)` })
+    .from(pointTransactions)
+    .where(eq(pointTransactions.actionType, "prize"));
+  const balanceRows = await db.select({ s: sql<number>`coalesce(sum(${users.points}), 0)` }).from(users);
+  const totalEntryPoints = Number(partRows[0]?.s ?? 0);
+  const totalPayouts = Number(prizeRows[0]?.s ?? 0);
+  const systemBalance = Number(balanceRows[0]?.s ?? 0);
+  const delta = totalEntryPoints - totalPayouts - systemBalance;
+  const ok = Math.abs(delta) < 1;
+  return { totalEntryPoints, totalPayouts, systemBalance, delta, ok };
 }
 
 const VIRTUAL_USER_OPENID = "system-virtual-auto-submissions";
@@ -1533,6 +2149,62 @@ export async function getAdminAuditLogs(limit = 100) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(adminAuditLog).orderBy(desc(adminAuditLog.createdAt)).limit(limit);
+}
+
+export type LedgerType =
+  | "ENTRY_DEBIT" | "REFUND" | "PRIZE_CREDIT" | "SITE_FEE" | "AGENT_FEE" | "ADMIN_ADJUST"
+  | "DEPOSIT" | "WITHDRAW" | "AGENT_TRANSFER" | "PRIZE" | "PARTICIPATION" | "ADMIN_APPROVAL";
+
+/** רישום תנועה ב-Ledger – כל נקודה שנכנסת/יוצאת חייבת לעבור כאן */
+export async function insertLedgerTransaction(data: {
+  actorUserId?: number | null;
+  subjectUserId?: number | null;
+  agentId?: number | null;
+  tournamentId?: number | null;
+  type: LedgerType;
+  amountPoints: number;
+  balanceAfter?: number | null;
+  metaJson?: Record<string, unknown> | null;
+}) {
+  const { ledgerTransactions } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
+  await db.insert(ledgerTransactions).values({
+    actorUserId: data.actorUserId ?? null,
+    subjectUserId: data.subjectUserId ?? null,
+    agentId: data.agentId ?? null,
+    tournamentId: data.tournamentId ?? null,
+    type: data.type,
+    amountPoints: data.amountPoints,
+    balanceAfter: data.balanceAfter ?? null,
+    metaJson: data.metaJson as never ?? null,
+  });
+}
+
+/** רישום ב-Audit Log – שקיפות תפעולית */
+export async function insertAuditLog(data: {
+  actorId: number;
+  actorRole: string;
+  action: string;
+  entityType?: string | null;
+  entityId?: number | null;
+  diffJson?: Record<string, unknown> | null;
+  ip?: string | null;
+  userAgent?: string | null;
+}) {
+  const { auditLogs } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
+  await db.insert(auditLogs).values({
+    actorId: data.actorId,
+    actorRole: data.actorRole,
+    action: data.action,
+    entityType: data.entityType ?? null,
+    entityId: data.entityId ?? null,
+    diffJson: data.diffJson as never ?? null,
+    ip: data.ip ?? null,
+    userAgent: data.userAgent ?? null,
+  });
 }
 
 /** יצירת מנהל חדש – רק סופר מנהל. משתמש נכנס עם username + סיסמה. */
@@ -1633,6 +2305,14 @@ export async function getAgents() {
   return db.select().from(users)
     .where(and(eq(users.role, "agent"), isNull(users.deletedAt)))
     .orderBy(desc(users.createdAt));
+}
+
+/** עדכון שיוך שחקן לסוכן (מנהל בלבד). agentId = null להסרת שיוך. */
+export async function updateUserAgentId(playerId: number, agentId: number | null): Promise<void> {
+  const { users } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
+  await db.update(users).set({ agentId, updatedAt: new Date() }).where(eq(users.id, playerId));
 }
 
 /** רישום עמלה לסוכן כשטופס מאושר */
@@ -1754,7 +2434,52 @@ export async function getTournaments() {
   return db.select().from(tournaments).where(isNull(tournaments.deletedAt));
 }
 
-/** תחרויות לדף הראשי בלבד – visibility=VISIBLE, לא מוסתרות, לא מחוקות (deletedAt). */
+/** ליגות – לא מחוקות (deletedAt) */
+export async function getLeagues(opts?: { includeDisabled?: boolean }) {
+  const { leagues } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [isNull(leagues.deletedAt)];
+  if (!opts?.includeDisabled) conditions.push(eq(leagues.enabled, true));
+  return db.select().from(leagues).where(and(...conditions)).orderBy(desc(leagues.id));
+}
+
+export async function getLeagueById(id: number) {
+  const { leagues } = await getSchema();
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db.select().from(leagues).where(eq(leagues.id, id)).limit(1);
+  return r[0];
+}
+
+export async function createLeague(name: string, createdBy?: number) {
+  const { leagues } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(leagues).values({ name });
+  const rows = await db.select({ id: leagues.id }).from(leagues).orderBy(desc(leagues.id)).limit(1);
+  return rows[0]?.id;
+}
+
+export async function updateLeague(id: number, data: { name?: string; enabled?: boolean }) {
+  const { leagues } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (data.name != null) set.name = data.name;
+  if (data.enabled != null) set.enabled = data.enabled;
+  await db.update(leagues).set(set as typeof leagues.$inferInsert).where(eq(leagues.id, id));
+}
+
+/** מחיקה רכה של ליגה – audit מוקלט בנפרד */
+export async function softDeleteLeague(id: number) {
+  const { leagues } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(leagues).set({ deletedAt: new Date() } as typeof leagues.$inferInsert).where(eq(leagues.id, id));
+}
+
+/** תחרויות לדף הראשי בלבד – visibility=VISIBLE, לא מוסתרות, לא מחוקות (deletedAt). מציג רק OPEN/LOCKED. */
 export async function getActiveTournaments() {
   const { tournaments } = await getSchema();
   const db = await getDb();
@@ -1762,9 +2487,9 @@ export async function getActiveTournaments() {
   return db.select().from(tournaments).where(
     and(
       isNull(tournaments.deletedAt),
-      eq(tournaments.visibility, "VISIBLE"),
+      sql`(COALESCE(visibility, 'VISIBLE') = 'VISIBLE')`,
       sql`(COALESCE(hiddenFromHomepage, 0) = 0)`,
-      inArray(tournaments.status, ["OPEN", "LOCKED", "CLOSED", "SETTLED"])
+      inArray(tournaments.status, ["OPEN", "LOCKED"])
     )
   ).orderBy(desc(tournaments.createdAt));
 }
@@ -1855,7 +2580,7 @@ export async function setTournamentResultsFinalized(
 }
 
 /** שמירה לצמיתות – רשומה כספית בעת חלוקת פרסים או החזר. לא נמחקת אוטומטית. */
-export type FinancialRecordParticipant = { userId: number; username: string; amountPaid: number; prizeWon: number };
+export type FinancialRecordParticipant = { submissionId?: number; userId: number; username: string; amountPaid: number; prizeWon: number };
 export async function insertFinancialRecord(data: {
   competitionId: number;
   competitionName: string;
@@ -2160,7 +2885,7 @@ export async function getTournamentsToCleanup(): Promise<Array<{ id: number }>> 
     .map((t) => ({ id: t.id }));
 }
 
-/** ארכוב תחרות – מעדכן סטטוס ל-ARCHIVED ו-archivedAt. אין מחיקה של נתונים, עמלות או רווחים. */
+/** ארכוב תחרות – מעדכן סטטוס ל-ARCHIVED, visibility=HIDDEN (לא מוצג בדף הראשי), archivedAt. אין מחיקה של נתונים, עמלות או רווחים. */
 export async function cleanupTournamentData(tournamentId: number): Promise<void> {
   const { tournaments } = await getSchema();
   const db = await getDb();
@@ -2168,9 +2893,43 @@ export async function cleanupTournamentData(tournamentId: number): Promise<void>
   const now = new Date();
   await db.update(tournaments).set({
     status: "ARCHIVED",
+    visibility: "HIDDEN",
     archivedAt: now,
     dataCleanedAt: now,
   } as typeof tournaments.$inferInsert).where(eq(tournaments.id, tournamentId));
+}
+
+/** תחרויות שהגיע זמנן לסגירה אוטומטית (closesAt עבר) – עדיין OPEN */
+export async function getTournamentsToAutoClose(): Promise<Array<{ id: number }>> {
+  const { tournaments } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  const all = await db.select({ id: tournaments.id, closesAt: tournaments.closesAt }).from(tournaments).where(
+    and(eq(tournaments.status, "OPEN"), isNotNull(tournaments.closesAt))
+  );
+  const now = Date.now();
+  return all
+    .filter((t) => t.closesAt != null && (t.closesAt instanceof Date ? t.closesAt.getTime() : Number(t.closesAt)) <= now)
+    .map((t) => ({ id: t.id }));
+}
+
+/** סגירה אוטומטית: מעבר תחרות ל-LOCKED כשהזמן closesAt עבר */
+export async function runAutoCloseTournaments(): Promise<number[]> {
+  const list = await getTournamentsToAutoClose();
+  if (list.length === 0) return [];
+  const { tournaments } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  const now = new Date();
+  const ids: number[] = [];
+  for (const { id } of list) {
+    await db.update(tournaments).set({
+      status: "LOCKED",
+      lockedAt: now,
+    } as typeof tournaments.$inferInsert).where(eq(tournaments.id, id));
+    ids.push(id);
+  }
+  return ids;
 }
 
 export async function getTournamentByDrawCode(drawCode: string) {
@@ -2260,8 +3019,19 @@ export async function getSubmissionByUserAndTournament(userId: number, tournamen
   if (!db) return undefined;
   const r = await db.select().from(submissions)
     .where(and(eq(submissions.userId, userId), eq(submissions.tournamentId, tournamentId)))
+    .orderBy(desc(submissions.createdAt))
     .limit(1);
   return r[0];
+}
+
+/** כל הטפסים של משתמש בתחרות (להצגת "הכניסות שלי") */
+export async function getSubmissionsByUserAndTournament(userId: number, tournamentId: number) {
+  const { submissions } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(submissions)
+    .where(and(eq(submissions.userId, userId), eq(submissions.tournamentId, tournamentId)))
+    .orderBy(desc(submissions.createdAt));
 }
 
 export async function createSubmission(data: {
@@ -2283,11 +3053,49 @@ export async function createSubmission(data: {
   });
 }
 
+/** כניסה חדשה בלבד – תמיד יוצר שורה חדשה (אין הגבלה על מספר כניסות לאותה תחרות). מחזיר id של הטופס החדש. */
+export async function insertSubmission(data: {
+  userId: number;
+  username: string;
+  tournamentId: number;
+  agentId?: number | null;
+  predictions: Array<{ matchId: number; prediction: "1" | "X" | "2" }> | ChancePredictions | LottoPredictions;
+  status?: "pending" | "approved" | "rejected";
+  paymentStatus?: "pending" | "completed" | "failed";
+  strongHit?: boolean;
+}): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
+  const { submissions } = await getSchema();
+  const countRows = await db.select().from(submissions).where(eq(submissions.tournamentId, data.tournamentId));
+  const nextNum = countRows.length + 1;
+  const status = data.status ?? "pending";
+  const paymentStatus = data.paymentStatus ?? "pending";
+  await db.insert(submissions).values({
+    userId: data.userId,
+    username: data.username,
+    tournamentId: data.tournamentId,
+    agentId: data.agentId ?? null,
+    submissionNumber: nextNum,
+    predictions: data.predictions as never,
+    points: 0,
+    status,
+    paymentStatus,
+    strongHit: data.strongHit ?? null,
+  });
+  const created = await db.select({ id: submissions.id }).from(submissions)
+    .where(and(eq(submissions.userId, data.userId), eq(submissions.tournamentId, data.tournamentId)))
+    .orderBy(desc(submissions.id))
+    .limit(1);
+  return created[0]?.id ?? 0;
+}
+
 /** הוסף או עדכן טופס לפי (משתמש, טורניר) - מופיע מיד בדירוג */
 export async function upsertSubmission(data: {
   userId: number;
   username: string;
   tournamentId: number;
+  agentId?: number | null;
   predictions: Array<{ matchId: number; prediction: "1" | "X" | "2" }> | ChancePredictions | LottoPredictions;
   status?: "pending" | "approved" | "rejected";
   paymentStatus?: "pending" | "completed" | "failed";
@@ -2302,6 +3110,7 @@ export async function upsertSubmission(data: {
     userId: data.userId,
     username: data.username,
     tournamentId: data.tournamentId,
+    agentId: data.agentId ?? null,
     predictions: data.predictions,
     updatedAt: new Date(),
     status,
@@ -2399,6 +3208,37 @@ export async function updateSubmissionLottoResult(id: number, points: number, st
     strongHit: strongHit ? true : false,
     updatedAt: new Date(),
   }).where(eq(submissions.id, id));
+}
+
+/** עדכון תוכן טופס קיים (עריכה – ללא חיוב). מעדכן predictions, updatedAt, editedCount, lastEditedAt ורושם SUBMISSION_EDITED ב-audit. */
+export async function updateSubmissionContent(
+  id: number,
+  predictions: unknown,
+  actorId: number,
+  actorRole: string,
+  diffJson?: Record<string, unknown> | null
+) {
+  const { submissions } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
+  const row = await db.select({ editedCount: submissions.editedCount }).from(submissions).where(eq(submissions.id, id)).limit(1);
+  const nextEditedCount = (row[0]?.editedCount ?? 0) + 1;
+  const now = new Date();
+  const predictionsStr = typeof predictions === "string" ? predictions : JSON.stringify(predictions);
+  await db.update(submissions).set({
+    predictions: predictionsStr as never,
+    updatedAt: now,
+    editedCount: nextEditedCount,
+    lastEditedAt: now,
+  }).where(eq(submissions.id, id));
+  await insertAuditLog({
+    actorId,
+    actorRole,
+    action: "SUBMISSION_EDITED",
+    entityType: "submission",
+    entityId: id,
+    diffJson: diffJson ?? undefined,
+  });
 }
 
 export async function deleteSubmission(id: number) {
@@ -3067,15 +3907,17 @@ export async function setLottoDrawResult(
   const approved = (await getAllSubmissions()).filter((s) => s.tournamentId === tournamentId && s.status === "approved");
   for (const s of approved) {
     const pred = s.predictions as unknown;
-    let points = 0;
+    let regularMatches = 0;
     let strongHit = false;
     if (isLottoPredictionsValid(pred)) {
       for (const n of pred.numbers) {
-        if (winningSet.has(n)) points++;
+        if (winningSet.has(n)) regularMatches++;
       }
       strongHit = pred.strongNumber === data.strongNumber;
     }
-    await updateSubmissionLottoResult(s.id, points, strongHit);
+    // ניקוד לוטו: נקודה לכל מספר רגיל שנפגע + נקודה נוספת על פגיעה במספר החזק.
+    const totalPoints = regularMatches + (strongHit ? 1 : 0);
+    await updateSubmissionLottoResult(s.id, totalPoints, strongHit);
   }
 }
 
@@ -3106,7 +3948,8 @@ export async function getLottoLeaderboard(tournamentId: number): Promise<{
   const tournament = await getTournamentById(tournamentId);
   const drawResult = await getLottoDrawResult(tournamentId);
   const prizePool = Math.round(subs.length * (tournament?.amount ?? 0) * 0.875);
-  const score = (s: { points: number; strongHit?: boolean | null }) => (s.points * 10) + (s.strongHit ? 1 : 0);
+  // דירוג לוטו מבוסס על הניקוד הכולל (כולל נקודה על המספר החזק אם נפגע).
+  const score = (s: { points: number }) => s.points;
   const maxScore = subs.length ? Math.max(...subs.map(score)) : 0;
   const winners = subs.filter((s) => score(s) === maxScore);
   const winnerCount = maxScore > 0 ? winners.length : 0;
@@ -3120,7 +3963,7 @@ export async function getLottoLeaderboard(tournamentId: number): Promise<{
     isWinner: score(s) === maxScore && maxScore > 0,
     prizeAmount: score(s) === maxScore && maxScore > 0 ? prizePerWinner : 0,
   }));
-  rows.sort((a, b) => (b.points * 10 + (b.strongHit ? 1 : 0)) - (a.points * 10 + (a.strongHit ? 1 : 0)));
+  rows.sort((a, b) => score(b) - score(a) || Number(b.strongHit) - Number(a.strongHit));
   return {
     drawResult: drawResult
       ? {

@@ -28,6 +28,18 @@ export const users = sqliteTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
+/** ליגות – enable/disable, soft delete; תחרויות מקושרות ב־leagueId */
+export const leagues = sqliteTable("leagues", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).default(true).notNull(),
+  deletedAt: integer("deletedAt", { mode: "timestamp" }),
+  createdAt: integer("createdAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  updatedAt: integer("updatedAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+export type League = typeof leagues.$inferSelect;
+export type InsertLeague = typeof leagues.$inferInsert;
+
 /** טורנירים / תחרויות */
 export const tournaments = sqliteTable("tournaments", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -38,8 +50,22 @@ export const tournaments = sqliteTable("tournaments", {
   isLocked: integer("isLocked", { mode: "boolean" }).default(false),
   /** תיאור התחרות */
   description: text("description"),
-  /** סוג: football | lotto | chance | football_custom | league_pool */
+  /** סוג: CHANCE | LOTTO | FOOTBALL | WORLDCUP (תאימות: football_custom -> FOOTBALL) */
   type: text("type").default("football"),
+  /** מועד פתיחה – מתחתיו לא מקבלים שליחות */
+  opensAt: integer("opensAt", { mode: "timestamp" }),
+  /** מועד סגירה – אחריו status -> LOCKED אוטומטית */
+  closesAt: integer("closesAt", { mode: "timestamp" }),
+  /** עלות כניסה בנקודות (null = amount) */
+  entryCostPoints: integer("entryCostPoints"),
+  /** אחוז עמלת בית (12.5) */
+  houseFeeRate: integer("houseFeeRate").default(12.5),
+  /** אחוז מעמלת הבית שהסוכן מקבל (50) */
+  agentShareOfHouseFee: integer("agentShareOfHouseFee").default(50),
+  /** חוקים ספציפיים לסוג (JSON) */
+  rulesJson: text("rulesJson", { mode: "json" }),
+  /** מנהל שיצר את התחרות */
+  createdBy: integer("createdBy"),
   /** תאריך התחלה (YYYY-MM-DD) */
   startDate: text("startDate"),
   /** תאריך סיום (YYYY-MM-DD) */
@@ -56,7 +82,7 @@ export const tournaments = sqliteTable("tournaments", {
   totalPoolPoints: integer("totalPoolPoints").default(0),
   /** סכום העמלה (12.5%); מתעדכן בהתנחלות */
   totalCommissionPoints: integer("totalCommissionPoints").default(0),
-  /** קרן פרסים (total_pool - commission) */
+  /** קרן פרסים (total_pool - commission); גם להצגה */
   totalPrizePoolPoints: integer("totalPrizePoolPoints").default(0),
   /** חלוקת פרסים באחוזים: למשל {"1":100} או {"1":50,"2":30,"3":20} */
   prizeDistribution: text("prizeDistribution", { mode: "json" }),
@@ -68,9 +94,9 @@ export const tournaments = sqliteTable("tournaments", {
   drawTime: text("drawTime"),
   /** מועד סיום תוצאות והצגת דירוג – לאחריו תחרות עוברת לארכיון (ללא מחיקת נתונים) */
   resultsFinalizedAt: integer("resultsFinalizedAt", { mode: "timestamp" }),
-  /** סטטוס: OPEN | CLOSED | LOCKED | SETTLED | CANCELLED | UPCOMING | RESULTS_UPDATED | PRIZES_DISTRIBUTED | ARCHIVED */
+  /** סטטוס: UPCOMING | OPEN | LOCKED | CLOSED | SETTLED | ARCHIVED */
   status: text("status").default("OPEN"),
-  /** מועד נעילה (כשמנהל לוחץ נעול) */
+  /** מועד נעילה (כשמנהל לוחץ נעול או אוטומטי לפי closesAt) */
   lockedAt: integer("lockedAt", { mode: "timestamp" }),
   /** מועד הסרה מדף ראשי = lockedAt + 5 דקות */
   removalScheduledAt: integer("removalScheduledAt", { mode: "timestamp" }),
@@ -121,18 +147,26 @@ export const matches = sqliteTable("matches", {
 export type Match = typeof matches.$inferSelect;
 export type InsertMatch = typeof matches.$inferInsert;
 
-/** טפסי ניחושים - משתמש שולח טופס לטורניר */
+/** טפסי ניחושים - משתמש שולח טופס לטורניר (מספר בלתי מוגבל של כניסות לאותה תחרות) */
 export const submissions = sqliteTable("submissions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  /** מספר כניסה בתחרות (1, 2, 3...) – לתצוגה ולניהול */
+  submissionNumber: integer("submissionNumber"),
   userId: integer("userId").notNull(),
   username: text("username").notNull(),
   tournamentId: integer("tournamentId").notNull(),
+  /** סוכן שהביא את השחקן (nullable) */
+  agentId: integer("agentId"),
+  /** תוכן הטופס (ניחושים) – alias ל-predictions בתאימות */
   predictions: text("predictions", { mode: "json" }).notNull(),
   points: integer("points").default(0).notNull(),
   status: text("status", { enum: ["pending", "approved", "rejected"] }).default("pending").notNull(),
   paymentStatus: text("paymentStatus", { enum: ["pending", "completed", "failed"] }).default("pending").notNull(),
   createdAt: integer("createdAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
   updatedAt: integer("updatedAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  /** מספר פעמים שהטופס נערך (ללא חיוב) */
+  editedCount: integer("editedCount").default(0).notNull(),
+  lastEditedAt: integer("lastEditedAt", { mode: "timestamp" }),
   approvedAt: integer("approvedAt", { mode: "timestamp" }),
   approvedBy: integer("approvedBy"),
   /** לוטו: האם פגע במספר החזק (0/1) */
@@ -177,6 +211,71 @@ export const adminAuditLog = sqliteTable("admin_audit_log", {
 });
 export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
 export type InsertAdminAuditLog = typeof adminAuditLog.$inferInsert;
+
+/** תוצאות תחרות – גנרי (resultsJson). צ'אנס/לוטו משתמשים גם ב־chance_draw_results / lotto_draw_results */
+export const results = sqliteTable("results", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tournamentId: integer("tournamentId").notNull().unique(),
+  resultsJson: text("resultsJson", { mode: "json" }).notNull(),
+  updatedBy: integer("updatedBy"),
+  updatedAt: integer("updatedAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+export type Result = typeof results.$inferSelect;
+export type InsertResult = typeof results.$inferInsert;
+
+/** צילום התנחלות – לכל תחרות שנסגרה; נתונים פיננסיים לא נמחקים */
+export const settlement = sqliteTable("settlement", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tournamentId: integer("tournamentId").notNull().unique(),
+  settledAt: integer("settledAt", { mode: "timestamp" }).notNull(),
+  totalEntries: integer("totalEntries").notNull(),
+  totalPrizePool: integer("totalPrizePool").notNull(),
+  winnersCount: integer("winnersCount").notNull(),
+  payoutPerWinner: integer("payoutPerWinner").notNull(),
+  siteFeePoints: integer("siteFeePoints").notNull(),
+  agentFeePoints: integer("agentFeePoints").notNull(),
+  netToWinners: integer("netToWinners").notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+export type Settlement = typeof settlement.$inferSelect;
+export type InsertSettlement = typeof settlement.$inferInsert;
+
+/** Ledger – כל תנועת נקודות חייבת לעבור כאן (חשבונאות חובה) */
+export const ledgerTransactions = sqliteTable("ledger_transactions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  createdAt: integer("createdAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  actorUserId: integer("actorUserId"),
+  subjectUserId: integer("subjectUserId"),
+  agentId: integer("agentId"),
+  tournamentId: integer("tournamentId"),
+  type: text("type", {
+    enum: [
+      "ENTRY_DEBIT", "REFUND", "PRIZE_CREDIT", "SITE_FEE", "AGENT_FEE", "ADMIN_ADJUST",
+      "DEPOSIT", "WITHDRAW", "AGENT_TRANSFER", "PRIZE", "PARTICIPATION", "ADMIN_APPROVAL",
+    ],
+  }).notNull(),
+  amountPoints: integer("amountPoints").notNull(),
+  balanceAfter: integer("balanceAfter"),
+  metaJson: text("metaJson", { mode: "json" }),
+});
+export type LedgerTransaction = typeof ledgerTransactions.$inferSelect;
+export type InsertLedgerTransaction = typeof ledgerTransactions.$inferInsert;
+
+/** Audit Log – שקיפות תפעולית (כל פעולה משמעותית) */
+export const auditLogs = sqliteTable("audit_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  createdAt: integer("createdAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  actorId: integer("actorId").notNull(),
+  actorRole: text("actorRole").notNull(),
+  action: text("action").notNull(),
+  entityType: text("entityType"),
+  entityId: integer("entityId"),
+  diffJson: text("diffJson", { mode: "json" }),
+  ip: text("ip"),
+  userAgent: text("userAgent"),
+});
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type InsertAuditLog = typeof auditLogs.$inferInsert;
 
 /** תוצאות הגרלת צ'אנס – לפי מפעל הפיס. טורניר אחד = הגרלה אחת (עדכון מחליף). */
 export const chanceDrawResults = sqliteTable("chance_draw_results", {

@@ -21,6 +21,7 @@ const TournamentSelect = lazy(() => import("./pages/TournamentSelect"));
 const PredictionForm = lazy(() => import("./pages/PredictionForm"));
 const Leaderboard = lazy(() => import("./pages/Leaderboard"));
 const Submissions = lazy(() => import("./pages/Submissions"));
+const HowItWorks = lazy(() => import("./pages/HowItWorks"));
 const Transparency = lazy(() => import("./pages/Transparency"));
 const PointsHistory = lazy(() => import("./pages/PointsHistory"));
 const AdminPanel = lazy(() => import("./pages/AdminPanel"));
@@ -103,6 +104,9 @@ const WHATSAPP_NUMBER = "972538099212";
       <button onClick={() => onOpenTerms?.()} className="flex items-center gap-1.5 text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0" aria-label="תקנון האתר">
         <FileText className="w-4 h-4 shrink-0" />
         <span className="truncate">תקנון</span>
+      </button>
+      <button onClick={() => go("/how-it-works")} className="text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0 truncate">
+        איך זה עובד
       </button>
       <button onClick={() => go("/leaderboard")} className="text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0 truncate">
         דירוג
@@ -327,6 +331,7 @@ function App() {
                   <Route path="/predict/:id" component={PredictionForm} />
                   <Route path="/leaderboard" component={Leaderboard} />
                   <Route path="/submissions" component={Submissions} />
+                  <Route path="/how-it-works" component={HowItWorks} />
                   <Route path="/points" component={PointsHistory} />
                   <Route path="/transparency" component={Transparency} />
                   <Route path="/admin" component={AdminPanel} />

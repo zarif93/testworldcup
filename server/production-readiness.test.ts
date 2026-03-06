@@ -150,6 +150,11 @@ describe("Production readiness – הרשאות", () => {
       const caller = appRouter.createCaller(ctx);
       await expect(caller.submissions.getMine()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     });
+    it("submissions.getById – 401 when not authenticated", async () => {
+      const ctx = createContext(null);
+      const caller = appRouter.createCaller(ctx);
+      await expect(caller.submissions.getById({ id: 1 })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
   });
 });
 
@@ -169,5 +174,60 @@ describe("Production readiness – טיימרים ושחזור", () => {
     if (list.length > 0) {
       await expect(cleanupTournamentData(list[0].id)).resolves.not.toThrow();
     }
+  });
+  it("getTournamentsToAutoClose ו-runAutoCloseTournaments – פונקציות קיימות", async () => {
+    const { getTournamentsToAutoClose, runAutoCloseTournaments } = await import("./db");
+    const list = await getTournamentsToAutoClose();
+    expect(Array.isArray(list)).toBe(true);
+    const closed = await runAutoCloseTournaments();
+    expect(Array.isArray(closed)).toBe(true);
+  });
+});
+
+describe("Production readiness – כניסות מרובות לתחרות", () => {
+  it("getSubmissionsByUserAndTournament מחזיר מערך; insertSubmission פונקציה קיימת", async () => {
+    const { getSubmissionsByUserAndTournament, insertSubmission } = await import("./db");
+    const list = await getSubmissionsByUserAndTournament(1, 1);
+    expect(Array.isArray(list)).toBe(true);
+    expect(typeof insertSubmission).toBe("function");
+  });
+});
+
+describe("Production readiness – עריכת טופס (Edit) ללא חיוב", () => {
+  it("submissions.update – טופס לא קיים מחזיר NOT_FOUND", async () => {
+    const ctx = createContext(normalUser);
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.submissions.update({
+        submissionId: 999999,
+        predictions: [{ matchId: 1, prediction: "1" }],
+      })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+  it("updateSubmissionContent פונקציה קיימת", async () => {
+    const { updateSubmissionContent } = await import("./db");
+    expect(typeof updateSubmissionContent).toBe("function");
+  });
+});
+
+describe("Security – IDOR והרשאות", () => {
+  it("submissions.getById – משתמש לא בעלים מקבל 403 או NOT_FOUND", async () => {
+    const otherUser = { ...normalUser, id: 99999 };
+    const ctx = createContext(otherUser);
+    const caller = appRouter.createCaller(ctx);
+    try {
+      await caller.submissions.getById({ id: 1 });
+      expect.fail("expected to throw");
+    } catch (e: unknown) {
+      const err = e as { data?: { code?: string }; code?: string };
+      const code = err?.data?.code ?? err?.code;
+      expect(["FORBIDDEN", "NOT_FOUND"]).toContain(code);
+    }
+  });
+  it("checkLoginRateLimit – מגביל אחרי 5 ניסיונות ל-IP", async () => {
+    const { checkLoginRateLimit } = await import("./_core/loginRateLimit");
+    const req = { ip: "127.0.0.99", headers: {} };
+    for (let i = 0; i < 5; i++) expect(checkLoginRateLimit(req)).toBe(true);
+    expect(checkLoginRateLimit(req)).toBe(false);
   });
 });

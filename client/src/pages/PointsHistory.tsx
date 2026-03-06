@@ -3,7 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Gem, Loader2, Calendar, TrendingUp, FileDown } from "lucide-react";
+import { Gem, Loader2, Calendar, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 
@@ -32,8 +32,6 @@ export default function PointsHistory() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [tournamentType, setTournamentType] = useState("");
-  const [exportingReport, setExportingReport] = useState(false);
-  const utils = trpc.useUtils();
 
   const { data: history, isLoading } = trpc.auth.getPointsHistory.useQuery(
     {
@@ -132,43 +130,6 @@ export default function PointsHistory() {
                   </div>
                 </div>
               ) : null}
-              {user?.role === "user" && (
-                <div className="flex flex-wrap gap-2 items-center mt-4 pt-4 border-t border-slate-700">
-                  <span className="text-slate-500 text-sm">ייצוא דוח לפי תאריכים:</span>
-                  <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="w-36 bg-slate-900 border-slate-600 text-white text-sm" />
-                  <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="w-36 bg-slate-900 border-slate-600 text-white text-sm" />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
-                    disabled={exportingReport}
-                    onClick={async () => {
-                      setExportingReport(true);
-                      try {
-                        const { csv } = await utils.auth.exportMyPlayerReport.fetch({
-                          from: dateFrom || undefined,
-                          to: dateTo || undefined,
-                          tournamentType: tournamentType || undefined,
-                        });
-                        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement("a");
-                        a.href = url;
-                        a.download = `דוח-שחקן-${dateFrom || "all"}-${dateTo || "all"}.csv`;
-                        a.click();
-                        URL.revokeObjectURL(url);
-                      } catch (e) {
-                        console.error(e);
-                      } finally {
-                        setExportingReport(false);
-                      }
-                    }}
-                  >
-                    {exportingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
-                    <span className="mr-1">ייצא דוח</span>
-                  </Button>
-                </div>
-              )}
             </CardContent>
           </Card>
         )}

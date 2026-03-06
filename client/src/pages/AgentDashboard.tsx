@@ -2,7 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useLocation } from "wouter";
-import { Loader2, Users, Coins, Copy, Wallet, ArrowDownToLine, ArrowUpFromLine, History, Calendar, TrendingUp, FileText, FileDown } from "lucide-react";
+import { Loader2, Users, Coins, Copy, Wallet, ArrowDownToLine, ArrowUpFromLine, History, Calendar, TrendingUp, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useState } from "react";
@@ -43,7 +43,6 @@ export default function AgentDashboard() {
   const [pnlTo, setPnlTo] = useState("");
   const [pnlTournamentType, setPnlTournamentType] = useState("");
   const [pnlDetailPlayerId, setPnlDetailPlayerId] = useState<number | null>(null);
-  const [exportingCsv, setExportingCsv] = useState<"commission" | "pnl" | null>(null);
   const utils = trpc.useUtils();
   const TOURNAMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
     { value: "", label: "כל הסוגים" },
@@ -73,6 +72,10 @@ export default function AgentDashboard() {
   );
   const { data: agentPnL, isLoading: agentPnLLoading } = trpc.agent.getAgentPnL.useQuery(
     { from: pnlFrom || undefined, to: pnlTo || undefined, tournamentType: pnlTournamentType || undefined },
+    { enabled: !!user && user.role === "agent" }
+  );
+  const { data: agentPnLReportRows, isLoading: agentPnLReportRowsLoading } = trpc.agent.getPnLReport.useQuery(
+    { from: pnlFrom || undefined, to: pnlTo || undefined, tournamentType: pnlTournamentType || undefined, limit: 2000 },
     { enabled: !!user && user.role === "agent" }
   );
   const { data: playersPnL, isLoading: playersPnLLoading } = trpc.agent.getAgentPlayersPnL.useQuery(
@@ -204,38 +207,6 @@ export default function AgentDashboard() {
                   ))}
                 </select>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="border-amber-500/50 text-amber-400"
-                disabled={exportingCsv === "pnl"}
-                onClick={async () => {
-                  setExportingCsv("pnl");
-                  try {
-                    const { csv } = await utils.agent.exportAgentPnLCSV.fetch({
-                      from: pnlFrom || undefined,
-                      to: pnlTo || undefined,
-                      tournamentType: pnlTournamentType || undefined,
-                    });
-                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `pnl-agent-${pnlFrom || "all"}-${pnlTo || "all"}.csv`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                    toast.success("הורדת CSV החלה");
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "שגיאה בייצוא");
-                  } finally {
-                    setExportingCsv(null);
-                  }
-                }}
-              >
-                {exportingCsv === "pnl" ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
-                <span className="mr-1">ייצוא CSV</span>
-              </Button>
             </div>
             {agentPnL != null && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 p-3 rounded-lg bg-slate-900/80">
@@ -253,45 +224,43 @@ export default function AgentDashboard() {
                 </div>
               </div>
             )}
-            {agentPnL?.transactions && agentPnL.transactions.length > 0 && (
+            {agentPnLReportRowsLoading ? (
+              <p className="text-slate-500 text-center py-4">טוען...</p>
+            ) : agentPnLReportRows && agentPnLReportRows.length > 0 ? (
               <div className="overflow-x-auto mb-6">
-                <p className="text-slate-400 text-sm mb-2">כל הפעולות – עמלות, הפקדות, זכיות שחקנים</p>
+                <p className="text-slate-400 text-sm mb-2">דוח מפורט – פעילות שחקנים + עמלות + תנועות בארנק הסוכן</p>
                 <table className="w-full text-sm text-right">
                   <thead>
                     <tr className="border-b border-slate-600/50 text-slate-400">
                       <th className="py-2 px-2">תאריך</th>
                       <th className="py-2 px-2">שחקן</th>
-                      <th className="py-2 px-2">סוג פעולה</th>
-                      <th className="py-2 px-2">סכום</th>
-                      <th className="py-2 px-2">תחרות</th>
-                      <th className="py-2 px-2">מאזן לאחר הפעולה</th>
+                      <th className="py-2 px-2">סוג תחרות</th>
+                      <th className="py-2 px-2">סכום השתתפות</th>
+                      <th className="py-2 px-2">עמלת סוכן</th>
+                      <th className="py-2 px-2">שינוי נקודות</th>
+                      <th className="py-2 px-2">יתרת סוכן</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {agentPnL.transactions.map((t) => (
+                    {agentPnLReportRows.map((t) => (
                       <tr key={t.id} className="border-b border-slate-700/50">
                         <td className="py-2 px-2 text-slate-300">
-                          {t.date ? new Date(t.date).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                          {t.createdAt ? new Date(t.createdAt).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" }) : "—"}
                         </td>
                         <td className="py-2 px-2 text-white">{t.playerName ?? "—"}</td>
-                        <td className="py-2 px-2">
-                          {t.type === "COMMISSION" && <span className="text-emerald-400">עמלה</span>}
-                          {t.type === "DEPOSIT" && <span className="text-amber-400">הפקדה</span>}
-                          {t.type === "PRIZE" && <span className="text-slate-400">זכייה</span>}
+                        <td className="py-2 px-2 text-slate-400">{t.tournamentType ?? "—"}</td>
+                        <td className="py-2 px-2 text-slate-200">{t.participationAmount ? t.participationAmount : "—"}</td>
+                        <td className="py-2 px-2 text-emerald-400">{t.agentCommission ? t.agentCommission : "—"}</td>
+                        <td className="py-2 px-2 font-mono">
+                          {t.pointsDelta === 0 ? "—" : t.pointsDelta > 0 ? <span className="text-emerald-400">+{t.pointsDelta}</span> : <span className="text-amber-400">{t.pointsDelta}</span>}
                         </td>
-                        <td className="py-2 px-2">
-                          {t.type === "DEPOSIT" && (t.amount < 0) && <span className="text-amber-400">{t.amount}</span>}
-                          {(t.type === "COMMISSION" || t.type === "PRIZE") && (t.amount > 0) && <span className="text-emerald-400">+{t.amount}</span>}
-                          {t.amount === 0 && "—"}
-                        </td>
-                        <td className="py-2 px-2 text-slate-400">{t.tournamentName ?? "—"}</td>
-                        <td className="py-2 px-2 font-medium text-white">{t.balanceAfter}</td>
+                        <td className="py-2 px-2 font-medium text-white">{t.agentBalanceAfter}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            )}
+            ) : null}
             {playersPnLLoading ? (
               <p className="text-slate-500 text-center py-4">טוען...</p>
             ) : playersPnL && playersPnL.length > 0 ? (
@@ -514,38 +483,6 @@ export default function AgentDashboard() {
                 <label className="text-slate-400 text-xs block mb-1">עד תאריך</label>
                 <Input type="date" value={commissionTo} onChange={(e) => setCommissionTo(e.target.value)} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-900 border-slate-600 text-white w-40" />
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="border-amber-500/50 text-amber-400"
-                disabled={exportingCsv === "commission"}
-                onClick={async () => {
-                  setExportingCsv("commission");
-                  try {
-                    const { csv } = await utils.agent.exportCommissionReportCSV.fetch({
-                      from: commissionFrom || undefined,
-                      to: commissionTo || undefined,
-                      limit: 500,
-                    });
-                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `commission-report-${commissionFrom || "all"}-${commissionTo || "all"}.csv`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                    toast.success("הורדת CSV החלה");
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "שגיאה בייצוא");
-                  } finally {
-                    setExportingCsv(null);
-                  }
-                }}
-              >
-                {exportingCsv === "commission" ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
-                <span className="mr-1">ייצוא CSV</span>
-              </Button>
             </div>
             {commissionReportLoading ? (
               <p className="text-slate-500 text-center py-4">טוען...</p>

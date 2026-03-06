@@ -19,7 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Trophy, Loader2, Target, Lock, X } from "lucide-react";
+import { Trophy, Loader2, Lock, X } from "lucide-react";
 import { getTournamentStyles } from "@/lib/tournamentStyles";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
@@ -405,41 +405,6 @@ export default function Home() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-
-        {/* איך זה עובד – הסבר מלא על האתר */}
-        <section className="max-w-4xl mx-auto mb-16">
-          <h2 className="text-2xl md:text-3xl font-bold text-white mb-6 flex items-center justify-center gap-2">
-            <Target className="w-7 h-7 text-emerald-400" />
-            איך זה עובד
-          </h2>
-          <div className="rounded-2xl bg-slate-800/60 border border-slate-600/50 p-6 md:p-8 text-right space-y-6 text-slate-300">
-            <p className="text-base leading-relaxed">
-              האתר מאפשר להשתתף בתחרויות ניחושים מסוגים שונים: <strong className="text-white">מונדיאל</strong> (ניחושי משחקי כדורגל), <strong className="text-white">לוטו</strong> ו־<strong className="text-white">צ'אנס</strong>. כל תחרות מתנהלת בנפרד – יש טורנירים לפי סכום השתתפות, ואתה בוחר באיזה להשתתף.
-            </p>
-            <div className="space-y-4">
-              <h3 className="text-white font-bold text-lg">מה עושים צעד־אחר־צעד</h3>
-              <ul className="space-y-2 list-none">
-                <li><strong className="text-amber-400/90">הרשמה והתחברות:</strong> אם עדיין לא נרשמת – היכנס ל"הרשמה", מלא פרטים והתחבר. משתמש מחובר יכול להשתתף בתחרויות ולעקוב אחרי הטפסים והדירוג.</li>
-                <li><strong className="text-amber-400/90">בחירת טורניר:</strong> בדף "טורנירים" (או בלחיצה על "בחר טורניר") תופיע רשימת כל הטורנירים – מונדיאל, לוטו וצ'אנס. כל טורניר מציין סכום השתתפות וקופת פרסים. טורניר עם סימן 🔒 נעול – אי אפשר לשלוח אליו טפסים חדשים.</li>
-                <li><strong className="text-amber-400/90">מילוי טופס ניחושים:</strong> אחרי שלחצת על טורניר, תגיע לטופס ההגשה:
-                  <ul className="mr-6 mt-2 space-y-1 text-slate-400 text-sm">
-                    <li>• <strong className="text-slate-300">מונדיאל:</strong> לכל אחד מ־72 משחקי שלב הבתים בוחרים 1 (ניצחון בית), X (תיקו) או 2 (ניצחון חוץ). ניקוד: 3 נקודות לניחוש נכון, 0 לשגוי.</li>
-                    <li>• <strong className="text-slate-300">לוטו:</strong> בוחרים 6 מספרים (1–37) ומספר חזק (1–7). התוצאות מתעדכנות לפי הגרלת מפעל הפיס – מנהל מזין אותן לפי מזהה תחרות.</li>
-                    <li>• <strong className="text-slate-300">צ'אנס:</strong> בוחרים 4 קלפים – אחד מכל סוג (♥ לב, ♣ תלתן, ♦ יהלום, ♠ עלה) מערכות 7–A. התוצאות מתעדכנות לפי מפעל הפיס – מנהל מזין אותן לפי מזהה תחרות.</li>
-                  </ul>
-                </li>
-                <li><strong className="text-amber-400/90">שליחה ואישור:</strong> אחרי שליחת הטופס הוא נשמר במערכת ומקבל סטטוס (ממתין לאישור / אושר / נדחה). לאחר אישור והשלמת התשלום (לפי הנחיות המארגן) ההשתתפות נכנסת לדירוג של אותו טורניר.</li>
-                <li><strong className="text-amber-400/90">דירוג ופרסים:</strong> בדף "דירוג" בוחרים טורניר ורואים את טבלת המובילים. במונדיאל – לפי סכום הנקודות; בלוטו ובצ'אנס – לפי התאמה לתוצאות ההגרלה. הפרסים מחולקים לפי כללי כל טורניר (למשל למקום ראשון, שלישייה מובילה וכד').</li>
-              </ul>
-            </div>
-            <div className="space-y-2 pt-2 border-t border-slate-600/50">
-              <h3 className="text-white font-bold">ניווט באתר</h3>
-              <p className="text-sm text-slate-400">
-                <strong className="text-slate-300">טורנירים</strong> – רשימת כל התחרויות ובחירה להרשמה. <strong className="text-slate-300">טפסים</strong> – כל הטפסים ששלחת והסטטוס שלהם. <strong className="text-slate-300">דירוג</strong> – טבלאות מובילים לפי טורניר. ליצירת קשר ושאלות – כפתור הוואטסאפ בתחתית הדף.
-              </p>
-            </div>
-          </div>
-        </section>
 
         {/* כפתורי משתמש */}
         <div className="flex gap-4 justify-center flex-wrap">
