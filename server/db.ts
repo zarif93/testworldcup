@@ -21,6 +21,13 @@ async function getSchema() {
   return _schema;
 }
 
+/** Normalize a value to SQLite INTEGER timestamp (ms) or null. Use before insert/update for any integer timestamp column. */
+function toTimestamp(value: string | number | Date | null | undefined): number | null {
+  if (value == null || value === "") return null;
+  const t = typeof value === "number" ? value : new Date(value).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
 async function initSqlite() {
   const Database = (await import("better-sqlite3")).default;
   const { drizzle } = await import("drizzle-orm/better-sqlite3");
@@ -504,7 +511,6 @@ export async function upsertUser(user: {
   name?: string | null;
   email?: string | null;
   loginMethod?: string | null;
-  role?: "user" | "admin";
   lastSignedIn?: Date;
 }): Promise<void> {
   const { users } = await getSchema();
@@ -513,7 +519,7 @@ export async function upsertUser(user: {
   if (!db) return;
   const values: Record<string, unknown> = { openId: user.openId };
   const updateSet: Record<string, unknown> = {};
-  for (const field of ["name", "email", "loginMethod", "lastSignedIn", "role"]) {
+  for (const field of ["name", "email", "loginMethod", "lastSignedIn"]) {
     const v = (user as Record<string, unknown>)[field];
     if (v !== undefined) {
       values[field] = v ?? null;
@@ -3402,6 +3408,10 @@ export async function createTournament(data: {
   type?: string;
   startDate?: string;
   endDate?: string;
+  startsAt?: string | number | Date | null;
+  endsAt?: string | number | Date | null;
+  opensAt?: string | number | Date | null;
+  closesAt?: string | number | Date | null;
   maxParticipants?: number | null;
   prizeDistribution?: Record<number, number> | null;
   drawCode?: string | null;
@@ -3412,6 +3422,10 @@ export async function createTournament(data: {
   const { tournaments } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
+  const amountNum = Number(data.amount);
+  if (!Number.isInteger(amountNum) || amountNum < 1) {
+    throw new Error("Tournament amount must be a positive integer");
+  }
   const typeVal = data.type ?? "football";
   const customId = data.customIdentifier?.trim() || null;
   if (customId) {
@@ -3426,17 +3440,25 @@ export async function createTournament(data: {
       throw new Error("קיימת כבר תחרות פעילה עם אותו מזהה ייחודי (סוג + מזהה). בחר מזהה אחר או השאר ריק.");
     }
   }
-  const row: Record<string, unknown> = { name: data.name, amount: data.amount };
+  const row: Record<string, unknown> = { name: data.name, amount: amountNum };
   if (data.description != null) row.description = data.description;
   if (data.type != null) row.type = data.type;
-  if (data.startDate != null) row.startDate = data.startDate;
-  if (data.endDate != null) row.endDate = data.endDate;
+  if (data.startDate != null && data.startDate.trim() !== "") row.startDate = data.startDate.trim();
+  if (data.endDate != null && data.endDate.trim() !== "") row.endDate = data.endDate.trim();
   if (data.maxParticipants != null) row.maxParticipants = data.maxParticipants;
   if (data.prizeDistribution != null) row.prizeDistribution = data.prizeDistribution;
   if (data.drawCode != null && data.drawCode.trim() !== "") row.drawCode = data.drawCode.trim();
   if (data.drawDate != null && data.drawDate.trim() !== "") row.drawDate = data.drawDate.trim();
   if (data.drawTime != null && data.drawTime.trim() !== "") row.drawTime = data.drawTime.trim();
   if (customId != null) row.customIdentifier = customId;
+  const startsAtVal = toTimestamp(data.startsAt);
+  if (startsAtVal != null) row.startsAt = startsAtVal;
+  const endsAtVal = toTimestamp(data.endsAt);
+  if (endsAtVal != null) row.endsAt = endsAtVal;
+  const opensAtVal = toTimestamp(data.opensAt);
+  if (opensAtVal != null) row.opensAt = opensAtVal;
+  const closesAtVal = toTimestamp(data.closesAt);
+  if (closesAtVal != null) row.closesAt = closesAtVal;
   await db.insert(tournaments).values(row as typeof tournaments.$inferInsert);
 }
 

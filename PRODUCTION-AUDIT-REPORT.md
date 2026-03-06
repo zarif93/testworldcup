@@ -229,3 +229,43 @@
   - אין דרישות מיוחדות נוספות מהרשימה "לשיפור עתידי" שחייבות לפני השקה.
 
 אם יש דרישות אבטחה או תאימות נוספות (למשל GDPR, גיבוי חובה אוטומטי) – יש להשלים אותן לפני עלייה לאוויר.
+
+---
+
+# Full Production Audit (Structured) – March 2025
+
+Structured audit: database/schema, tournament flows, auth/session, admin permissions, submissions, agents/commissions, scoring, frontend, deployment, error handling.
+
+## Severity: Critical / High / Medium / Low
+
+**CRITICAL:** None (JWT_SECRET in production already enforced in auth.ts).
+
+**HIGH – Fixed in this audit:**
+
+1. **server/db.ts – upsertUser**  
+   **Problem:** Function accepted optional role and copied it to DB; a future OAuth/caller could set role to admin.  
+   **Fix:** Removed role from parameter and from the field loop. Role is set only when user.openId === ENV.ownerOpenId.
+
+2. **server/db.ts – createTournament**  
+   **Problem:** Amount was not validated in db layer; only router validated. Direct call could pass 0 or negative.  
+   **Fix:** Validate data.amount is integer >= 1; throw otherwise. Use normalized amountNum in insert row.
+
+**MEDIUM – Recommendations:** Tournament status text without enum (add validation); log warning in dev when JWT_SECRET unset; add PM2 or process-manager config; ensure NODE_ENV=production in production start.
+
+**LOW:** getActiveTournaments status list vs schema comment; cleanup intervals only warn on failure; idempotency store in-memory; BASE_URL fallback to localhost – set BASE_URL in production.
+
+## Files changed
+
+server/db.ts: upsertUser (role only from ownerOpenId), createTournament (amount validation and amountNum in row).
+
+## Migrations needed
+
+None. No schema changes.
+
+## Environment variables (production)
+
+JWT_SECRET (required), NODE_ENV=production, PORT, BASE_URL (recommended), ADMIN_SECRET, SUPER_ADMIN_USERNAMES, DATABASE_URL, ALLOWED_ORIGINS, SAME_SITE_LAX_SAME_ORIGIN, AGENT_COMMISSION_PERCENT_OF_FEE. See .env.production.example.
+
+## Manual follow-up
+
+Set JWT_SECRET and secrets in production; do not commit .env.production. Set NODE_ENV=production when starting server. Set BASE_URL to public domain if using OAuth/analytics. Run npm run build then npm run start (or PM2). Use HTTPS reverse proxy; configure backups for DB. Verify admin login, create tournament, submit, distribute/refund.

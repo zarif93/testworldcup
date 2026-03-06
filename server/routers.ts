@@ -304,6 +304,10 @@ export const appRouter = router({
         referralCode: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
+        const { checkLoginRateLimit } = await import("./_core/loginRateLimit");
+        if (!checkLoginRateLimit(ctx.req)) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "יותר מדי ניסיונות. נסה שוב בעוד דקה." });
+        }
           const result = await registerUser({
             username: input.username,
           phone: input.phone,
@@ -332,7 +336,9 @@ export const appRouter = router({
           return result;
       }),
     logout: publicProcedure.mutation(({ ctx }) => {
-      ctx.res.clearCookie(COOKIE_NAME, { ...getSessionCookieOptions(ctx.req), maxAge: -1 });
+      const opts = { ...getSessionCookieOptions(ctx.req), maxAge: -1 };
+      ctx.res.clearCookie(COOKIE_NAME, opts);
+      ctx.res.clearCookie(ADMIN_VERIFIED_COOKIE, opts);
       return { success: true };
     }),
   }),
@@ -1384,6 +1390,10 @@ export const appRouter = router({
         type: z.enum(["football", "football_custom", "lotto", "chance", "custom"]).optional(),
         startDate: z.string().optional(),
         endDate: z.string().optional(),
+        startsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(),
+        endsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(),
+        opensAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(),
+        closesAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(),
         maxParticipants: z.number().int().min(1).nullable().optional(),
         prizeDistribution: z.record(z.string(), z.number()).nullable().optional(),
         drawCode: z.string().optional(),
@@ -1411,6 +1421,10 @@ export const appRouter = router({
           type: input.type,
           startDate: input.startDate,
           endDate: input.endDate,
+          startsAt: input.startsAt ?? undefined,
+          endsAt: input.endsAt ?? undefined,
+          opensAt: input.opensAt ?? undefined,
+          closesAt: input.closesAt ?? undefined,
           maxParticipants: input.maxParticipants ?? undefined,
           prizeDistribution: input.prizeDistribution ?? undefined,
           drawCode: input.drawCode?.trim() || undefined,

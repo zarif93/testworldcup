@@ -16,6 +16,9 @@ const getJwtSecret = (): Uint8Array => {
     if (ENV.isProduction) {
       throw new Error("JWT_SECRET is required in production. Set JWT_SECRET in environment.");
     }
+    if (typeof process !== "undefined" && process.env?.NODE_ENV !== "test") {
+      console.warn("[Auth] JWT_SECRET is not set. Using default dev secret. Set JWT_SECRET in production.");
+    }
     return new TextEncoder().encode("change-me-set-JWT_SECRET");
   }
   return new TextEncoder().encode(raw);

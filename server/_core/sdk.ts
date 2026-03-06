@@ -154,9 +154,12 @@ class SDKServer {
     return new Map(Object.entries(parsed));
   }
 
-  private getSessionSecret() {
+  private getSessionSecret(): Uint8Array {
     const secret = ENV.cookieSecret;
-    return new TextEncoder().encode(secret);
+    if (!secret && ENV.isProduction) {
+      throw new Error("JWT_SECRET is required in production for session signing. Set JWT_SECRET in environment.");
+    }
+    return new TextEncoder().encode(secret || "");
   }
 
   /**
