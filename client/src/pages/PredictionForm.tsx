@@ -675,14 +675,14 @@ export default function PredictionForm() {
             </div>
             <div>
               <p className="text-amber-400 font-medium mb-2">שלב 2 – מספר חזק (1–7)</p>
-              <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">
+              <div className="flex flex-row flex-nowrap gap-1.5 sm:gap-2 overflow-x-auto min-w-0 justify-start py-1">
                 {[1, 2, 3, 4, 5, 6, 7].map((n) => (
                   <button
                     key={n}
                     type="button"
                     disabled={tournament.isLocked || lottoDrawClosedForUI}
                     onClick={() => !(tournament.isLocked || lottoDrawClosedForUI) && setLottoStrong((prev) => (prev === n ? null : n))}
-                    className={`w-12 h-12 rounded-lg font-bold transition-all ${
+                    className={`shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-lg font-bold transition-all touch-manipulation ${
                       lottoStrong === n
                         ? "bg-emerald-500 text-white ring-2 ring-emerald-400"
                         : "bg-slate-700 text-white hover:bg-slate-600 border border-slate-600"

@@ -24,8 +24,15 @@ async function getSchema() {
 /** Normalize a value to SQLite INTEGER timestamp (ms) or null. Use before insert/update for any integer timestamp column. */
 function toTimestamp(value: string | number | Date | null | undefined): number | null {
   if (value == null || value === "") return null;
-  const t = typeof value === "number" ? value : new Date(value).getTime();
-  return Number.isNaN(t) ? null : t;
+  if (typeof value === "number") return Number.isNaN(value) ? null : value;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.getTime();
+  try {
+    const d = new Date(value as string);
+    const t = Number.isNaN(d.getTime()) ? null : d.getTime();
+    return t;
+  } catch {
+    return null;
+  }
 }
 
 /** תאריך ושעת הגרלה (YYYY-MM-DD + HH:MM) ל-timestamp במילישניות – שעון ישראל +02:00. לשימוש בלוטו/צ'אנס. */
@@ -3468,7 +3475,7 @@ export async function createTournament(data: {
   const endsAtVal = toTimestamp(data.endsAt);
   if (endsAtVal != null) row.endsAt = endsAtVal;
   const opensAtVal = toTimestamp(data.opensAt);
-  if (opensAtVal != null) row.opensAt = opensAtVal;
+  if (opensAtVal != null) row.opensAt = new Date(opensAtVal);
   let closesAtVal = toTimestamp(data.closesAt);
   if (typeVal === "lotto" && data.drawDate?.trim() && data.drawTime?.trim()) {
     const lottoClose = drawDateAndTimeToTimestamp(data.drawDate.trim(), data.drawTime.trim());
@@ -3706,6 +3713,8 @@ export type TournamentPublicStat = {
   drawTime?: string | null;
   /** מועד סגירת הגרלה (timestamp) – להצגת טיימר בלוטו */
   closesAt?: Date | number | null;
+  /** תאריך פתיחה (אם הוגדר) – להצגת "נפתח" */
+  opensAt?: Date | number | null;
   /** LOCKED = תחרות נעולה, CLOSED = הגרלה נסגרה (לוטו), להצגת טיימר */
   status?: string;
   lockedAt?: Date | null;
@@ -3734,6 +3743,7 @@ export async function getTournamentPublicStats(activeOnly = true): Promise<Tourn
       drawTime: (t as { drawTime?: string | null }).drawTime ?? null,
       status: (t as { status?: string }).status ?? "OPEN",
       closesAt: (t as { closesAt?: Date | number | null }).closesAt ?? null,
+      opensAt: (t as { opensAt?: Date | number | null }).opensAt ?? null,
       lockedAt: (t as { lockedAt?: Date | null }).lockedAt ?? null,
       removalScheduledAt: (t as { removalScheduledAt?: Date | null }).removalScheduledAt ?? null,
     };

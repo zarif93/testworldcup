@@ -224,25 +224,30 @@ function SingleTournamentLeaderboardCard({
             <p className="text-slate-500 text-center py-12">טוען דירוג לוטו...</p>
           ) : (
             <>
-              <div className="md:hidden space-y-3 p-2">
+              <div className="md:hidden space-y-3 p-2 min-w-0">
                 {lottoLeaderboard.rows?.length === 0 ? (
                   <p className="text-slate-500 text-center py-8">אין משתתפים או שעדיין לא עודכנו תוצאות.</p>
                 ) : (
                   lottoLeaderboard.rows?.map((row, i) => {
                     const baseHits = row.points - (row.strongHit ? 1 : 0);
                     return (
-                      <div key={row.submissionId} onClick={() => onViewSubmission(row.submissionId)} className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-4 shadow-lg active:scale-[0.99] cursor-pointer">
-                        <div className="flex justify-between items-center gap-2 mb-1">
+                      <div key={row.submissionId} onClick={() => onViewSubmission(row.submissionId)} className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-4 shadow-lg active:scale-[0.99] cursor-pointer min-w-0 overflow-hidden">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-slate-500 text-xs shrink-0">מיקום:</span>
                           <span className="text-slate-400 font-bold">#{i + 1}</span>
-                          <span className="text-white font-medium truncate flex-1 text-center">{row.username}</span>
+                          <span className="text-slate-500 text-xs shrink-0 mr-1">|</span>
+                          <span className="text-slate-500 text-xs shrink-0">שם שחקן:</span>
+                          <span className="text-white font-medium truncate flex-1 min-w-0" title={row.username}>{row.username}</span>
                           <button type="button" onClick={(e) => { e.stopPropagation(); onViewSubmission(row.submissionId); }} className="text-slate-400 hover:text-emerald-400 p-2 rounded-lg shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center" title="צפייה בניחושים"><Eye className="w-5 h-5" /></button>
                         </div>
-                        <div className="flex flex-wrap gap-2 text-sm">
-                          <span className="text-emerald-400 font-bold">{baseHits}/6</span>
-                          {row.strongHit && <span className="text-amber-400">חזק</span>}
-                          <span className="text-emerald-300 font-bold">{row.points}</span>
-                          {row.isWinner ? <Badge className="bg-amber-600/90 text-white rounded-lg">זוכה</Badge> : <span className="text-slate-500">לא זוכה</span>}
-                          {row.prizeAmount > 0 && <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span>}
+                        <div className="flex justify-between items-center text-sm gap-2 flex-wrap">
+                          <span className="text-slate-400"><span className="text-slate-500">מספרים נכונים:</span> <span className="text-emerald-400 font-bold">{baseHits}/6</span></span>
+                          <span className="text-slate-400"><span className="text-slate-500">מספר חזק:</span> {row.strongHit ? <span className="text-amber-400">חזק</span> : <span className="text-slate-500">—</span>}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm mt-1 flex-wrap gap-2">
+                          <span className="text-slate-400"><span className="text-slate-500">ניקוד:</span> <span className="text-emerald-300 font-bold">{row.points}</span></span>
+                          {row.isWinner ? <Badge className="bg-amber-600/90 text-white rounded-lg text-xs">זוכה</Badge> : <span className="text-slate-500 text-xs">לא זוכה</span>}
+                          {row.prizeAmount > 0 && <span className="text-amber-400 font-medium text-xs">₪{row.prizeAmount.toLocaleString("he-IL")}</span>}
                         </div>
                       </div>
                     );
@@ -549,22 +554,22 @@ export default function Leaderboard() {
           </div>
         ) : (
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as (typeof TAB_IDS)[number])} className="space-y-4">
-          <TabsList className="bg-slate-800/80 border border-slate-600/50 flex flex-wrap gap-1.5 p-1.5 sm:p-1 rounded-xl w-full max-w-full min-h-[44px] overflow-x-auto">
-            <TabsTrigger value="WORLD_CUP" className="rounded-lg data-[state=active]:bg-sky-600/80 data-[state=active]:text-white">
-              <Trophy className="w-4 h-4 ml-1" />
-              מונדיאל
+          <TabsList className="bg-slate-800/80 border border-slate-600/50 flex flex-nowrap gap-1.5 p-1.5 sm:p-1 rounded-xl w-full max-w-full min-h-[44px] overflow-x-auto overflow-y-hidden shrink-0 [scrollbar-width:thin]">
+            <TabsTrigger value="WORLD_CUP" className="rounded-lg shrink-0 data-[state=active]:bg-sky-600/80 data-[state=active]:text-white">
+              <Trophy className="w-4 h-4 ml-1 shrink-0" />
+              <span className="whitespace-nowrap">מונדיאל</span>
             </TabsTrigger>
-            <TabsTrigger value="FOOTBALL" className="rounded-lg data-[state=active]:bg-rose-600/80 data-[state=active]:text-white">
-              <Trophy className="w-4 h-4 ml-1" />
-              תחרות כדורגל
+            <TabsTrigger value="FOOTBALL" className="rounded-lg shrink-0 data-[state=active]:bg-rose-600/80 data-[state=active]:text-white">
+              <Trophy className="w-4 h-4 ml-1 shrink-0" />
+              <span className="whitespace-nowrap">תחרות כדורגל</span>
             </TabsTrigger>
-            <TabsTrigger value="CHANCE" className="rounded-lg data-[state=active]:bg-amber-600/80 data-[state=active]:text-white">
-              <Trophy className="w-4 h-4 ml-1" />
-              צ'אנס
+            <TabsTrigger value="CHANCE" className="rounded-lg shrink-0 data-[state=active]:bg-amber-600/80 data-[state=active]:text-white">
+              <Trophy className="w-4 h-4 ml-1 shrink-0" />
+              <span className="whitespace-nowrap">צ'אנס</span>
             </TabsTrigger>
-            <TabsTrigger value="LOTTO" className="rounded-lg data-[state=active]:bg-emerald-600/80 data-[state=active]:text-white">
-              <Trophy className="w-4 h-4 ml-1" />
-              לוטו
+            <TabsTrigger value="LOTTO" className="rounded-lg shrink-0 data-[state=active]:bg-emerald-600/80 data-[state=active]:text-white">
+              <Trophy className="w-4 h-4 ml-1 shrink-0" />
+              <span className="whitespace-nowrap">לוטו</span>
             </TabsTrigger>
           </TabsList>
           <TabsContent key={activeTab} value={activeTab} className="mt-4 animate-fade-in space-y-0">

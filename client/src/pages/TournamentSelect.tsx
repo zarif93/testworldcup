@@ -30,6 +30,57 @@ function formatRemainingHms(until: string | Date | number | null | undefined): s
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+/** תאריך פתיחה – נפתח: DD/MM/YYYY */
+function formatOpenDate(val: string | Date | number | null | undefined): string | null {
+  if (val == null) return null;
+  let date: Date;
+  if (typeof val === "string") {
+    if (!val.trim()) return null;
+    date = new Date(val.trim() + "T12:00:00");
+  } else {
+    date = new Date(val);
+  }
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+/** מועד סגירת צ'אנס (ms) מתאריך + שעה ישראל */
+function getChanceCloseTimestamp(drawDate: string | null | undefined, drawTime: string | null | undefined): number | null {
+  if (!drawDate?.trim() || !drawTime?.trim()) return null;
+  const date = new Date(drawDate.trim() + "T" + drawTime.trim() + ":00+02:00");
+  if (Number.isNaN(date.getTime())) return null;
+  return date.getTime();
+}
+
+function getRemainingSeconds(until: string | Date | number | null | undefined): number {
+  if (until == null) return 0;
+  const end = new Date(until).getTime();
+  return Math.max(0, Math.floor((end - Date.now()) / 1000));
+}
+
+/** תאריך+שעה – נפתח/נסגר: DD/MM/YYYY HH:MM (למונדיאל) */
+function formatDateTime(val: string | Date | number | null | undefined): string | null {
+  if (val == null) return null;
+  const date = new Date(val);
+  if (Number.isNaN(date.getTime())) return null;
+  const d = date.toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const t = date.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${d} ${t}`;
+}
+
+/** טיימר עם ימים – נסגר בעוד: X ימים HH:MM:SS */
+function formatRemainingWithDays(until: string | Date | number | null | undefined): string {
+  if (until == null) return "0:00:00";
+  const remaining = getRemainingSeconds(until);
+  const days = Math.floor(remaining / 86400);
+  const h = Math.floor((remaining % 86400) / 3600);
+  const m = Math.floor((remaining % 3600) / 60);
+  const s = remaining % 60;
+  const timePart = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  if (days > 0) return `${days} ימים ${timePart}`;
+  return timePart;
+}
+
 /** שם לתצוגה – אם ריק או נראה כמו נתונים שבורים, מציגים "סוג ₪סכום" */
 function getDisplayName(t: { name?: string | null; amount?: number; type?: string }, typeLabel: Record<string, string>, type: string): string {
   const name = (t.name ?? "").trim();
@@ -106,8 +157,16 @@ export default function TournamentSelect() {
     const isLocked = (t as { status?: string }).status === "LOCKED" || (t as { status?: string }).status === "CLOSED" || t.isLocked;
     const removalAt = (t as { removalScheduledAt?: string | Date | null }).removalScheduledAt;
     const closesAt = (t as { closesAt?: Date | number | null }).closesAt;
+    const drawDate = (t as { drawDate?: string | null }).drawDate;
+    const drawTime = (t as { drawTime?: string | null }).drawTime;
+    const opensAt = (t as { opensAt?: Date | number | null }).opensAt;
+    const openDateStr = formatOpenDate(type === "chance" || type === "lotto" ? drawDate : opensAt);
+    const closeTimeStr = drawTime?.trim() || (closesAt != null ? new Date(closesAt).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", hour12: false }) : null);
+    const openDateTimeStr = type === "football" && opensAt != null ? formatDateTime(opensAt) : null;
+    const closeDateTimeStr = type === "football" && closesAt != null ? formatDateTime(closesAt) : null;
+    const closeTs = type === "chance" ? getChanceCloseTimestamp(drawDate, drawTime) : closesAt != null ? new Date(closesAt).getTime() : null;
+    const timerStr = !isLocked && closeTs != null && closeTs > Date.now() ? (type === "football" ? formatRemainingWithDays(closeTs) : formatRemainingHms(closeTs)) : null;
     const countdown = isLocked && removalAt ? formatRemaining(removalAt) : null;
-    const drawCountdown = type === "lotto" && !isLocked && closesAt != null ? formatRemainingHms(closesAt) : null;
     const statusInfo = getStatusInfo(t);
     const displayName = getDisplayName(t, typeLabel, type);
 
@@ -125,10 +184,12 @@ export default function TournamentSelect() {
           <p className="text-slate-400 break-words"><span className="text-slate-500">סוג:</span> {typeLabel[type] ?? "תחרות"}</p>
           <p className="text-amber-400/90 font-medium break-words"><span className="text-slate-500">כניסה:</span> ₪{t.amount}</p>
           <p className="text-emerald-400/90 font-medium break-words"><span className="text-slate-500">פרס:</span> ₪{t.prizePool.toLocaleString("he-IL")}</p>
+          {openDateStr && !openDateTimeStr && <p className="text-slate-400 text-xs break-words">נפתח: {openDateStr}</p>}
+          {openDateTimeStr && <p className="text-slate-400 text-xs break-words">נפתח: {openDateTimeStr}</p>}
+          {closeTimeStr && !closeDateTimeStr && <p className="text-slate-400 text-xs break-words">נסגר: {closeTimeStr}</p>}
+          {closeDateTimeStr && <p className="text-slate-400 text-xs break-words">נסגר: {closeDateTimeStr}</p>}
+          {timerStr != null && <p className="text-amber-400/90 text-xs font-mono">⏳ נסגר בעוד: {timerStr}</p>}
         </div>
-        {drawCountdown != null && (
-          <p className="text-amber-400/90 text-xs font-mono">נסגר בעוד: {drawCountdown}</p>
-        )}
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-xs font-bold ${statusInfo.color}`}>
             {statusInfo.label}

@@ -1439,6 +1439,28 @@ export const appRouter = router({
             throw new TRPCError({ code: "BAD_REQUEST", message: "כבר קיימת תחרות צ'אנס באותו תאריך ובאותה שעה. בחר שעה או תאריך אחר." });
           }
         }
+        if (input.type === "football" || input.type === "football_custom") {
+          const toTs = (v: string | number | Date | null | undefined): number | null => {
+            if (v == null) return null;
+            if (typeof v === "number") return Number.isNaN(v) ? null : v;
+            if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.getTime();
+            try {
+              const d = new Date(v as string);
+              const t = Number.isNaN(d.getTime()) ? null : d.getTime();
+              return t;
+            } catch {
+              return null;
+            }
+          };
+          const opensAt = toTs(input.opensAt);
+          const closesAt = toTs(input.closesAt);
+          if (opensAt == null || closesAt == null) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "בתחרות מונדיאל/כדורגל חובה לבחור תאריך פתיחה, שעת פתיחה ושעת סגירה" });
+          }
+          if (closesAt <= opensAt) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "שעת הסגירה חייבת להיות אחרי שעת הפתיחה" });
+          }
+        }
         await createTournament({
           name: input.name,
           amount: input.amount,

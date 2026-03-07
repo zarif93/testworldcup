@@ -366,6 +366,10 @@ export default function AdminPanel() {
     drawDate: "",
     drawTime: "",
     customIdentifier: "",
+    openDate: "",
+    openTime: "",
+    closeTime: "",
+    closeDate: "",
   });
 
   const CHANCE_DRAW_TIMES = ["09:00", "11:00", "13:00", "15:00", "17:00", "19:00", "21:00"] as const;
@@ -667,6 +671,14 @@ export default function AdminPanel() {
       toast.error("בתחרות צ'אנס חובה לבחור תאריך ושעת הגרלה");
       return;
     }
+    if ((tournamentType === "football" || tournamentType === "football_custom") && (!newTournament.openDate?.trim() || !newTournament.openTime?.trim() || !newTournament.closeTime?.trim())) {
+      toast.error("בתחרות מונדיאל/כדורגל חובה לבחור תאריך פתיחה, שעת פתיחה ושעת סגירה");
+      return;
+    }
+    if (tournamentType === "football" && !newTournament.closeDate?.trim()) {
+      toast.error("בתחרות מונדיאל חובה לבחור גם תאריך סגירה");
+      return;
+    }
     let prizeDistribution: Record<string, number> | null = null;
     if (newTournament.prizeMode === "first") {
       prizeDistribution = { "1": 100 };
@@ -676,6 +688,25 @@ export default function AdminPanel() {
       const p3 = parseInt(newTournament.prize3, 10) || 20;
       prizeDistribution = { "1": p1, "2": p2, "3": p3 };
     }
+    function dateTimeToTimestamp(dateStr: string, timeStr: string): number | null {
+    if (!dateStr?.trim() || !timeStr?.trim()) return null;
+    const s = dateStr.trim() + "T" + timeStr.trim() + ":00+02:00";
+    const t = new Date(s).getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+  const buildOpensCloses = (openDate: string, openTime: string, closeTime: string): { opensAt: number; closesAt: number } | null => {
+    const opensAt = dateTimeToTimestamp(openDate, openTime);
+    const closesAt = dateTimeToTimestamp(openDate, closeTime);
+    if (opensAt == null || closesAt == null) return null;
+    return { opensAt, closesAt };
+  };
+  const buildOpensClosesMondial = (openDate: string, openTime: string, closeDate: string, closeTime: string): { opensAt: number; closesAt: number } | null => {
+    const opensAt = dateTimeToTimestamp(openDate, openTime);
+    const closesAt = dateTimeToTimestamp(closeDate, closeTime);
+    if (opensAt == null || closesAt == null) return null;
+    return { opensAt, closesAt };
+  };
+
     try {
       await createTournamentMut.mutateAsync({
         name: newTournament.name.trim(),
@@ -690,6 +721,14 @@ export default function AdminPanel() {
         drawDate: tournamentType === "chance" || tournamentType === "lotto" ? newTournament.drawDate.trim() : undefined,
         drawTime: tournamentType === "chance" || tournamentType === "lotto" ? newTournament.drawTime.trim() : undefined,
         customIdentifier: newTournament.customIdentifier?.trim() || undefined,
+        ...((tournamentType === "football" || tournamentType === "football_custom") && (() => {
+          if (tournamentType === "football") {
+            const built = buildOpensClosesMondial(newTournament.openDate, newTournament.openTime, newTournament.closeDate, newTournament.closeTime);
+            return built ? { opensAt: built.opensAt, closesAt: built.closesAt } : {};
+          }
+          const built = buildOpensCloses(newTournament.openDate, newTournament.openTime, newTournament.closeTime);
+          return built ? { opensAt: built.opensAt, closesAt: built.closesAt } : {};
+        })()),
       });
       toast.success("תחרות נוצרה ויופיע בדף הראשי");
       setNewTournament({
@@ -708,6 +747,10 @@ export default function AdminPanel() {
         drawDate: "",
         drawTime: "",
         customIdentifier: "",
+        openDate: "",
+        openTime: "",
+        closeTime: "",
+        closeDate: "",
       });
       await utils.tournaments.getAll.invalidate();
     } catch (err: unknown) {
@@ -3590,6 +3633,22 @@ export default function AdminPanel() {
                     <label className="text-slate-400 text-sm">מזהה ייחודי (אופציונלי)</label>
                     <Input className="bg-slate-800 text-white w-36" placeholder="ריק = אפשר כמה עם אותו סכום" value={newTournament.customIdentifier} onChange={(e) => setNewTournament((p) => ({ ...p, customIdentifier: e.target.value }))} />
                   </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-slate-400 text-sm">תאריך פתיחה <span className="text-red-400">*</span></label>
+                    <Input type="date" required className="bg-slate-800 text-white w-40" value={newTournament.openDate} onChange={(e) => setNewTournament((p) => ({ ...p, openDate: e.target.value }))} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-slate-400 text-sm">שעת פתיחה <span className="text-red-400">*</span></label>
+                    <Input type="time" required className="bg-slate-800 text-white w-28" value={newTournament.openTime} onChange={(e) => setNewTournament((p) => ({ ...p, openTime: e.target.value }))} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-slate-400 text-sm">תאריך סגירה <span className="text-red-400">*</span></label>
+                    <Input type="date" required className="bg-slate-800 text-white w-40" value={newTournament.closeDate} onChange={(e) => setNewTournament((p) => ({ ...p, closeDate: e.target.value }))} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-slate-400 text-sm">שעת סגירה <span className="text-red-400">*</span></label>
+                    <Input type="time" required className="bg-slate-800 text-white w-28" value={newTournament.closeTime} onChange={(e) => setNewTournament((p) => ({ ...p, closeTime: e.target.value }))} />
+                  </div>
                   <Button type="submit" size="sm" disabled={createTournamentMut.isPending} className="bg-amber-600 hover:bg-amber-700">
                     {createTournamentMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "צור תחרות מונדיאל"}
                   </Button>
@@ -3745,6 +3804,18 @@ export default function AdminPanel() {
                   <div className="flex flex-col gap-1">
                     <label className="text-slate-400 text-sm">מזהה ייחודי (אופציונלי)</label>
                     <Input className="bg-slate-800 text-white w-36" placeholder="ריק = אפשר כמה עם אותו סכום" value={newTournament.customIdentifier} onChange={(e) => setNewTournament((p) => ({ ...p, customIdentifier: e.target.value }))} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-slate-400 text-sm">תאריך פתיחה <span className="text-red-400">*</span></label>
+                    <Input type="date" required className="bg-slate-800 text-white w-40" value={newTournament.openDate} onChange={(e) => setNewTournament((p) => ({ ...p, openDate: e.target.value }))} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-slate-400 text-sm">שעת פתיחה <span className="text-red-400">*</span></label>
+                    <Input type="time" required className="bg-slate-800 text-white w-28" value={newTournament.openTime} onChange={(e) => setNewTournament((p) => ({ ...p, openTime: e.target.value }))} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-slate-400 text-sm">שעת סגירה <span className="text-red-400">*</span></label>
+                    <Input type="time" required className="bg-slate-800 text-white w-28" value={newTournament.closeTime} onChange={(e) => setNewTournament((p) => ({ ...p, closeTime: e.target.value }))} />
                   </div>
                   <Button type="submit" size="sm" disabled={createTournamentMut.isPending} className="bg-amber-600 hover:bg-amber-700">
                     {createTournamentMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "צור תחרות"}

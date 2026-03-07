@@ -55,6 +55,51 @@ function formatRemainingHms(until: string | Date | number | null | undefined): s
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+/** תאריך פתיחה לתצוגה – נפתח: DD/MM/YYYY */
+function formatOpenDate(val: string | Date | number | null | undefined): string | null {
+  if (val == null) return null;
+  let date: Date;
+  if (typeof val === "string") {
+    if (!val.trim()) return null;
+    date = new Date(val.trim() + "T12:00:00");
+  } else {
+    date = new Date(val);
+  }
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+/** מועד סגירת צ'אנס (ms) מתאריך + שעה ישראל */
+function getChanceCloseTimestamp(drawDate: string | null | undefined, drawTime: string | null | undefined): number | null {
+  if (!drawDate?.trim() || !drawTime?.trim()) return null;
+  const date = new Date(drawDate.trim() + "T" + drawTime.trim() + ":00+02:00");
+  if (Number.isNaN(date.getTime())) return null;
+  return date.getTime();
+}
+
+/** תאריך+שעה לתצוגה – נפתח/נסגר: DD/MM/YYYY HH:MM (למונדיאל) */
+function formatDateTime(val: string | Date | number | null | undefined): string | null {
+  if (val == null) return null;
+  const date = new Date(val);
+  if (Number.isNaN(date.getTime())) return null;
+  const d = date.toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const t = date.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${d} ${t}`;
+}
+
+/** טיימר עם ימים – ⏳ נסגר בעוד: X ימים HH:MM:SS או HH:MM:SS */
+function formatRemainingWithDays(until: string | Date | number | null | undefined): string {
+  if (until == null) return "0:00:00";
+  const remaining = getRemainingSeconds(until);
+  const days = Math.floor(remaining / 86400);
+  const h = Math.floor((remaining % 86400) / 3600);
+  const m = Math.floor((remaining % 3600) / 60);
+  const s = remaining % 60;
+  const timePart = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  if (days > 0) return `${days} ימים ${timePart}`;
+  return timePart;
+}
+
 export default function Home() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, user } = useAuth();
@@ -201,6 +246,15 @@ export default function Home() {
                 const isLocked = t.status === "LOCKED" || t.status === "CLOSED" || t.isLocked;
                 const removalAt = (t as { removalScheduledAt?: string | Date | null }).removalScheduledAt;
                 const closesAt = (t as { closesAt?: Date | number | null }).closesAt;
+                const drawDate = (t as { drawDate?: string | null }).drawDate;
+                const drawTime = (t as { drawTime?: string | null }).drawTime;
+                const openDateStr = formatOpenDate(t._type === "chance" || t._type === "lotto" ? drawDate : (t as { opensAt?: Date | number | null }).opensAt);
+                const closeTimeStr = drawTime?.trim() || (closesAt != null ? new Date(closesAt).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", hour12: false }) : null);
+                const openDateTimeStr = t._type === "football" && (t as { opensAt?: Date | number | null }).opensAt != null ? formatDateTime((t as { opensAt?: Date | number }).opensAt) : null;
+                const closeDateTimeStr = t._type === "football" && closesAt != null ? formatDateTime(closesAt) : null;
+                const closeTimestamp = t._type === "chance" ? getChanceCloseTimestamp(drawDate, drawTime) : t._type === "lotto" ? (closesAt != null ? new Date(closesAt).getTime() : null) : closesAt != null ? new Date(closesAt).getTime() : null;
+                const remainingSecClose = closeTimestamp != null ? Math.max(0, Math.floor((closeTimestamp - Date.now()) / 1000)) : 0;
+                const timerStr = !isLocked && closeTimestamp != null && remainingSecClose > 0 ? (t._type === "football" ? formatRemainingWithDays(closeTimestamp) : formatRemainingHms(closeTimestamp)) : null;
                 const countdown = isLocked && removalAt ? formatRemaining(removalAt) : null;
                 const drawCountdown = t._type === "lotto" && !isLocked && closesAt != null ? formatRemainingHms(closesAt) : null;
                 const remainingSec = closesAt != null && !isLocked ? getRemainingSeconds(closesAt) : null;
@@ -234,8 +288,13 @@ export default function Home() {
                       <p className="text-white font-bold text-xs leading-tight line-clamp-2 break-words">{getTournamentDisplayName(t, t._type)}</p>
                       <p className="text-amber-400 font-semibold text-[10px] leading-tight">₪{t.prizePool.toLocaleString("he-IL")} פרס</p>
                       <p className="text-slate-400 text-[10px]">כניסה ₪{t.amount}</p>
+                      <p className="text-slate-400 text-[10px]">משתתפים: {t.participants ?? 0}</p>
+                      {openDateStr && !openDateTimeStr && <p className="text-slate-400 text-[9px]">נפתח: {openDateStr}</p>}
+                      {openDateTimeStr && <p className="text-slate-400 text-[9px]">נפתח: {openDateTimeStr}</p>}
+                      {closeTimeStr && !closeDateTimeStr && <p className="text-slate-400 text-[9px]">נסגר: {closeTimeStr}</p>}
+                      {closeDateTimeStr && <p className="text-slate-400 text-[9px]">נסגר: {closeDateTimeStr}</p>}
+                      {timerStr != null && <p className="text-amber-400/90 text-[9px] font-mono">⏳ נסגר בעוד: {timerStr}</p>}
                       {isLocked && countdown != null && <p className="text-red-400 text-[9px] font-mono flex items-center gap-0.5"><Lock className="w-2.5 h-2.5 shrink-0" /> {countdown}</p>}
-                      {!isLocked && drawCountdown != null && <p className="text-amber-400/90 text-[9px] font-mono">⏱ {drawCountdown}</p>}
                       <span className={`shrink-0 text-[10px] font-bold py-1.5 px-2 rounded-md w-full flex items-center justify-center mt-0.5 min-h-[32px] ${isLocked ? "bg-slate-600 text-slate-400" : "bg-emerald-600 text-white"}`}>
                         {isLocked ? "סגור" : "שלח טופס"}
                       </span>
@@ -256,6 +315,13 @@ export default function Home() {
                     const styles = getTournamentStyles(t.amount);
                     const isLocked = t.status === "LOCKED" || t.isLocked;
                     const removalAt = (t as { removalScheduledAt?: string | Date | null }).removalScheduledAt;
+                    const closesAt = (t as { closesAt?: Date | number | null }).closesAt;
+                    const opensAt = (t as { opensAt?: Date | number | null }).opensAt;
+                    const openDateStr = formatOpenDate(opensAt);
+                    const closeTimeStr = closesAt != null ? new Date(closesAt).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", hour12: false }) : null;
+                    const openDateTimeStr = opensAt != null ? formatDateTime(opensAt) : null;
+                    const closeDateTimeStr = closesAt != null ? formatDateTime(closesAt) : null;
+                    const timerStr = !isLocked && closesAt != null && new Date(closesAt).getTime() > Date.now() ? formatRemainingWithDays(closesAt) : null;
                     const countdown = isLocked && removalAt ? formatRemaining(removalAt) : null;
                     const showHide = canShowHide(t.status);
                     return (
@@ -286,6 +352,11 @@ export default function Home() {
                         >
                         <Trophy className={`w-8 h-8 mx-auto mb-2 shrink-0 ${styles.icon}`} />
                         <p className="text-white font-bold text-lg break-words min-w-0 leading-tight">{getTournamentDisplayName(t, "football")}</p>
+                        {openDateTimeStr && <p className="text-slate-400 text-xs mt-0.5">נפתח: {openDateTimeStr}</p>}
+                        {!openDateTimeStr && openDateStr && <p className="text-slate-400 text-xs mt-0.5">נפתח: {openDateStr}</p>}
+                        {closeDateTimeStr && <p className="text-slate-400 text-xs">נסגר: {closeDateTimeStr}</p>}
+                        {!closeDateTimeStr && closeTimeStr && <p className="text-slate-400 text-xs">נסגר: {closeTimeStr}</p>}
+                        {timerStr != null && <p className="text-amber-400/90 text-sm font-mono mt-0.5">⏳ נסגר בעוד: {timerStr}</p>}
                         {isLocked && countdown != null ? (
                           <>
                             <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1 break-words">
@@ -315,6 +386,9 @@ export default function Home() {
                     const isLocked = t.status === "LOCKED" || t.status === "CLOSED" || t.isLocked;
                     const removalAt = (t as { removalScheduledAt?: string | Date | null }).removalScheduledAt;
                     const closesAt = (t as { closesAt?: Date | number | null }).closesAt;
+                    const drawDate = (t as { drawDate?: string | null }).drawDate;
+                    const drawTime = (t as { drawTime?: string | null }).drawTime;
+                    const openDateStr = formatOpenDate(drawDate);
                     const countdown = isLocked && removalAt ? formatRemaining(removalAt) : null;
                     const drawCountdown = !isLocked && closesAt != null ? formatRemainingHms(closesAt) : null;
                     const showHide = canShowHide(t.status);
@@ -346,6 +420,8 @@ export default function Home() {
                         >
                         <Trophy className={`w-8 h-8 mx-auto mb-2 ${styles.icon}`} />
                         <p className="text-white font-bold text-lg break-words min-w-0">{getTournamentDisplayName(t, "lotto")}</p>
+                        {openDateStr && <p className="text-slate-400 text-xs mt-0.5">נפתח: {openDateStr}</p>}
+                        {drawTime?.trim() && <p className="text-slate-400 text-xs">נסגר: {drawTime.trim()}</p>}
                         {isLocked && countdown != null ? (
                           <>
                             <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1"><Lock className="w-4 h-4" /> {t.status === "CLOSED" ? "ההגרלה נסגרה" : "התחרות ננעלה"}</p>
@@ -376,10 +452,13 @@ export default function Home() {
                 <div className="flex flex-col gap-4 min-w-0">
                   {(byType.chance ?? []).map((t, i) => {
                     const styles = getTournamentStyles(t.amount);
+                    const isLocked = t.status === "LOCKED" || t.isLocked;
                     const d = (t as { drawDate?: string | null }).drawDate;
                     const drawTime = (t as { drawTime?: string | null }).drawTime;
                     const drawLabel = formatDrawLabelSafe(d, drawTime);
-                    const isLocked = t.status === "LOCKED" || t.isLocked;
+                    const openDateStr = formatOpenDate(d);
+                    const chanceCloseMs = getChanceCloseTimestamp(d, drawTime);
+                    const chanceCountdown = !isLocked && chanceCloseMs != null && chanceCloseMs > Date.now() ? formatRemainingHms(chanceCloseMs) : null;
                     const removalAt = (t as { removalScheduledAt?: string | Date | null }).removalScheduledAt;
                     const countdown = isLocked && removalAt ? formatRemaining(removalAt) : null;
                     const showHide = canShowHide(t.status);
@@ -411,7 +490,10 @@ export default function Home() {
                         >
                         <Trophy className={`w-8 h-8 mx-auto mb-2 shrink-0 ${styles.icon}`} />
                         <p className="text-white font-bold text-base break-words min-w-0 leading-tight">{getTournamentDisplayName(t, "chance")}</p>
-                        {drawLabel && !isLocked && <p className="text-slate-400 text-xs mt-1 break-words min-w-0 leading-tight">⏰ {drawLabel}</p>}
+                        {openDateStr && <p className="text-slate-400 text-xs mt-0.5">נפתח: {openDateStr}</p>}
+                        {drawTime?.trim() && <p className="text-slate-400 text-xs">נסגר: {drawTime.trim()}</p>}
+                        {chanceCountdown != null && <p className="text-amber-400/90 text-sm font-mono mt-0.5">⏳ נסגר בעוד: {chanceCountdown}</p>}
+                        {drawLabel && !isLocked && !chanceCountdown && <p className="text-slate-400 text-xs mt-1 break-words min-w-0 leading-tight">⏰ {drawLabel}</p>}
                         {isLocked && countdown != null ? (
                           <>
                             <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1 break-words"><Lock className="w-4 h-4 shrink-0" /> התחרות ננעלה</p>
@@ -439,6 +521,11 @@ export default function Home() {
                     const styles = getTournamentStyles(t.amount);
                     const isLocked = t.status === "LOCKED" || t.isLocked;
                     const removalAt = (t as { removalScheduledAt?: string | Date | null }).removalScheduledAt;
+                    const closesAt = (t as { closesAt?: Date | number | null }).closesAt;
+                    const opensAt = (t as { opensAt?: Date | number | null }).opensAt;
+                    const openDateStr = formatOpenDate(opensAt);
+                    const closeTimeStr = closesAt != null ? new Date(closesAt).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", hour12: false }) : null;
+                    const timerStr = !isLocked && closesAt != null && new Date(closesAt).getTime() > Date.now() ? formatRemainingHms(closesAt) : null;
                     const countdown = isLocked && removalAt ? formatRemaining(removalAt) : null;
                     const showHide = canShowHide(t.status);
                     return (
@@ -469,6 +556,9 @@ export default function Home() {
                         >
                         <Trophy className={`w-8 h-8 mx-auto mb-2 shrink-0 ${styles.icon}`} />
                         <p className="text-white font-bold text-lg break-words min-w-0 leading-tight">{getTournamentDisplayName(t, "football_custom")}</p>
+                        {openDateStr && <p className="text-slate-400 text-xs mt-0.5">נפתח: {openDateStr}</p>}
+                        {closeTimeStr && <p className="text-slate-400 text-xs">נסגר: {closeTimeStr}</p>}
+                        {timerStr != null && <p className="text-amber-400/90 text-sm font-mono mt-0.5">⏳ נסגר בעוד: {timerStr}</p>}
                         {isLocked && countdown != null ? (
                           <>
                             <p className="text-red-400 font-bold text-sm mt-2 flex items-center justify-center gap-1 break-words"><Lock className="w-4 h-4 shrink-0" /> התחרות ננעלה</p>
