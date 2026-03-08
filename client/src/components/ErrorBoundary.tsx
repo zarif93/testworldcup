@@ -33,11 +33,16 @@ class ErrorBoundary extends Component<Props, State> {
 
             <h2 className="text-xl mb-4">An unexpected error occurred.</h2>
 
+            {import.meta.env?.DEV && this.state.error?.stack && (
             <div className="p-4 w-full rounded bg-muted overflow-auto mb-6">
               <pre className="text-sm text-muted-foreground whitespace-break-spaces">
-                {this.state.error?.stack}
+                {this.state.error.stack}
               </pre>
             </div>
+            )}
+            {!import.meta.env?.DEV && (
+            <p className="text-muted-foreground mb-6">Please try refreshing the page. If the problem continues, contact support.</p>
+            )}
 
             <button
               onClick={() => window.location.reload()}

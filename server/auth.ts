@@ -87,10 +87,16 @@ export async function registerUser(data: {
   if (!data.username || data.username.length < 3) {
     throw new Error("Username must be at least 3 characters");
   }
+  if (data.username.length > 64) {
+    throw new Error("Username must be at most 64 characters");
+  }
 
   const phoneDigits = data.phone.replace(/\D/g, "");
   if (!phoneDigits || phoneDigits.length < 9) {
     throw new Error("Invalid phone number");
+  }
+  if (data.phone.length > 20) {
+    throw new Error("Phone number too long");
   }
 
   if (!data.password || data.password.length < 8) {
@@ -99,6 +105,9 @@ export async function registerUser(data: {
 
   if (!data.name || !data.name.trim()) {
     throw new Error("Full name is required");
+  }
+  if (data.name.length > 200) {
+    throw new Error("Full name must be at most 200 characters");
   }
 
   // Check if user already exists

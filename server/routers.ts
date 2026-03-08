@@ -291,18 +291,18 @@ export const appRouter = router({
       }),
     /** בדיקה אם שם משתמש פנוי – להצגה בטופס הרשמה */
     checkUsername: publicProcedure
-      .input(z.object({ username: z.string().min(1) }))
+      .input(z.object({ username: z.string().min(1).max(64) }))
       .query(async ({ input }) => {
         const existing = await getUserByUsername(input.username.trim());
         return { available: !existing };
       }),
     register: publicProcedure
       .input(z.object({
-          username: z.string().min(3),
-        phone: z.string().min(9),
+          username: z.string().min(3, "שם משתמש לפחות 3 תווים").max(64, "שם משתמש עד 64 תווים"),
+        phone: z.string().min(9).max(20),
           password: z.string().min(8, "סיסמה לפחות 8 תווים"),
-        name: z.string().min(1, "שם מלא חובה"),
-        referralCode: z.string().optional(),
+        name: z.string().min(1, "שם מלא חובה").max(200, "שם מלא עד 200 תווים"),
+        referralCode: z.string().max(64).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         const { checkLoginRateLimit } = await import("./_core/loginRateLimit");
@@ -323,7 +323,7 @@ export const appRouter = router({
           return result;
       }),
     login: publicProcedure
-      .input(z.object({ username: z.string(), password: z.string() }))
+      .input(z.object({ username: z.string().min(1).max(64), password: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         const { checkLoginRateLimit } = await import("./_core/loginRateLimit");
         if (!checkLoginRateLimit(ctx.req)) {
