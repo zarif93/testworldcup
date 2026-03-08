@@ -2,11 +2,12 @@ import { AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { ForbiddenError } from "@shared/_core/errors";
 import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
+import { getSessionCookieOptions } from "./cookies";
 import type {
   ExchangeTokenRequest,
   ExchangeTokenResponse,
@@ -219,7 +220,6 @@ class SDKServer {
         !isNonEmptyString(appId) ||
         !isNonEmptyString(name)
       ) {
-        console.warn("[Auth] Session payload missing required fields");
         return null;
       }
 
@@ -228,8 +228,7 @@ class SDKServer {
         appId,
         name,
       };
-    } catch (error) {
-      console.warn("[Auth] Session verification failed", String(error));
+    } catch {
       return null;
     }
   }
@@ -258,7 +257,7 @@ class SDKServer {
     } as GetUserInfoWithJwtResponse;
   }
 
-  async authenticateRequest(req: Request): Promise<User> {
+  async authenticateRequest(req: Request, res?: Response): Promise<User> {
     // Regular authentication flow
     const cookies = this.parseCookies(req.headers.cookie);
     const sessionCookie = cookies.get(COOKIE_NAME);
@@ -283,9 +282,12 @@ class SDKServer {
               return user;
             }
           }
-        } catch (error) {
-          console.warn("[Auth] Custom JWT verification failed", String(error));
+        } catch {
+          // Stale or invalid token – don't log in production to avoid log spam
         }
+      }
+      if (sessionCookie && res) {
+        res.clearCookie(COOKIE_NAME, { ...getSessionCookieOptions(req), maxAge: -1 });
       }
       throw ForbiddenError("Invalid session cookie");
     }

@@ -19,8 +19,8 @@ export async function createContext(
   let user: User | null = null;
 
   try {
-    user = await sdk.authenticateRequest(opts.req);
-  } catch (error) {
+    user = await sdk.authenticateRequest(opts.req, opts.res);
+  } catch {
     user = null;
   }
 
