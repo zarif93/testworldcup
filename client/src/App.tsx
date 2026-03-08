@@ -263,12 +263,12 @@ function Layout({ children }: { children: React.ReactNode }) {
         <div className="container mx-auto px-3 py-2 md:px-4 md:py-3 flex items-center justify-between gap-2 min-w-0 h-[var(--header-height-mobile)] md:h-auto">
           <button
             onClick={() => setLocation("/")}
-            className="flex items-center gap-2 text-white font-bold text-sm md:text-lg hover:text-emerald-400 transition-colors min-w-0 shrink-0 touch-target min-h-[44px] active:opacity-90"
+            className="flex items-center gap-2.5 text-white font-bold text-sm md:text-lg hover:text-emerald-400 transition-colors min-w-0 shrink-0 touch-target min-h-[44px] active:opacity-90"
+            aria-label="WinMondial – דף הבית"
           >
-            <Trophy className="w-5 h-5 md:w-7 md:h-7 text-amber-400 drop-shadow-sm shrink-0" />
-            <span className="tracking-tight truncate text-right sm:max-w-[180px] md:max-w-none">
-              <span className="sm:hidden">מונדיאל 2026</span>
-              <span className="hidden sm:inline">ניחושי מונדיאל 2026</span>
+            <Trophy className="w-6 h-6 md:w-7 md:h-7 text-amber-400 drop-shadow-sm shrink-0" />
+            <span className="tracking-tight truncate text-right sm:max-w-[200px] md:max-w-none font-semibold">
+              WinMondial
             </span>
           </button>
           <nav className="hidden md:flex items-center gap-4 md:gap-6 min-w-0 flex-1 justify-end flex-wrap">

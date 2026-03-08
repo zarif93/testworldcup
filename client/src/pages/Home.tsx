@@ -186,14 +186,14 @@ export default function Home() {
           <div className="inline-flex items-center justify-center w-16 h-16 xs:w-20 xs:h-20 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-amber-500/20 to-emerald-600/20 border border-amber-500/30 mb-4 md:mb-8 shadow-lg">
             <Trophy className="w-8 h-8 xs:w-10 xs:h-10 sm:w-14 sm:h-14 text-amber-400 drop-shadow" />
           </div>
-          <h1 className="text-xl xs:text-2xl min-[375px]:text-3xl sm:text-4xl md:text-6xl lg:text-7xl font-black text-white mb-2 md:mb-4 tracking-tight drop-shadow-sm px-1 break-words">
-            תחרות ניחושי המונדיאל הגדולה
+          <h1 className="text-xl xs:text-2xl min-[375px]:text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-white mb-2 md:mb-4 tracking-tight drop-shadow-sm px-1 break-words">
+            WinMondial
           </h1>
           <p className="text-sm xs:text-base sm:text-lg md:text-xl text-emerald-200/95 mb-2 md:mb-4 max-w-2xl mx-auto font-medium break-words">
-            FIFA World Cup 2026 – שלב הבתים
+            תחרות ניחושי המונדיאל הגדולה
           </p>
           <p className="text-slate-400 text-xs sm:text-base mb-6 md:mb-12 max-w-xl mx-auto px-1 break-words">
-            בחר טורניר, מלא ניחושים לכל 72 המשחקים, ועקוב אחרי הדירוג והפרסים.
+            FIFA World Cup 2026 – שלב הבתים. בחר טורניר, מלא ניחושים לכל 72 המשחקים, ועקוב אחרי הדירוג והפרסים.
           </p>
         </div>
 

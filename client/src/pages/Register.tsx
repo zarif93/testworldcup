@@ -75,7 +75,7 @@ export default function Register() {
       toast.success("נרשמת בהצלחה!");
 
       const whatsappMessage = [
-        "שלום, נרשמתי לאתר ניחושי מונדיאל 2026.",
+        "שלום, נרשמתי ל-WinMondial.",
         "",
         "פרטים:",
         `שם מלא: ${name.trim()}`,
@@ -113,7 +113,7 @@ export default function Register() {
             הרשמה
           </CardTitle>
           <CardDescription className="text-slate-400">
-            צור חשבון כדי להשתתף בתחרות ניחושי המונדיאל
+            צור חשבון כדי להשתתף בתחרויות WinMondial
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -94,7 +94,7 @@ export default function HowItWorks() {
               איך זה עובד?
             </h1>
             <p className="text-slate-400 text-lg">
-              ברוכים הבאים למערכת התחרויות והניחושים.
+              ברוכים הבאים ל-WinMondial – מערכת התחרויות והניחושים.
             </p>
           </div>
           <Button
