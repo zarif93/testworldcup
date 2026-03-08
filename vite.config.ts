@@ -159,10 +159,24 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+const plugins = [
+  react(),
+  tailwindcss(),
+  jsxLocPlugin(),
+  vitePluginManusRuntime(),
+  vitePluginManusDebugCollector(),
+];
 
-export default defineConfig({
-  plugins,
+export default defineConfig(({ command, mode }) => {
+  // Exclude Manus preview runtime from production builds so the live site
+  // does not show "Preview mode" / "This page is not live..." (injected by the plugin).
+  const isProductionBuild = command === "build" || mode === "production";
+  const effectivePlugins = isProductionBuild
+    ? [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusDebugCollector()]
+    : plugins;
+
+  return {
+  plugins: effectivePlugins,
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
@@ -191,4 +205,5 @@ export default defineConfig({
       deny: ["**/.*"],
     },
   },
+  };
 });
