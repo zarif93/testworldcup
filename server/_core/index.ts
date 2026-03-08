@@ -79,6 +79,9 @@ async function startServer() {
   }
 
   const app = express();
+  if (process.env.NODE_ENV === "production") {
+    app.set("trust proxy", 1);
+  }
   const server = createServer(app);
   initPointsSocket(server);
   app.disable("x-powered-by");
