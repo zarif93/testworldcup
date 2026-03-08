@@ -1,9 +1,4 @@
-import dotenv from "dotenv";
-if (process.env.NODE_ENV === "production") {
-  dotenv.config({ path: ".env.production" });
-} else {
-  dotenv.config();
-}
+import "./loadEnv";
 import express from "express";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
