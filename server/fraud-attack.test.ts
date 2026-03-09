@@ -33,6 +33,7 @@ const adminUser = {
   username: "AdminUser",
   role: "admin" as const,
   points: 1000,
+  unlimitedPoints: true,
 };
 
 const otherUser = {

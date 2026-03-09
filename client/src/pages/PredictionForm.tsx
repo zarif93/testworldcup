@@ -540,7 +540,7 @@ export default function PredictionForm() {
   const entryCost = (tournament as { entryCostPoints?: number }).entryCostPoints ?? (tournament as { amount?: number }).amount ?? 0;
   const hasEntries = !!isAuthenticated && (myEntriesForTournament?.length ?? 0) > 0;
   const hasEnoughPoints =
-    user?.role === "admin" || (typeof user?.points === "number" && user.points >= entryCost);
+    user?.unlimitedPoints || user?.role === "admin" || (typeof user?.points === "number" && user.points >= entryCost);
 
   return (
     <div className="min-h-screen py-4 sm:py-8 overflow-x-hidden max-w-full">
@@ -576,7 +576,7 @@ export default function PredictionForm() {
         )}
         {isDuplicateMode && (
           <div className="bg-amber-500/20 border border-amber-500/50 rounded-xl p-4 mb-6 text-amber-200 flex items-center gap-2 break-words min-w-0">
-            📋 מצב שכפול – שליחה תיצור טופס חדש ותחייב {entryCost} נקודות.
+            📋 מצב שכפול – שליחה תיצור טופס חדש {user?.unlimitedPoints || user?.role === "admin" ? "ללא חיוב נקודות" : `ותחייב ${entryCost} נקודות`}.
           </div>
         )}
 
@@ -772,7 +772,7 @@ export default function PredictionForm() {
           <AlertDialogHeader>
             <AlertDialogTitle>כניסה נוספת</AlertDialogTitle>
             <AlertDialogDescription>
-              פעולה זו תיצור כניסה נוספת לתחרות ותוריד {entryCost} נקודות מיתרתך. להמשיך?
+              פעולה זו תיצור כניסה נוספת לתחרות {user?.unlimitedPoints || user?.role === "admin" ? "ללא חיוב נקודות." : `ותוריד ${entryCost} נקודות מיתרתך.`} להמשיך?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

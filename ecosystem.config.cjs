@@ -10,7 +10,8 @@ module.exports = {
       name: "worldcup2026",
       script: "dist/index.js",
       cwd: __dirname,
-      instances: "max",
+      // Keep production footprint predictable; override with PM2_INSTANCES if needed.
+      instances: Number(process.env.PM2_INSTANCES || 2),
       exec_mode: "cluster",
       autorestart: true,
       watch: false,

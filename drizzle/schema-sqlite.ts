@@ -14,8 +14,10 @@ export const users = sqliteTable("users", {
   agentId: integer("agentId"),
   /** קוד הפניה ייחודי – רק לסוכנים (role=agent) */
   referralCode: text("referralCode").unique(),
-  /** נקודות למשתמש – משמשות להשתתפות בתחרויות; מנהל ללא הגבלה */
+  /** נקודות למשתמש – משמשות להשתתפות בתחרויות */
   points: integer("points").default(0).notNull(),
+  /** הרשאת עקיפת יתרה – למנהלים/סופר-מנהלים בלבד, בלי לאחסן יתרה מזויפת */
+  unlimitedPoints: integer("unlimitedPoints", { mode: "boolean" }).default(false).notNull(),
   /** חסימה – משתמש חסום לא יכול להתחבר */
   isBlocked: integer("isBlocked", { mode: "boolean" }).default(false),
   /** מחיקה רכה – משתמש שנמחק לא מוצג ברשימות פעילות ולא יכול להתחבר; נתוני כספים נשמרים */

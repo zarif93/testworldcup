@@ -28,6 +28,7 @@ const adminUser = {
   name: "Admin",
   role: "admin" as const,
   points: 1000,
+  unlimitedPoints: true,
   createdAt: new Date(),
   updatedAt: new Date(),
   lastSignedIn: new Date(),

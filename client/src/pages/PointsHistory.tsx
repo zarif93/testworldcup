@@ -82,13 +82,13 @@ export default function PointsHistory() {
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold text-amber-400">
-              {user?.role === "admin" ? "ללא הגבלה" : (user?.points ?? 0)}
+              {user?.unlimitedPoints || user?.role === "admin" ? "ללא הגבלה" : (user?.points ?? 0)}
               <span className="text-xl text-slate-400 mr-2">💎</span>
             </p>
           </CardContent>
         </Card>
 
-        {user?.role !== "admin" && (
+        {!(user?.unlimitedPoints || user?.role === "admin") && (
           <Card className="bg-slate-800/60 border-slate-600/50 mb-6">
             <CardHeader>
               <CardTitle className="text-lg text-white flex items-center gap-2">

@@ -472,10 +472,10 @@ export const appRouter = router({
         if (!checkSubmissionRateLimit(ctx.user.id)) {
           throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "יותר מדי שליחות בדקה – נסה שוב בעוד רגע" });
         }
-        const isAdmin = user.role === "admin";
+        const hasUnlimitedPoints = !!((user as { unlimitedPoints?: boolean | number }).unlimitedPoints || user.role === "admin");
 
         const INSUFFICIENT_POINTS_MESSAGE = "אין לך מספיק נקודות להשתתפות בתחרות זו";
-        const validation = await validateTournamentEntry(ctx.user.id, tournament, isAdmin);
+        const validation = await validateTournamentEntry(ctx.user.id, tournament, hasUnlimitedPoints);
         if (!validation.allowed) {
           throw new TRPCError({ code: "BAD_REQUEST", message: INSUFFICIENT_POINTS_MESSAGE });
         }
@@ -489,7 +489,7 @@ export const appRouter = router({
             ? ctx.user.id
             : ((user as { agentId?: number })?.agentId ?? null);
         const participationCommissionOpts =
-          hasEnoughPoints && !isAdmin && cost > 0 && agentId
+          hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId
             ? (() => {
                 const fee = Math.round(cost * (12.5 / 100));
                 const commissionAgent = calcAgentCommission(cost, ENV.agentCommissionPercentOfFee);
@@ -497,7 +497,7 @@ export const appRouter = router({
               })()
             : undefined;
         const runDeduction = async () => {
-          if (hasEnoughPoints && !isAdmin && cost > 0) {
+          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
             return deductUserPoints(ctx.user!.id, cost, "participation", {
               referenceId: input.tournamentId,
               description: `השתתפות בתחרות: ${(tournament as { name?: string }).name ?? input.tournamentId}`,
@@ -506,7 +506,7 @@ export const appRouter = router({
           }
           return true;
         };
-        const useTransactionalParticipation = hasEnoughPoints && !isAdmin && cost > 0 && !USE_SQLITE;
+        const useTransactionalParticipation = hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && !USE_SQLITE;
         const runParticipationWithLock = async (predictions: unknown, strongHit?: boolean | null) => {
           if (!useTransactionalParticipation) {
             const ok = await runDeduction();
@@ -558,7 +558,7 @@ export const appRouter = router({
             throw new TRPCError({ code: "BAD_REQUEST", message: "ההרשמה להגרלה נסגרה" });
           }
           const { newSubId, balanceAfter } = await runParticipationWithLock(input.predictionsChance);
-          if (hasEnoughPoints && !isAdmin && cost > 0) {
+          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
             await insertTransparencyLog({
               competitionId: input.tournamentId,
               competitionName: (tournament as { name?: string }).name ?? String(input.tournamentId),
@@ -573,10 +573,10 @@ export const appRouter = router({
               competitionStatusAtTime: (tournament as { status?: string }).status ?? "OPEN",
             });
           }
-          if (hasEnoughPoints && !isAdmin && cost > 0 && agentId && participationCommissionOpts && newSubId && !(await hasCommissionForSubmission(newSubId))) {
+          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId && participationCommissionOpts && newSubId && !(await hasCommissionForSubmission(newSubId))) {
             await recordAgentCommission({ agentId, submissionId: newSubId, userId: ctx.user.id, entryAmount: cost, commissionAmount: participationCommissionOpts.commissionAgent });
           }
-          if (hasEnoughPoints && !isAdmin && cost > 0) {
+          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
             emitPointsUpdate([{ userId: ctx.user!.id, balance: balanceAfter, actionType: "participation", amount: -cost, performedByUsername: (ctx.user as { username?: string }).username ?? null, note: `השתתפות: ${(tournament as { name?: string }).name ?? input.tournamentId}` }]);
           }
           const result = { success: true, pendingApproval: !hasEnoughPoints, balanceAfter };
@@ -593,7 +593,7 @@ export const appRouter = router({
             throw new TRPCError({ code: "BAD_REQUEST", message: "יש לבחור בדיוק 6 מספרים שונים (1–37) ומספר חזק אחד (1–7)" });
           }
           const { newSubId, balanceAfter } = await runParticipationWithLock({ numbers: lotto.numbers, strongNumber: lotto.strongNumber });
-          if (hasEnoughPoints && !isAdmin && cost > 0) {
+          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
             await insertTransparencyLog({
               competitionId: input.tournamentId,
               competitionName: (tournament as { name?: string }).name ?? String(input.tournamentId),
@@ -608,10 +608,10 @@ export const appRouter = router({
               competitionStatusAtTime: (tournament as { status?: string }).status ?? "OPEN",
             });
           }
-          if (hasEnoughPoints && !isAdmin && cost > 0 && agentId && participationCommissionOpts && newSubId && !(await hasCommissionForSubmission(newSubId))) {
+          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId && participationCommissionOpts && newSubId && !(await hasCommissionForSubmission(newSubId))) {
             await recordAgentCommission({ agentId, submissionId: newSubId, userId: ctx.user.id, entryAmount: cost, commissionAmount: participationCommissionOpts.commissionAgent });
           }
-          if (hasEnoughPoints && !isAdmin && cost > 0) {
+          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
             emitPointsUpdate([{ userId: ctx.user!.id, balance: balanceAfter, actionType: "participation", amount: -cost, performedByUsername: (ctx.user as { username?: string }).username ?? null, note: `השתתפות: ${(tournament as { name?: string }).name ?? input.tournamentId}` }]);
           }
           const result = { success: true, pendingApproval: !hasEnoughPoints, balanceAfter };
@@ -638,7 +638,7 @@ export const appRouter = router({
             if (!matchIds.has(mid)) throw new TRPCError({ code: "BAD_REQUEST", message: "משחק לא תקין" });
           }
           const { newSubId, balanceAfter } = await runParticipationWithLock(predictions);
-          if (hasEnoughPoints && !isAdmin && cost > 0) {
+          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
             await insertTransparencyLog({
               competitionId: input.tournamentId,
               competitionName: (tournament as { name?: string }).name ?? String(input.tournamentId),
@@ -653,10 +653,10 @@ export const appRouter = router({
               competitionStatusAtTime: (tournament as { status?: string }).status ?? "OPEN",
             });
           }
-          if (hasEnoughPoints && !isAdmin && cost > 0 && agentId && participationCommissionOpts && newSubId && !(await hasCommissionForSubmission(newSubId))) {
+          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId && participationCommissionOpts && newSubId && !(await hasCommissionForSubmission(newSubId))) {
             await recordAgentCommission({ agentId, submissionId: newSubId, userId: ctx.user.id, entryAmount: cost, commissionAmount: participationCommissionOpts.commissionAgent });
           }
-          if (hasEnoughPoints && !isAdmin && cost > 0) {
+          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
             emitPointsUpdate([{ userId: ctx.user!.id, balance: balanceAfter, actionType: "participation", amount: -cost, performedByUsername: (ctx.user as { username?: string }).username ?? null, note: `השתתפות: ${(tournament as { name?: string }).name ?? input.tournamentId}` }]);
           }
           const result = { success: true, pendingApproval: !hasEnoughPoints, balanceAfter };
@@ -673,7 +673,7 @@ export const appRouter = router({
           if (!matchIds.has(mid)) throw new TRPCError({ code: "BAD_REQUEST", message: "משחק לא תקין" });
         }
         const { newSubId, balanceAfter } = await runParticipationWithLock(predictions);
-        if (hasEnoughPoints && !isAdmin && cost > 0) {
+        if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
           await insertTransparencyLog({
             competitionId: input.tournamentId,
             competitionName: (tournament as { name?: string }).name ?? String(input.tournamentId),
@@ -688,10 +688,10 @@ export const appRouter = router({
             competitionStatusAtTime: (tournament as { status?: string }).status ?? "OPEN",
           });
         }
-        if (hasEnoughPoints && !isAdmin && cost > 0 && agentId && participationCommissionOpts && newSubId && !(await hasCommissionForSubmission(newSubId))) {
+        if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId && participationCommissionOpts && newSubId && !(await hasCommissionForSubmission(newSubId))) {
           await recordAgentCommission({ agentId, submissionId: newSubId, userId: ctx.user.id, entryAmount: cost, commissionAmount: participationCommissionOpts.commissionAgent });
         }
-        if (hasEnoughPoints && !isAdmin && cost > 0) {
+        if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
           emitPointsUpdate([{ userId: ctx.user!.id, balance: balanceAfter, actionType: "participation", amount: -cost, performedByUsername: (ctx.user as { username?: string }).username ?? null, note: `השתתפות: ${(tournament as { name?: string }).name ?? input.tournamentId}` }]);
         }
         const result = { success: true, pendingApproval: !hasEnoughPoints, balanceAfter };
@@ -999,8 +999,12 @@ export const appRouter = router({
     depositPoints: adminProcedure
       .input(z.object({ userId: z.number(), amount: z.number().int().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        await addUserPoints(input.userId, input.amount, "deposit", { performedBy: ctx.user!.id, description: "הפקדה על ידי מנהל" });
         const u = await getUserById(input.userId);
+        const targetHasUnlimitedPoints = !!((u as { unlimitedPoints?: boolean | number })?.unlimitedPoints || (u as { role?: string })?.role === "admin");
+        if (targetHasUnlimitedPoints) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "למנהל עם גישה בלתי מוגבלת אין ארנק נקודות מספרי" });
+        }
+        await addUserPoints(input.userId, input.amount, "deposit", { performedBy: ctx.user!.id, description: "הפקדה על ידי מנהל" });
         if ((u as { role?: string })?.role === "agent") {
           await recordAdminDepositToAgent(input.userId, input.amount, ctx.user!.id);
         }
@@ -1032,6 +1036,10 @@ export const appRouter = router({
       .input(z.object({ userId: z.number(), amount: z.number().int().min(1) }))
       .mutation(async ({ input, ctx }) => {
         const user = await getUserById(input.userId);
+        const targetHasUnlimitedPoints = !!((user as { unlimitedPoints?: boolean | number })?.unlimitedPoints || (user as { role?: string })?.role === "admin");
+        if (targetHasUnlimitedPoints) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "למנהל עם גישה בלתי מוגבלת אין ארנק נקודות מספרי" });
+        }
         const current = user?.points ?? 0;
         if (current < input.amount) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "יתרת הנקודות נמוכה מהסכום למשיכה" });
@@ -2229,8 +2237,22 @@ export const appRouter = router({
       .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }).optional())
       .query(async ({ ctx, input }) => {
         checkExportRateLimit(ctx);
-        const data = await getAgentPnL(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType });
-        return { csv: agentPnLToCsv(data.transactions, data.profit, data.loss, data.net) };
+        const [summary, rows] = await Promise.all([
+          getAgentPnL(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType }),
+          getAgentPnLReportRows(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType }),
+        ]);
+        return {
+          csv: agentPnLToCsv(rows.map((row) => ({
+            id: row.id,
+            date: row.createdAt,
+            type: row.participationAmount > 0 || row.agentCommission > 0 ? "COMMISSION" : "DEPOSIT",
+            amount: row.agentCommission > 0 ? row.agentCommission : row.pointsDelta,
+            description: row.participationAmount > 0 ? "commission" : "agent_transfer",
+            playerName: row.playerName,
+            tournamentName: row.tournamentType ?? null,
+            balanceAfter: row.agentBalanceAfter,
+          })), summary.profit, summary.loss, summary.net),
+        };
       }),
     /** דוח רווח והפסד משודרג (סוכן): עמלות + תנועות בארנק הסוכן, רק לשחקנים שלו */
     getPnLReport: protectedProcedure

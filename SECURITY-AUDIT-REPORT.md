@@ -36,7 +36,7 @@
 
 - **File:** `server/_core/cookies.ts`
 - **Current behavior:** When request is secure (HTTPS) and `SAME_SITE_LAX_SAME_ORIGIN` is not set, `sameSite` is `"none"` (for cross-origin). When set, `sameSite` is `"lax"`.
-- **Recommendation:** If frontend and API are on the same origin (e.g. `alldayallnight.club`), set `SAME_SITE_LAX_SAME_ORIGIN=1` in production so session cookie uses `sameSite: lax`, reducing CSRF risk from cross-site requests. No code change required; document in deployment checklist.
+- **Recommendation:** If frontend and API are on the same origin (e.g. `megatoto.net`), set `SAME_SITE_LAX_SAME_ORIGIN=1` in production so session cookie uses `sameSite: lax`, reducing CSRF risk from cross-site requests. No code change required; document in deployment checklist.
 
 ---
 
@@ -58,7 +58,7 @@
 
 - **File:** `server/_core/index.ts`
 - **Current:** In production with `ALLOWED_ORIGINS` set, only listed origins get `Access-Control-Allow-Origin`; otherwise request origin is reflected if present. Credentials allowed.
-- **Recommendation:** Keep `ALLOWED_ORIGINS` set in production to the exact frontend origin(s) (e.g. `https://alldayallnight.club`).
+- **Recommendation:** Keep `ALLOWED_ORIGINS` set in production to the exact frontend origin(s) (e.g. `https://megatoto.net`).
 
 ### C4. Match start time vs prediction submission
 

@@ -35,6 +35,18 @@ function toTimestamp(value: string | number | Date | null | undefined): number |
   }
 }
 
+function isPrivilegedRole(role: string | null | undefined): boolean {
+  return role === "admin" || role === "super_admin";
+}
+
+function hasUnlimitedPointsAccess(user: { role?: string | null; unlimitedPoints?: boolean | number | null } | null | undefined): boolean {
+  if (!user) return false;
+  const unlimitedFlag = typeof user.unlimitedPoints === "boolean"
+    ? user.unlimitedPoints
+    : Number(user.unlimitedPoints ?? 0) === 1;
+  return unlimitedFlag || isPrivilegedRole(user.role);
+}
+
 /** תאריך ושעת הגרלה (YYYY-MM-DD + HH:MM) ל-timestamp במילישניות – שעון ישראל +02:00. לשימוש בלוטו/צ'אנס. */
 export function drawDateAndTimeToTimestamp(drawDate: string, drawTime: string): number {
   if (!drawDate?.trim() || !drawTime?.trim()) return 0;
@@ -64,6 +76,10 @@ async function initSqlite() {
       role TEXT NOT NULL DEFAULT 'user',
       username TEXT UNIQUE, passwordHash TEXT,
       agentId INTEGER, referralCode TEXT UNIQUE,
+      points INTEGER NOT NULL DEFAULT 0,
+      unlimitedPoints INTEGER NOT NULL DEFAULT 0,
+      isBlocked INTEGER DEFAULT 0,
+      deletedAt INTEGER,
       createdAt INTEGER, updatedAt INTEGER, lastSignedIn INTEGER
     )
   `);
@@ -84,6 +100,11 @@ async function initSqlite() {
     sqlite.exec(`ALTER TABLE users ADD COLUMN points INTEGER NOT NULL DEFAULT 0`);
     console.log("[DB] Added column users.points");
   }
+  const hasUnlimitedPoints = tableInfo.some((c) => c.name === "unlimitedPoints");
+  if (!hasUnlimitedPoints) {
+    sqlite.exec(`ALTER TABLE users ADD COLUMN unlimitedPoints INTEGER NOT NULL DEFAULT 0`);
+    console.log("[DB] Added column users.unlimitedPoints");
+  }
   const hasIsBlocked = tableInfo.some((c) => c.name === "isBlocked");
   if (!hasIsBlocked) {
     sqlite.exec(`ALTER TABLE users ADD COLUMN isBlocked INTEGER DEFAULT 0`);
@@ -93,6 +114,13 @@ async function initSqlite() {
   if (!hasDeletedAt) {
     sqlite.exec(`ALTER TABLE users ADD COLUMN deletedAt INTEGER`);
     console.log("[DB] Added column users.deletedAt");
+  }
+  const now = Date.now();
+  sqlite.prepare("UPDATE users SET unlimitedPoints = 1 WHERE role = 'admin' AND COALESCE(unlimitedPoints, 0) = 0").run();
+  sqlite.prepare("UPDATE users SET unlimitedPoints = 0 WHERE role != 'admin' AND COALESCE(unlimitedPoints, 0) != 0").run();
+  const normalizedAdmins = sqlite.prepare("UPDATE users SET points = 0, updatedAt = ? WHERE COALESCE(unlimitedPoints, 0) = 1 AND COALESCE(points, 0) != 0").run(now).changes;
+  if (normalizedAdmins > 0) {
+    console.log(`[DB] Normalized ${normalizedAdmins} unlimited admin balance(s) to 0`);
   }
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS point_transactions (
@@ -619,6 +647,7 @@ export async function createUser(data: {
     loginMethod: "local",
     role: "user",
     agentId: data.agentId ?? null,
+    unlimitedPoints: false,
   });
 }
 
@@ -627,7 +656,21 @@ export async function updateUserRole(userId: number, role: "user" | "admin" | "a
   const { users } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
-  await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, userId));
+  const nextUnlimitedPoints = role === "admin";
+  if (nextUnlimitedPoints) {
+    await db.update(users).set({
+      role,
+      unlimitedPoints: true,
+      points: 0,
+      updatedAt: new Date(),
+    }).where(eq(users.id, userId));
+    return;
+  }
+  await db.update(users).set({
+    role,
+    unlimitedPoints: false,
+    updatedAt: new Date(),
+  }).where(eq(users.id, userId));
 }
 
 /** עדכון סיסמת משתמש (רק מנהל – סיסמה מוצפנת) */
@@ -657,6 +700,8 @@ export async function createAdminUser(data: {
     openId,
     loginMethod: "local",
     role: "admin",
+    unlimitedPoints: true,
+    points: 0,
   });
 }
 
@@ -666,6 +711,11 @@ export async function getUserById(id: number) {
   if (!db) return undefined;
   const r = await db.select().from(users).where(eq(users.id, id)).limit(1);
   return r[0];
+}
+
+export async function userHasUnlimitedPoints(userId: number): Promise<boolean> {
+  const user = await getUserById(userId);
+  return hasUnlimitedPointsAccess(user);
 }
 
 /** מחזיר את יתרת הנקודות של משתמש (0 אם לא קיים) */
@@ -690,7 +740,8 @@ export async function validateTournamentEntry(
   isAdmin: boolean
 ): Promise<{ allowed: boolean; cost: number; currentBalance: number }> {
   const cost = Number((tournament as { entryCostPoints?: number }).entryCostPoints ?? tournament.amount ?? 0);
-  if (isAdmin || cost <= 0) {
+  const hasUnlimitedPoints = isAdmin || await userHasUnlimitedPoints(userId);
+  if (hasUnlimitedPoints || cost <= 0) {
     const currentBalance = cost <= 0 ? 0 : await getUserPoints(userId);
     return { allowed: true, cost, currentBalance };
   }
@@ -708,6 +759,10 @@ export async function addUserPoints(
   opts?: { performedBy?: number; referenceId?: number; description?: string; agentId?: number }
 ): Promise<void> {
   if (amount <= 0) return;
+  const targetUser = await getUserById(userId);
+  if (hasUnlimitedPointsAccess(targetUser) && (actionType === "prize" || actionType === "refund")) {
+    return;
+  }
   const { users, pointTransactions } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
@@ -744,6 +799,10 @@ export async function deductUserPoints(
   opts?: { performedBy?: number; referenceId?: number; description?: string; commissionAgent?: number; commissionSite?: number; agentId?: number }
 ): Promise<boolean> {
   if (amount <= 0) return true;
+  const targetUser = await getUserById(userId);
+  if (hasUnlimitedPointsAccess(targetUser) && actionType === "participation") {
+    return true;
+  }
   const current = await getUserPoints(userId);
   if (current < amount) return false;
   const { users, pointTransactions } = await getSchema();
@@ -1131,6 +1190,7 @@ async function getSubmissionFinancialRows(opts?: {
 
   const statusFilter = parseReportStatusFilter(opts?.status);
   const conditions = [isNull(tournaments.deletedAt)];
+  conditions.push(sql`coalesce(${users.unlimitedPoints}, 0) = 0`);
   if (opts?.userId != null) conditions.push(eq(submissions.userId, opts.userId));
   if (opts?.agentId != null) conditions.push(eq(submissions.agentId, opts.agentId));
   if (opts?.tournamentType) conditions.push(eq(tournaments.type, opts.tournamentType));
@@ -1405,6 +1465,24 @@ function displayNameFromUser(u: unknown, fallbackId?: number): string {
   const name = (u as { name?: string | null })?.name ?? null;
   const username = (u as { username?: string | null })?.username ?? null;
   return (name && String(name).trim()) || (username && String(username).trim()) || (fallbackId != null ? `#${fallbackId}` : "—");
+}
+
+async function filterOutUnlimitedSubmissions<T extends { userId: number }>(submissionsList: T[]): Promise<T[]> {
+  if (submissionsList.length === 0) return submissionsList;
+  const { users } = await getSchema();
+  const db = await getDb();
+  if (!db) return submissionsList;
+  const userIds = Array.from(new Set(submissionsList.map((sub) => sub.userId)));
+  const userRows = await db
+    .select({ id: users.id, role: users.role, unlimitedPoints: users.unlimitedPoints })
+    .from(users)
+    .where(inArray(users.id, userIds));
+  const blockedIds = new Set(
+    userRows
+      .filter((user) => hasUnlimitedPointsAccess(user))
+      .map((user) => user.id)
+  );
+  return submissionsList.filter((sub) => !blockedIds.has(sub.userId));
 }
 
 export type AdminPnLReportRow = {
@@ -2080,14 +2158,12 @@ export async function deleteAllPointsLogsHistory(): Promise<void> {
   await db.delete(pointTransactions);
 }
 
-const SUPER_ADMIN_POINTS = 999999999;
-
 /** ניקוי מלא של האתר – מוחק את כל הנתונים ומשאיר רק סופר מנהל (Yoven! / Yoven).
  * 1. מחיקת משתמשים: כל השחקנים (user) וכל הסוכנים (agent) – נשארים רק מנהלים ששמם ב-SUPER_ADMIN_USERNAMES.
  * 2. מחיקת תחרויות: טורנירים, טפסים, תוצאות הגרלות (צ'אנס, לוטו, כדורגל מותאם), משחקי מונדיאל.
  * 3. מחיקת נקודות והיסטוריה: point_transactions, point_transfer_log, עמלות, דוחות כספיים, audit.
  * 4. איפוס דוחות: עמלות, מאזנים – הכל נמחק עם הטבלאות לעיל.
- * 5. סופר מנהל שנשאר מקבל points=999999999 (בפועל אינסוף), deletedAt=NULL, isBlocked=0.
+ * 5. סופר מנהל שנשאר מקבל points=0 והרשאת unlimitedPoints=1, deletedAt=NULL, isBlocked=0.
  * 6. אחרי המחיקה: משחקי מונדיאל (72) מסונכרנים מחדש כדי שהאתר יהיה מוכן לעבודה ללא הפעלה מחדש.
  * רק SQLite. */
 export async function fullResetForSuperAdmin(): Promise<{ keptAdminUsernames: string[]; deletedUsers: number }> {
@@ -2123,7 +2199,7 @@ export async function fullResetForSuperAdmin(): Promise<{ keptAdminUsernames: st
       sqlite.prepare(`DELETE FROM users WHERE id NOT IN (${delPlaceholders})`).run(...keptIds);
       const now = Date.now();
       for (const id of keptIds) {
-        sqlite.prepare("UPDATE users SET points = ?, updatedAt = ?, deletedAt = NULL, isBlocked = 0, agentId = NULL WHERE id = ?").run(SUPER_ADMIN_POINTS, now, id);
+        sqlite.prepare("UPDATE users SET points = 0, unlimitedPoints = 1, updatedAt = ?, deletedAt = NULL, isBlocked = 0, agentId = NULL WHERE id = ?").run(now, id);
       }
     } else {
       sqlite.prepare("DELETE FROM users").run();
@@ -2188,7 +2264,7 @@ async function doDistributePrizesBody(
   const { tournaments } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
-  const subs = (await getSubmissionsByTournament(tournamentId)).filter((s) => s.status === "approved");
+  const subs = await filterOutUnlimitedSubmissions((await getSubmissionsByTournament(tournamentId)).filter((s) => s.status === "approved"));
   const prizePool = Math.round(subs.length * tournament.amount * 0.875);
   const tType = (tournament as { type?: string }).type ?? "football";
 
@@ -2327,32 +2403,44 @@ export async function runRecoverSettlements(opts?: { onlyTournamentIds?: number[
   return { recovered, errors };
 }
 
-/** בדיקת יושרה כספית: Total Entry Points = Total Payouts + System Balance. אם יש סטייה – מחזיר פרטים ללוג. */
+/** בדיקת יושרה כספית: סכום כל תנועות הנקודות הטרנזקציוניות = יתרות המשתמשים בפועל.
+ * מתעלם ממנהלים עם unlimitedPoints כדי לא לזהם את החשבונאות. */
 export async function runFinancialIntegrityCheck(): Promise<{
   totalEntryPoints: number;
   totalPayouts: number;
+  netTrackedTransactions: number;
   systemBalance: number;
   delta: number;
   ok: boolean;
 }> {
   const { users, pointTransactions } = await getSchema();
   const db = await getDb();
-  if (!db) return { totalEntryPoints: 0, totalPayouts: 0, systemBalance: 0, delta: 0, ok: true };
+  if (!db) return { totalEntryPoints: 0, totalPayouts: 0, netTrackedTransactions: 0, systemBalance: 0, delta: 0, ok: true };
   const partRows = await db
     .select({ s: sql<number>`coalesce(sum(abs(${pointTransactions.amount})), 0)` })
     .from(pointTransactions)
-    .where(eq(pointTransactions.actionType, "participation"));
+    .innerJoin(users, eq(pointTransactions.userId, users.id))
+    .where(and(eq(pointTransactions.actionType, "participation"), sql`coalesce(${users.unlimitedPoints}, 0) = 0`));
   const prizeRows = await db
     .select({ s: sql<number>`coalesce(sum(${pointTransactions.amount}), 0)` })
     .from(pointTransactions)
-    .where(eq(pointTransactions.actionType, "prize"));
-  const balanceRows = await db.select({ s: sql<number>`coalesce(sum(${users.points}), 0)` }).from(users);
+    .innerJoin(users, eq(pointTransactions.userId, users.id))
+    .where(and(eq(pointTransactions.actionType, "prize"), sql`coalesce(${users.unlimitedPoints}, 0) = 0`));
+  const transactionRows = await db
+    .select({ s: sql<number>`coalesce(sum(${pointTransactions.amount}), 0)` })
+    .from(pointTransactions)
+    .innerJoin(users, eq(pointTransactions.userId, users.id))
+    .where(sql`coalesce(${users.unlimitedPoints}, 0) = 0`);
+  const balanceRows = await db
+    .select({ s: sql<number>`coalesce(sum(case when coalesce(${users.unlimitedPoints}, 0) = 0 then ${users.points} else 0 end), 0)` })
+    .from(users);
   const totalEntryPoints = Number(partRows[0]?.s ?? 0);
   const totalPayouts = Number(prizeRows[0]?.s ?? 0);
+  const netTrackedTransactions = Number(transactionRows[0]?.s ?? 0);
   const systemBalance = Number(balanceRows[0]?.s ?? 0);
-  const delta = totalEntryPoints - totalPayouts - systemBalance;
+  const delta = netTrackedTransactions - systemBalance;
   const ok = Math.abs(delta) < 1;
-  return { totalEntryPoints, totalPayouts, systemBalance, delta, ok };
+  return { totalEntryPoints, totalPayouts, netTrackedTransactions, systemBalance, delta, ok };
 }
 
 const VIRTUAL_USER_OPENID = "system-virtual-auto-submissions";
@@ -2516,6 +2604,8 @@ export async function createAdminUserBySuperAdmin(data: { username: string; pass
     loginMethod: "local",
     role: "admin",
     passwordHash: data.passwordHash,
+    unlimitedPoints: true,
+    points: 0,
   });
   const created = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
   return created[0] ?? null;
@@ -2582,6 +2672,7 @@ export async function createAgent(data: {
     loginMethod: "local",
     role: "agent",
     referralCode: null,
+    unlimitedPoints: false,
   });
   const created = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
   const agent = created[0];
@@ -3762,7 +3853,7 @@ export async function refundTournamentParticipants(tournamentId: number): Promis
   const amount = tournament.amount;
   if (amount <= 0) return { refundedCount: 0, totalRefunded: 0, refundedUserIds: [], amountPerUser: 0 };
   const subs = await getSubmissionsByTournament(tournamentId);
-  const approved = subs.filter((s) => s.status === "approved");
+  const approved = await filterOutUnlimitedSubmissions(subs.filter((s) => s.status === "approved"));
   const name = (tournament as { name?: string }).name ?? String(tournamentId);
   const statusAtTime = (tournament as { status?: string }).status ?? "CANCELLED";
   for (const s of approved) {
@@ -3870,7 +3961,7 @@ export type FinancialTransparency = {
 export async function getFinancialTransparency(): Promise<FinancialTransparency> {
   const subs = await getAllSubmissions();
   const tournaments = await getTournaments();
-  const paid = subs.filter((s) => s.status === "approved");
+  const paid = await filterOutUnlimitedSubmissions(subs.filter((s) => s.status === "approved"));
 
   let totalAmount = 0;
   let totalFee = 0;
@@ -3920,7 +4011,7 @@ export type AdminFinancialRow = {
 /** דוח כספי למנהל – כל התחרויות כולל סגורות, עם צילום כספי לתחרויות שנסיימו */
 export async function getAdminFinancialReport(): Promise<AdminFinancialRow[]> {
   const subs = await getAllSubmissions();
-  const paid = subs.filter((s) => s.status === "approved");
+  const paid = await filterOutUnlimitedSubmissions(subs.filter((s) => s.status === "approved"));
   const tournaments = await getTournaments();
 
   return tournaments.map((t) => {
@@ -3994,7 +4085,7 @@ export type TournamentPublicStat = {
 export async function getTournamentPublicStats(activeOnly = true): Promise<TournamentPublicStat[]> {
   const subs = await getAllSubmissions();
   const tournaments = activeOnly ? await getActiveTournaments() : await getTournaments();
-  const paid = subs.filter((s) => s.status === "approved");
+  const paid = await filterOutUnlimitedSubmissions(subs.filter((s) => s.status === "approved"));
 
   return tournaments.map((t) => {
     const participants = paid.filter((s) => s.tournamentId === t.id).length;
@@ -4152,7 +4243,7 @@ export async function getChanceLeaderboard(tournamentId: number): Promise<{
   prizePool: number;
   winnerCount: number;
 }> {
-  const subs = (await getAllSubmissions()).filter((s) => s.tournamentId === tournamentId && s.status === "approved");
+  const subs = await filterOutUnlimitedSubmissions((await getAllSubmissions()).filter((s) => s.tournamentId === tournamentId && s.status === "approved"));
   const tournament = await getTournamentById(tournamentId);
   const drawResult = await getChanceDrawResult(tournamentId);
   const prizePool = Math.round(subs.length * (tournament?.amount ?? 0) * 0.875);
@@ -4265,7 +4356,7 @@ export async function getLottoLeaderboard(tournamentId: number): Promise<{
   prizePool: number;
   winnerCount: number;
 }> {
-  const subs = (await getAllSubmissions()).filter((s) => s.tournamentId === tournamentId && s.status === "approved");
+  const subs = await filterOutUnlimitedSubmissions((await getAllSubmissions()).filter((s) => s.tournamentId === tournamentId && s.status === "approved"));
   const tournament = await getTournamentById(tournamentId);
   const drawResult = await getLottoDrawResult(tournamentId);
   const prizePool = Math.round(subs.length * (tournament?.amount ?? 0) * 0.875);
@@ -4422,7 +4513,7 @@ export async function getCustomFootballLeaderboard(tournamentId: number): Promis
   prizePool: number;
   winnerCount: number;
 }> {
-  const subs = (await getSubmissionsByTournament(tournamentId)).filter((s) => s.status === "approved");
+  const subs = await filterOutUnlimitedSubmissions((await getSubmissionsByTournament(tournamentId)).filter((s) => s.status === "approved"));
   const tournament = await getTournamentById(tournamentId);
   const prizePool = Math.round(subs.length * (tournament?.amount ?? 0) * 0.875);
   const maxPoints = subs.length ? Math.max(...subs.map((s) => s.points), 0) : 0;

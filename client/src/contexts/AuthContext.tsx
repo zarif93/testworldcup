@@ -10,6 +10,7 @@ interface User {
   role: "user" | "admin" | "agent";
   referralCode?: string | null;
   points?: number;
+  unlimitedPoints?: boolean;
   isSuperAdmin?: boolean;
 }
 
@@ -36,7 +37,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setLoading(isLoading);
     if (currentUser) {
-      setUser(currentUser as User);
+      setUser({
+        ...(currentUser as Omit<User, "unlimitedPoints"> & { unlimitedPoints?: boolean | number | null }),
+        unlimitedPoints: Boolean((currentUser as { unlimitedPoints?: boolean | number | null }).unlimitedPoints),
+      });
     } else {
       setUser(null);
     }

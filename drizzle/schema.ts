@@ -17,8 +17,10 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
-  /** נקודות למשתמש – מנהל ללא הגבלה */
+  /** נקודות למשתמש */
   points: int("points").default(0).notNull(),
+  /** הרשאת עקיפת יתרה – למנהלים/סופר-מנהלים בלבד */
+  unlimitedPoints: int("unlimitedPoints").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),

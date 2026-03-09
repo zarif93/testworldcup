@@ -71,7 +71,7 @@ function NavLinks({
   onOpenTerms,
 }: {
   setLocation: (path: string) => void;
-  user: { role?: string; points?: number } | null;
+  user: { role?: string; points?: number; unlimitedPoints?: boolean } | null;
   logout: () => void;
   onNavigate?: () => void;
   onOpenTerms?: () => void;
@@ -81,7 +81,7 @@ function NavLinks({
     onNavigate?.();
   };
   const pointsLabel =
-    user?.role === "admin"
+    user?.unlimitedPoints || user?.role === "admin"
       ? "ללא הגבלה"
       : typeof user?.points === "number"
         ? String(user.points)
@@ -275,7 +275,7 @@ function Layout({ children }: { children: React.ReactNode }) {
             {user && (
               <span className="flex items-center gap-1.5 text-slate-300 text-sm font-medium tabular-nums shrink-0" aria-label="יתרת נקודות">
                 <Gem className="w-4 h-4 text-amber-400/90 shrink-0" />
-                {user.role === "admin" ? "ללא הגבלה" : `${user.points ?? 0} נקודות`}
+                {user.unlimitedPoints || user.role === "admin" ? "ללא הגבלה" : `${user.points ?? 0} נקודות`}
               </span>
             )}
             <ThemeToggle />
@@ -285,7 +285,7 @@ function Layout({ children }: { children: React.ReactNode }) {
             {user && (
               <span className="flex items-center gap-1 rounded-lg px-2 py-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-bold tabular-nums min-h-[36px] items-center" aria-label="יתרת נקודות">
                 <Gem className="w-3.5 h-3.5 shrink-0" />
-                {user.role === "admin" ? "∞" : `${user.points ?? 0}`}
+                {user.unlimitedPoints || user.role === "admin" ? "∞" : `${user.points ?? 0}`}
               </span>
             )}
             <ThemeToggle className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition shrink-0" />

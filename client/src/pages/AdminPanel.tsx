@@ -1769,7 +1769,7 @@ export default function AdminPanel() {
                       <option value="">בחר משתמש</option>
                       {(users ?? []).map((u) => (
                         <option key={u.id} value={u.id}>
-                          {u.username ?? u.name ?? `#${u.id}`} {u.role === "admin" ? "(מנהל)" : ""}
+                          {u.username ?? u.name ?? `#${u.id}`} {(((u as { unlimitedPoints?: boolean }).unlimitedPoints) || u.role === "admin") ? "(מנהל ללא הגבלה)" : ""}
                         </option>
                       ))}
                     </select>
@@ -1941,7 +1941,7 @@ export default function AdminPanel() {
                             {u.role === "user" && <Badge variant="secondary" className="text-slate-300 text-[10px] sm:text-xs">שחקן</Badge>}
                           </td>
                           <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-slate-300 whitespace-nowrap">{u.phone || "—"}</td>
-                          <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-amber-400 font-medium whitespace-nowrap">{u.points ?? 0}</td>
+                          <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-amber-400 font-medium whitespace-nowrap">{((u as { unlimitedPoints?: boolean }).unlimitedPoints) || u.role === "admin" ? "∞" : (u.points ?? 0)}</td>
                           {usersListRoleFilter === "agent" && u.role === "agent" && (
                             <>
                               <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-slate-300 whitespace-nowrap">{u.referredCount ?? 0}</td>
@@ -2084,7 +2084,7 @@ export default function AdminPanel() {
                               <Button
                                 size="sm"
                                 className="h-9 bg-emerald-600 hover:bg-emerald-700 text-xs"
-                                disabled={depositPointsMut.isPending || !(playerDepositAmount[u.id] ?? "").trim() || parseInt(String(playerDepositAmount[u.id]), 10) < 1}
+                                disabled={depositPointsMut.isPending || !!((u as { unlimitedPoints?: boolean }).unlimitedPoints) || !(playerDepositAmount[u.id] ?? "").trim() || parseInt(String(playerDepositAmount[u.id]), 10) < 1}
                                 onClick={async () => {
                                   const amount = parseInt(String(playerDepositAmount[u.id]), 10);
                                   if (amount < 1) return;
@@ -2118,7 +2118,7 @@ export default function AdminPanel() {
                                 size="sm"
                                 variant="destructive"
                                 className="h-9 text-xs"
-                                disabled={withdrawPointsMut.isPending || !(playerWithdrawAmount[u.id] ?? "").trim() || parseInt(String(playerWithdrawAmount[u.id]), 10) < 1}
+                                disabled={withdrawPointsMut.isPending || !!((u as { unlimitedPoints?: boolean }).unlimitedPoints) || !(playerWithdrawAmount[u.id] ?? "").trim() || parseInt(String(playerWithdrawAmount[u.id]), 10) < 1}
                                 onClick={async () => {
                                   const amount = parseInt(String(playerWithdrawAmount[u.id]), 10);
                                   if (amount < 1) return;
@@ -2503,7 +2503,7 @@ export default function AdminPanel() {
                   setExportPlayerError("");
                   try {
                     const { csv } = await utils.admin.exportPlayerPnLCSV.fetch({ userId: exportPlayerUserId, from, to });
-                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+                    const blob = new Blob([csv ?? ""], { type: "text/csv;charset=utf-8" });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
                     a.href = url;
@@ -2562,7 +2562,7 @@ export default function AdminPanel() {
                   setExportAgentError("");
                   try {
                     const { csv } = await utils.admin.exportAgentPnLCSV.fetch({ agentId: exportAgentId, from, to });
-                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+                    const blob = new Blob([csv ?? ""], { type: "text/csv;charset=utf-8" });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
                     a.href = url;
@@ -3439,7 +3439,7 @@ export default function AdminPanel() {
                         <div><span className="text-slate-500">הפסד:</span> <span className="text-amber-400 font-bold">{pnlAgentDetail.loss}</span></div>
                         <div><span className="text-slate-500">רווח נטו:</span> <span className="text-white font-bold">{pnlAgentDetail.net}</span></div>
                       </div>
-                      {pnlAgentDetail.transactions.length > 0 ? (
+                      {(((pnlAgentDetail as { transactions?: Array<{ id: number; date?: string | Date | null; type: string; amount: number; playerName?: string | null; tournamentName?: string | null; balanceAfter?: number }> }).transactions) ?? []).length > 0 ? (
                         <table className="w-full text-sm text-right">
                           <thead>
                             <tr className="border-b border-slate-600 text-slate-400">
@@ -3452,7 +3452,7 @@ export default function AdminPanel() {
                             </tr>
                           </thead>
                           <tbody>
-                            {pnlAgentDetail.transactions.map((t) => (
+                            {(((pnlAgentDetail as { transactions?: Array<{ id: number; date?: string | Date | null; type: string; amount: number; playerName?: string | null; tournamentName?: string | null; balanceAfter?: number }> }).transactions) ?? []).map((t) => (
                               <tr key={t.id} className="border-b border-slate-700/50">
                                 <td className="py-2 px-2 text-slate-300">{t.date ? new Date(t.date).toLocaleDateString("he-IL") : "—"}</td>
                                 <td className="py-2 px-2 text-white">{(t as { playerName?: string | null }).playerName ?? "—"}</td>
@@ -3491,7 +3491,7 @@ export default function AdminPanel() {
                           to: pnlTo || undefined,
                           tournamentType: pnlTournamentType || undefined,
                         });
-                        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+                        const blob = new Blob([csv ?? ""], { type: "text/csv;charset=utf-8" });
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement("a");
                         a.href = url;
@@ -3571,7 +3571,7 @@ export default function AdminPanel() {
                           to: pnlTo || undefined,
                           tournamentType: pnlTournamentType || undefined,
                         });
-                        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+                        const blob = new Blob([csv ?? ""], { type: "text/csv;charset=utf-8" });
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement("a");
                         a.href = url;
