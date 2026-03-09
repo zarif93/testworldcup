@@ -1081,11 +1081,270 @@ export async function getAdminBalanceSummary(): Promise<{ totalPlayersBalance: n
 }
 
 /** דוח רווח והפסד לשחקן – לפי טווח תאריכים. רווח=זכיות+החזרים, הפסד=השתתפויות. אופציונלי: סינון לפי סוג תחרות. */
+function endOfDayDate(value: string): Date {
+  const toEnd = new Date(value);
+  toEnd.setHours(23, 59, 59, 999);
+  return toEnd;
+}
+
+function parseReportStatusFilter(status?: string): { submissionStatus?: string; paymentStatus?: string } {
+  if (!status) return {};
+  if (["pending", "approved", "rejected"].includes(status)) {
+    return { submissionStatus: status };
+  }
+  if (["completed", "failed"].includes(status)) {
+    return { paymentStatus: status };
+  }
+  return {};
+}
+
+function calcHouseCommission(entryAmount: number, houseFeeRate?: number | null): number {
+  const rate = Number(houseFeeRate ?? 12.5) || 12.5;
+  return Math.round(entryAmount * (rate / 100));
+}
+
+function getEntryResultLabel(row: {
+  refundedAmount: number;
+  winAmount: number;
+  status: string;
+  paymentStatus: string;
+}): string {
+  if (row.refundedAmount > 0) return "Refunded";
+  if (row.winAmount > 0) return "Won";
+  if (row.status !== "approved") return row.status;
+  if (row.paymentStatus !== "completed") return row.paymentStatus;
+  return "Lost";
+}
+
+async function getSubmissionFinancialRows(opts?: {
+  userId?: number;
+  agentId?: number;
+  from?: string;
+  to?: string;
+  tournamentType?: string;
+  status?: string;
+  limit?: number;
+}) {
+  const { submissions, tournaments, users, agentCommissions, financialRecords, pointTransactions } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+
+  const statusFilter = parseReportStatusFilter(opts?.status);
+  const conditions = [isNull(tournaments.deletedAt)];
+  if (opts?.userId != null) conditions.push(eq(submissions.userId, opts.userId));
+  if (opts?.agentId != null) conditions.push(eq(submissions.agentId, opts.agentId));
+  if (opts?.tournamentType) conditions.push(eq(tournaments.type, opts.tournamentType));
+  if (statusFilter.submissionStatus) conditions.push(eq(submissions.status, statusFilter.submissionStatus));
+  if (statusFilter.paymentStatus) conditions.push(eq(submissions.paymentStatus, statusFilter.paymentStatus));
+  if (opts?.from) conditions.push(gte(submissions.createdAt, new Date(opts.from)));
+  if (opts?.to) conditions.push(lte(submissions.createdAt, endOfDayDate(opts.to)));
+
+  const rows = await db
+    .select({
+      submissionId: submissions.id,
+      createdAt: submissions.createdAt,
+      updatedAt: submissions.updatedAt,
+      approvedAt: submissions.approvedAt,
+      userId: submissions.userId,
+      username: submissions.username,
+      agentId: submissions.agentId,
+      status: submissions.status,
+      paymentStatus: submissions.paymentStatus,
+      tournamentId: submissions.tournamentId,
+      tournamentName: tournaments.name,
+      tournamentType: tournaments.type,
+      amount: tournaments.amount,
+      houseFeeRate: tournaments.houseFeeRate,
+      playerPhone: users.phone,
+      playerName: users.name,
+      playerUsername: users.username,
+      playerPoints: users.points,
+    })
+    .from(submissions)
+    .innerJoin(tournaments, eq(submissions.tournamentId, tournaments.id))
+    .leftJoin(users, eq(submissions.userId, users.id))
+    .where(and(...conditions))
+    .orderBy(desc(submissions.createdAt))
+    .limit(opts?.limit ?? 5000);
+
+  if (rows.length === 0) return [];
+
+  const submissionIds = rows.map((row) => row.submissionId);
+  const tournamentIds = Array.from(new Set(rows.map((row) => row.tournamentId)));
+  const userIds = Array.from(new Set(rows.map((row) => row.userId)));
+
+  const commissionRows = await db
+    .select({
+      submissionId: agentCommissions.submissionId,
+      commissionAmount: agentCommissions.commissionAmount,
+    })
+    .from(agentCommissions)
+    .where(inArray(agentCommissions.submissionId, submissionIds));
+
+  const commissionBySubmission = new Map<number, number>();
+  for (const row of commissionRows) {
+    commissionBySubmission.set(
+      row.submissionId,
+      (commissionBySubmission.get(row.submissionId) ?? 0) + Number(row.commissionAmount ?? 0)
+    );
+  }
+
+  const financialRows = await db
+    .select({
+      competitionId: financialRecords.competitionId,
+      participantSnapshot: financialRecords.participantSnapshot,
+    })
+    .from(financialRecords)
+    .where(inArray(financialRecords.competitionId, tournamentIds));
+
+  const prizeBySubmission = new Map<number, number>();
+  for (const record of financialRows) {
+    const snapshot = record.participantSnapshot as { participants?: Array<{ submissionId?: number; prizeWon?: number }> } | null;
+    const participants = snapshot?.participants ?? [];
+    for (const participant of participants) {
+      if (participant?.submissionId == null) continue;
+      prizeBySubmission.set(
+        participant.submissionId,
+        (prizeBySubmission.get(participant.submissionId) ?? 0) + Number(participant.prizeWon ?? 0)
+      );
+    }
+  }
+
+  const refundRows = await db
+    .select({
+      userId: pointTransactions.userId,
+      tournamentId: pointTransactions.referenceId,
+      amount: pointTransactions.amount,
+    })
+    .from(pointTransactions)
+    .where(
+      and(
+        eq(pointTransactions.actionType, "refund"),
+        inArray(pointTransactions.userId, userIds),
+        inArray(pointTransactions.referenceId, tournamentIds)
+      )
+    );
+
+  const refundByUserTournament = new Map<string, number>();
+  for (const row of refundRows) {
+    const key = `${row.userId}:${row.tournamentId}`;
+    refundByUserTournament.set(key, (refundByUserTournament.get(key) ?? 0) + Number(row.amount ?? 0));
+  }
+
+  const submissionCountByUserTournament = new Map<string, number>();
+  for (const row of rows) {
+    const betAmount =
+      row.status === "approved" && row.paymentStatus === "completed"
+        ? Number(row.amount ?? 0)
+        : 0;
+    if (betAmount <= 0) continue;
+    const key = `${row.userId}:${row.tournamentId}`;
+    submissionCountByUserTournament.set(key, (submissionCountByUserTournament.get(key) ?? 0) + 1);
+  }
+
+  return rows.map((row) => {
+    const baseBetAmount =
+      row.status === "approved" && row.paymentStatus === "completed"
+        ? Number(row.amount ?? 0)
+        : 0;
+    const key = `${row.userId}:${row.tournamentId}`;
+    const totalRefundForKey = refundByUserTournament.get(key) ?? 0;
+    const submissionCount = submissionCountByUserTournament.get(key) ?? 1;
+    const refundedAmount =
+      baseBetAmount > 0 && totalRefundForKey > 0
+        ? Math.min(baseBetAmount, Math.round(totalRefundForKey / submissionCount))
+        : 0;
+    const effectiveBetAmount = Math.max(0, baseBetAmount - refundedAmount);
+    const agentCommission = commissionBySubmission.get(row.submissionId) ?? 0;
+    const totalCommissionGenerated = baseBetAmount > 0 ? calcHouseCommission(baseBetAmount, row.houseFeeRate) : 0;
+    const platformCommission = Math.max(0, totalCommissionGenerated - agentCommission);
+    const winAmount = prizeBySubmission.get(row.submissionId) ?? 0;
+    const profitLoss = winAmount - effectiveBetAmount;
+    const lastActivityDate = row.approvedAt ?? row.updatedAt ?? row.createdAt ?? null;
+
+    return {
+      submissionId: row.submissionId,
+      createdAt: row.createdAt ?? null,
+      updatedAt: row.updatedAt ?? null,
+      approvedAt: row.approvedAt ?? null,
+      lastActivityAt: lastActivityDate,
+      userId: row.userId,
+      username: row.playerUsername ?? row.username ?? "",
+      name: row.playerName ?? null,
+      phoneNumber: row.playerPhone ?? "",
+      agentId: row.agentId ?? null,
+      tournamentId: row.tournamentId,
+      tournamentName: row.tournamentName ?? `#${row.tournamentId}`,
+      tournamentType: row.tournamentType ?? "football",
+      status: row.status ?? "pending",
+      paymentStatus: row.paymentStatus ?? "pending",
+      betAmount: effectiveBetAmount,
+      grossBetAmount: baseBetAmount,
+      refundedAmount,
+      winAmount,
+      totalCommissionGenerated,
+      agentCommission,
+      platformCommission,
+      profitLoss,
+      netBalance: Number(row.playerPoints ?? 0),
+      result: getEntryResultLabel({
+        refundedAmount,
+        winAmount,
+        status: row.status ?? "pending",
+        paymentStatus: row.paymentStatus ?? "pending",
+      }),
+    };
+  });
+}
+
 export async function getPlayerPnL(
   userId: number,
-  opts?: { from?: string; to?: string; tournamentType?: string }
-): Promise<{ profit: number; loss: number; net: number; transactions: Array<{ id: number; createdAt: Date | null; actionType: string; amount: number; balanceAfter: number; kind: "profit" | "loss"; referenceId?: number | null }> }> {
-  const rows = await getPointsHistory(userId, { limit: 5000, from: opts?.from, to: opts?.to });
+  opts?: { from?: string; to?: string; tournamentType?: string; status?: string }
+): Promise<{
+  profit: number;
+  loss: number;
+  net: number;
+  totalBets: number;
+  totalWinnings: number;
+  totalLoss: number;
+  totalProfit: number;
+  totalCommission: number;
+  netBalance: number;
+  betsCount: number;
+  entries: Array<{
+    submissionId: number;
+    createdAt: Date | null;
+    tournamentId: number;
+    tournamentName: string;
+    tournamentType: string;
+    status: string;
+    paymentStatus: string;
+    betAmount: number;
+    refundedAmount: number;
+    winAmount: number;
+    commission: number;
+    profitLoss: number;
+    result: string;
+  }>;
+  transactions: Array<{ id: number; createdAt: Date | null; actionType: string; amount: number; balanceAfter: number; kind: "profit" | "loss"; referenceId?: number | null }>;
+}> {
+  const entries = await getSubmissionFinancialRows({
+    userId,
+    from: opts?.from,
+    to: opts?.to,
+    tournamentType: opts?.tournamentType,
+    status: opts?.status,
+    limit: 5000,
+  });
+  const totalBets = entries.reduce((sum, entry) => sum + entry.betAmount, 0);
+  const totalWinnings = entries.reduce((sum, entry) => sum + entry.winAmount, 0);
+  const totalCommission = entries.reduce((sum, entry) => sum + entry.totalCommissionGenerated, 0);
+  const totalProfitLoss = totalWinnings - totalBets;
+  const totalProfit = Math.max(totalProfitLoss, 0);
+  const totalLoss = Math.max(-totalProfitLoss, 0);
+  const netBalance = entries[0]?.netBalance ?? (await getUserPoints(userId));
+
+  const historyRows = await getPointsHistory(userId, { limit: 5000, from: opts?.from, to: opts?.to });
   let tournamentIds: number[] | null = null;
   if (opts?.tournamentType) {
     const { tournaments } = await getSchema();
@@ -1095,10 +1354,8 @@ export async function getPlayerPnL(
       tournamentIds = list.map((r) => (r as { id: number }).id);
     }
   }
-  let profit = 0;
-  let loss = 0;
   const transactions: Array<{ id: number; createdAt: Date | null; actionType: string; amount: number; balanceAfter: number; kind: "profit" | "loss"; referenceId?: number | null }> = [];
-  for (const r of rows) {
+  for (const r of historyRows) {
     const amount = (r as { amount: number }).amount ?? 0;
     const actionType = (r as { actionType: string }).actionType ?? "";
     const balanceAfter = (r as { balanceAfter: number }).balanceAfter ?? 0;
@@ -1107,15 +1364,41 @@ export async function getPlayerPnL(
     const includeRow = !isTournamentRelated || !tournamentIds || (referenceId != null && tournamentIds.includes(referenceId));
     if (!includeRow) continue;
     if (actionType === "prize" || actionType === "refund") {
-      profit += amount;
       transactions.push({ id: (r as { id: number }).id, createdAt: (r as { createdAt: Date | null }).createdAt ?? null, actionType, amount, balanceAfter, kind: "profit", referenceId });
     } else if (actionType === "participation") {
       const absAmount = Math.abs(amount);
-      loss += absAmount;
       transactions.push({ id: (r as { id: number }).id, createdAt: (r as { createdAt: Date | null }).createdAt ?? null, actionType, amount: -absAmount, balanceAfter, kind: "loss", referenceId });
     }
   }
-  return { profit, loss, net: profit - loss, transactions };
+
+  return {
+    profit: totalProfit,
+    loss: totalLoss,
+    net: totalProfitLoss,
+    totalBets,
+    totalWinnings,
+    totalLoss,
+    totalProfit,
+    totalCommission,
+    netBalance,
+    betsCount: entries.filter((entry) => entry.betAmount > 0).length,
+    entries: entries.map((entry) => ({
+      submissionId: entry.submissionId,
+      createdAt: entry.createdAt,
+      tournamentId: entry.tournamentId,
+      tournamentName: entry.tournamentName,
+      tournamentType: entry.tournamentType,
+      status: entry.status,
+      paymentStatus: entry.paymentStatus,
+      betAmount: entry.betAmount,
+      refundedAmount: entry.refundedAmount,
+      winAmount: entry.winAmount,
+      commission: entry.totalCommissionGenerated,
+      profitLoss: entry.profitLoss,
+      result: entry.result,
+    })),
+    transactions,
+  };
 }
 
 function displayNameFromUser(u: unknown, fallbackId?: number): string {
@@ -1455,136 +1738,123 @@ async function getAgentDepositsToPlayersInRange(
 /** דוח רווח והפסד לסוכן – רווח=עמלות, הפסד=הפקדות לשחקנים. כולל תאריך, שחקן, סוג פעולה, סכום, תחרות, מאזן לאחר הפעולה. */
 export async function getAgentPnL(
   agentId: number,
-  opts?: { from?: string; to?: string; tournamentType?: string }
+  opts?: { from?: string; to?: string; tournamentType?: string; status?: string }
 ): Promise<{
   profit: number;
   loss: number;
   net: number;
-  transactions: Array<{
-    id: number;
-    date: Date | null;
-    type: "COMMISSION" | "DEPOSIT" | "PRIZE";
-    amount: number;
-    description?: string;
-    submissionId?: number;
-    userId?: number;
-    playerName: string | null;
-    tournamentName: string | null;
-    tournamentId?: number;
-    balanceAfter: number;
+  totalBets: number;
+  totalWinnings: number;
+  totalProfit: number;
+  totalLoss: number;
+  totalPlatformCommission: number;
+  totalAgentCommission: number;
+  agentNetResult: number;
+  players: Array<{
+    playerId: number;
+    username: string | null;
+    name: string | null;
+    phoneNumber: string | null;
+    totalBets: number;
+    totalWinnings: number;
+    profitLoss: number;
+    commissionGenerated: number;
+    agentCommissionShare: number;
+    betsCount: number;
+    lastActivity: Date | null;
   }>;
 }> {
-  const { rows: commissionRows, totalCommission } = await getAgentCommissionsByAgentIdWithDateRange(agentId, { from: opts?.from, to: opts?.to, limit: 5000, tournamentType: opts?.tournamentType });
-  const { total: depositTotal, rows: depositRows } = await getAgentDepositsToPlayersInRange(agentId, opts);
-  const profit = totalCommission;
-  const loss = depositTotal;
-  type Row = { id: number; date: Date | null; type: "COMMISSION" | "DEPOSIT" | "PRIZE"; amount: number; description?: string; submissionId?: number; userId?: number; playerName: string | null; tournamentName: string | null; tournamentId?: number };
-  const rows: Row[] = [];
-  for (const r of commissionRows) {
-    rows.push({
-      id: r.id,
-      date: r.createdAt ?? null,
-      type: "COMMISSION",
-      amount: r.commissionAmount ?? 0,
-      description: `עמלה טופס #${r.submissionId}`,
-      submissionId: r.submissionId ?? undefined,
-      userId: r.userId ?? undefined,
-      playerName: (r.name ?? r.username ?? null) as string | null,
-      tournamentName: (r as { tournamentName?: string | null }).tournamentName ?? null,
-      tournamentId: (r as { tournamentId?: number }).tournamentId,
-    });
-  }
-  for (const r of depositRows) {
-    rows.push({
-      id: r.id + 1000000,
-      date: r.createdAt,
-      type: "DEPOSIT",
-      amount: -r.amount,
-      description: `הפקדה לשחקן`,
-      playerName: r.playerName ?? r.playerUsername ?? null,
-      tournamentName: null,
-    });
-  }
-  const playerIds = await getUsersByAgentId(agentId).then((list) => list.map((u) => u.id));
-  if (playerIds.length > 0 && opts) {
-    const { pointTransactions, users, tournaments } = await getSchema();
-    const db = await getDb();
-    if (db) {
-      const prizeCond = [inArray(pointTransactions.userId, playerIds), eq(pointTransactions.actionType, "prize")];
-      if (opts.from) prizeCond.push(gte(pointTransactions.createdAt, new Date(opts.from)));
-      if (opts.to) {
-        const toEnd = new Date(opts.to);
-        toEnd.setHours(23, 59, 59, 999);
-        prizeCond.push(lte(pointTransactions.createdAt, toEnd));
-      }
-      const prizeRows = await db
-        .select({
-          id: pointTransactions.id,
-          createdAt: pointTransactions.createdAt,
-          amount: pointTransactions.amount,
-          userId: pointTransactions.userId,
-          referenceId: pointTransactions.referenceId,
-          name: users.name,
-          username: users.username,
-          tournamentName: tournaments.name,
-        })
-        .from(pointTransactions)
-        .innerJoin(users, eq(pointTransactions.userId, users.id))
-        .leftJoin(tournaments, eq(pointTransactions.referenceId, tournaments.id))
-        .where(and(...prizeCond))
-        .orderBy(desc(pointTransactions.createdAt))
-        .limit(1000);
-      for (const p of prizeRows) {
-        rows.push({
-          id: (p as { id: number }).id + 2000000,
-          date: (p as { createdAt?: Date | null }).createdAt ?? null,
-          type: "PRIZE",
-          amount: (p as { amount: number }).amount ?? 0,
-          description: "זכייה בתחרות",
-          userId: (p as { userId: number }).userId,
-          playerName: ((p as { name?: string | null }).name ?? (p as { username?: string | null }).username ?? null) as string | null,
-          tournamentName: (p as { tournamentName?: string | null }).tournamentName ?? null,
-          tournamentId: (p as { referenceId?: number | null }).referenceId ?? undefined,
-        });
-      }
+  const rows = await getSubmissionFinancialRows({
+    agentId,
+    from: opts?.from,
+    to: opts?.to,
+    tournamentType: opts?.tournamentType,
+    status: opts?.status,
+    limit: 5000,
+  });
+  const playersMap = new Map<number, {
+    playerId: number;
+    username: string | null;
+    name: string | null;
+    phoneNumber: string | null;
+    totalBets: number;
+    totalWinnings: number;
+    profitLoss: number;
+    commissionGenerated: number;
+    agentCommissionShare: number;
+    betsCount: number;
+    lastActivity: Date | null;
+  }>();
+  for (const row of rows) {
+    const current = playersMap.get(row.userId) ?? {
+      playerId: row.userId,
+      username: row.username || null,
+      name: row.name ?? null,
+      phoneNumber: row.phoneNumber ?? null,
+      totalBets: 0,
+      totalWinnings: 0,
+      profitLoss: 0,
+      commissionGenerated: 0,
+      agentCommissionShare: 0,
+      betsCount: 0,
+      lastActivity: null,
+    };
+    current.totalBets += row.betAmount;
+    current.totalWinnings += row.winAmount;
+    current.profitLoss += row.profitLoss;
+    current.commissionGenerated += row.totalCommissionGenerated;
+    current.agentCommissionShare += row.agentCommission;
+    if (row.betAmount > 0) current.betsCount += 1;
+    if (!current.lastActivity || (row.lastActivityAt && row.lastActivityAt.getTime() > current.lastActivity.getTime())) {
+      current.lastActivity = row.lastActivityAt ?? current.lastActivity;
     }
+    playersMap.set(row.userId, current);
   }
-  rows.sort((a, b) => (a.date ? a.date.getTime() : 0) - (b.date ? b.date.getTime() : 0));
-  let running = 0;
-  const withBalance: Array<Row & { balanceAfter: number }> = [];
-  for (const r of rows) {
-    if (r.type === "COMMISSION") running += r.amount;
-    else if (r.type === "DEPOSIT") running += r.amount;
-    withBalance.push({ ...r, balanceAfter: running });
-  }
-  withBalance.reverse();
+
+  const totalBets = rows.reduce((sum, row) => sum + row.betAmount, 0);
+  const totalWinnings = rows.reduce((sum, row) => sum + row.winAmount, 0);
+  const totalProfitLoss = totalWinnings - totalBets;
+  const totalProfit = Math.max(totalProfitLoss, 0);
+  const totalLoss = Math.max(-totalProfitLoss, 0);
+  const totalPlatformCommission = rows.reduce((sum, row) => sum + row.platformCommission, 0);
+  const totalAgentCommission = rows.reduce((sum, row) => sum + row.agentCommission, 0);
+
   return {
-    profit,
-    loss,
-    net: profit - loss,
-    transactions: withBalance,
+    profit: totalProfit,
+    loss: totalLoss,
+    net: totalProfitLoss,
+    totalBets,
+    totalWinnings,
+    totalProfit,
+    totalLoss,
+    totalPlatformCommission,
+    totalAgentCommission,
+    agentNetResult: totalAgentCommission,
+    players: Array.from(playersMap.values()).sort((a, b) => b.totalBets - a.totalBets),
   };
 }
 
 /** דוח רווח והפסד לכל שחקן של סוכן – לטבלה בדף סוכן. אופציונלי: סינון לפי סוג תחרות. */
 export async function getAgentPlayersPnL(
   agentId: number,
-  opts?: { from?: string; to?: string; tournamentType?: string }
-): Promise<Array<{ playerId: number; username: string | null; name: string | null; profit: number; loss: number; net: number }>> {
-  const players = await getMyPlayersWithBalances(agentId);
-  const result: Array<{ playerId: number; username: string | null; name: string | null; profit: number; loss: number; net: number }> = [];
-  for (const p of players) {
-    const pnl = await getPlayerPnL(p.id, opts);
-    result.push({
-      playerId: p.id,
-      username: p.username ?? null,
-      name: p.name ?? null,
-      profit: pnl.profit,
-      loss: pnl.loss,
-      net: pnl.net,
-    });
-  }
-  return result;
+  opts?: { from?: string; to?: string; tournamentType?: string; status?: string }
+): Promise<Array<{ playerId: number; username: string | null; name: string | null; phoneNumber?: string | null; profit: number; loss: number; net: number; totalBets?: number; totalWinnings?: number; commissionGenerated?: number; agentCommissionShare?: number; betsCount?: number; lastActivity?: Date | null }>> {
+  const report = await getAgentPnL(agentId, opts);
+  return report.players.map((player) => ({
+    playerId: player.playerId,
+    username: player.username ?? null,
+    name: player.name ?? null,
+    phoneNumber: player.phoneNumber ?? null,
+    profit: Math.max(player.profitLoss, 0),
+    loss: Math.max(-player.profitLoss, 0),
+    net: player.profitLoss,
+    totalBets: player.totalBets,
+    totalWinnings: player.totalWinnings,
+    commissionGenerated: player.commissionGenerated,
+    agentCommissionShare: player.agentCommissionShare,
+    betsCount: player.betsCount,
+    lastActivity: player.lastActivity,
+  }));
 }
 
 /** סיכום דוח רווח והפסד למנהל – כל השחקנים וכל הסוכנים בטווח. אופציונלי: סינון לפי סוג תחרות. */

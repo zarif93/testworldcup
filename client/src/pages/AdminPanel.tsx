@@ -671,12 +671,8 @@ export default function AdminPanel() {
       toast.error("בתחרות צ'אנס חובה לבחור תאריך ושעת הגרלה");
       return;
     }
-    if ((tournamentType === "football" || tournamentType === "football_custom") && (!newTournament.openDate?.trim() || !newTournament.openTime?.trim() || !newTournament.closeTime?.trim())) {
-      toast.error("בתחרות מונדיאל/כדורגל חובה לבחור תאריך פתיחה, שעת פתיחה ושעת סגירה");
-      return;
-    }
-    if (tournamentType === "football" && !newTournament.closeDate?.trim()) {
-      toast.error("בתחרות מונדיאל חובה לבחור גם תאריך סגירה");
+    if ((tournamentType === "football" || tournamentType === "football_custom") && (!newTournament.openDate?.trim() || !newTournament.openTime?.trim() || !newTournament.closeDate?.trim() || !newTournament.closeTime?.trim())) {
+      toast.error("בתחרות מונדיאל/כדורגל חובה לבחור תאריך פתיחה, שעת פתיחה, תאריך סגירה ושעת סגירה");
       return;
     }
     let prizeDistribution: Record<string, number> | null = null;
@@ -694,12 +690,6 @@ export default function AdminPanel() {
     const t = new Date(s).getTime();
     return Number.isNaN(t) ? null : t;
   }
-  const buildOpensCloses = (openDate: string, openTime: string, closeTime: string): { opensAt: number; closesAt: number } | null => {
-    const opensAt = dateTimeToTimestamp(openDate, openTime);
-    const closesAt = dateTimeToTimestamp(openDate, closeTime);
-    if (opensAt == null || closesAt == null) return null;
-    return { opensAt, closesAt };
-  };
   const buildOpensClosesMondial = (openDate: string, openTime: string, closeDate: string, closeTime: string): { opensAt: number; closesAt: number } | null => {
     const opensAt = dateTimeToTimestamp(openDate, openTime);
     const closesAt = dateTimeToTimestamp(closeDate, closeTime);
@@ -722,11 +712,12 @@ export default function AdminPanel() {
         drawTime: tournamentType === "chance" || tournamentType === "lotto" ? newTournament.drawTime.trim() : undefined,
         customIdentifier: newTournament.customIdentifier?.trim() || undefined,
         ...((tournamentType === "football" || tournamentType === "football_custom") && (() => {
-          if (tournamentType === "football") {
-            const built = buildOpensClosesMondial(newTournament.openDate, newTournament.openTime, newTournament.closeDate, newTournament.closeTime);
-            return built ? { opensAt: built.opensAt, closesAt: built.closesAt } : {};
-          }
-          const built = buildOpensCloses(newTournament.openDate, newTournament.openTime, newTournament.closeTime);
+          const built = buildOpensClosesMondial(
+            newTournament.openDate,
+            newTournament.openTime,
+            newTournament.closeDate,
+            newTournament.closeTime
+          );
           return built ? { opensAt: built.opensAt, closesAt: built.closesAt } : {};
         })()),
       });
@@ -3812,6 +3803,10 @@ export default function AdminPanel() {
                   <div className="flex flex-col gap-1">
                     <label className="text-slate-400 text-sm">שעת פתיחה <span className="text-red-400">*</span></label>
                     <Input type="time" required className="bg-slate-800 text-white w-28" value={newTournament.openTime} onChange={(e) => setNewTournament((p) => ({ ...p, openTime: e.target.value }))} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-slate-400 text-sm">תאריך סגירה <span className="text-red-400">*</span></label>
+                    <Input type="date" required className="bg-slate-800 text-white w-40" value={newTournament.closeDate} onChange={(e) => setNewTournament((p) => ({ ...p, closeDate: e.target.value }))} />
                   </div>
                   <div className="flex flex-col gap-1">
                     <label className="text-slate-400 text-sm">שעת סגירה <span className="text-red-400">*</span></label>

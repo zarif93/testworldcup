@@ -128,7 +128,21 @@ import {
   updateLeague,
   softDeleteLeague,
 } from "./db";
-import { pnLSummaryToCsv, agentPnLToCsv, playerPnLToCsv, commissionReportToCsv, pointsLogsToCsv, adminPnLReportToCsv, agentPnLReportToCsv } from "./csvExport";
+import {
+  pnLSummaryToCsv,
+  agentPnLToCsv,
+  playerPnLToCsv,
+  commissionReportToCsv,
+  pointsLogsToCsv,
+  adminPnLReportToCsv,
+  agentPnLReportToCsv,
+  type ReportExportFormat,
+  buildReportPeriod,
+  agentFinancialReportToCsv,
+  playerFinancialReportToCsv,
+  agentFinancialReportToExcel,
+  playerFinancialReportToExcel,
+} from "./csvExport";
 import { calcSubmissionPoints } from "./services/scoringService";
 import { TRPCError } from "@trpc/server";
 
@@ -233,6 +247,38 @@ function checkExportRateLimit(ctx: { user?: { id?: number } | null; req?: ReqLik
   exportTimestampsByKey.set(key, list);
 }
 
+const exportFormatSchema = z.enum(["csv", "excel", "json"]).optional();
+
+function getGeneratedByUsername(ctx: { user?: { username?: string | null } | null }): string {
+  return ctx.user?.username?.trim() || "system";
+}
+
+function buildExportResult(args: {
+  format: ReportExportFormat;
+  baseFileName: string;
+  mimeTypeBase: string;
+  content: string;
+  json?: unknown;
+}) {
+  const extension =
+    args.format === "excel" ? "xls" : args.format === "json" ? "json" : "csv";
+  const mimeType =
+    args.format === "excel"
+      ? "application/vnd.ms-excel"
+      : args.format === "json"
+        ? "application/json"
+        : `${args.mimeTypeBase}; charset=utf-8`;
+  return {
+    format: args.format,
+    filename: `${args.baseFileName}.${extension}`,
+    mimeType,
+    content: args.content,
+    ...(args.format === "csv" ? { csv: args.content } : {}),
+    ...(args.format === "excel" ? { excel: args.content } : {}),
+    ...(args.format === "json" ? { json: args.json ?? JSON.parse(args.content) } : {}),
+  };
+}
+
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user?.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: ADMIN_CODE_MSG });
   if (ENV.adminSecret && !ctx.adminCodeVerified) {
@@ -274,10 +320,10 @@ export const appRouter = router({
       }),
     /** דוח רווח והפסד למשתמש המחובר (שחקן) – טווח תאריכים */
     getPlayerPnL: protectedProcedure
-      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }).optional())
+      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional() }).optional())
       .query(async ({ ctx, input }) => {
         if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
-        return getPlayerPnL(ctx.user.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType });
+        return getPlayerPnL(ctx.user.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType, status: input?.status });
       }),
     /** ייצוא דוח שחקן (CSV) – זמין למנהלים בלבד */
     exportMyPlayerReport: adminProcedure
@@ -1068,12 +1114,12 @@ export const appRouter = router({
       }),
     /** דוח רווח והפסד לשחקן מסוים (מנהל) */
     getPlayerPnL: adminProcedure
-      .input(z.object({ userId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }))
-      .query(({ input }) => getPlayerPnL(input.userId, { from: input.from, to: input.to, tournamentType: input.tournamentType })),
+      .input(z.object({ userId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional() }))
+      .query(({ input }) => getPlayerPnL(input.userId, { from: input.from, to: input.to, tournamentType: input.tournamentType, status: input.status })),
     /** דוח רווח והפסד לסוכן מסוים (מנהל) */
     getAgentPnL: adminProcedure
-      .input(z.object({ agentId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }))
-      .query(({ input }) => getAgentPnL(input.agentId, { from: input.from, to: input.to, tournamentType: input.tournamentType })),
+      .input(z.object({ agentId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional() }))
+      .query(({ input }) => getAgentPnL(input.agentId, { from: input.from, to: input.to, tournamentType: input.tournamentType, status: input.status })),
     /** ייצוא CSV – סיכום רווח/הפסד (מנהל) */
     exportPnLSummaryCSV: adminProcedure
       .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }).optional())
@@ -1123,19 +1169,122 @@ export const appRouter = router({
       }),
     /** ייצוא CSV – דוח רווח/הפסד סוכן (מנהל) */
     exportAgentPnLCSV: adminProcedure
-      .input(z.object({ agentId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }))
+      .input(z.object({ agentId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional(), format: exportFormatSchema }))
       .query(async ({ ctx, input }) => {
         checkExportRateLimit(ctx);
-        const data = await getAgentPnL(input.agentId, { from: input.from, to: input.to, tournamentType: input.tournamentType });
-        return { csv: agentPnLToCsv(data.transactions, data.profit, data.loss, data.net) };
+        const format = input.format ?? "csv";
+        const generatedAt = new Date().toISOString();
+        const generatedBy = getGeneratedByUsername(ctx);
+        const agent = await getUserById(input.agentId);
+        const data = await getAgentPnL(input.agentId, {
+          from: input.from,
+          to: input.to,
+          tournamentType: input.tournamentType,
+          status: input.status,
+        });
+        const report = {
+          meta: {
+            generatedAt,
+            reportPeriod: buildReportPeriod(input.from, input.to),
+            reportType: "agent-profit-loss",
+            generatedBy,
+          },
+          agentUsername: agent?.username ?? `agent-${input.agentId}`,
+          summary: {
+            totalBets: data.totalBets,
+            totalWinnings: data.totalWinnings,
+            totalProfit: data.totalProfit,
+            totalLoss: data.totalLoss,
+            totalProfitLoss: data.net,
+            totalPlatformCommission: data.totalPlatformCommission,
+            totalAgentCommission: data.totalAgentCommission,
+            agentNetResult: data.agentNetResult,
+          },
+          players: data.players.map((player) => ({
+            username: player.username ?? player.name ?? `#${player.playerId}`,
+            phoneNumber: player.phoneNumber ?? "",
+            totalBets: player.totalBets,
+            totalWinnings: player.totalWinnings,
+            profitLoss: player.profitLoss,
+            commissionGenerated: player.commissionGenerated,
+            agentCommissionShare: player.agentCommissionShare,
+            betsCount: player.betsCount,
+            lastActivity: player.lastActivity ? player.lastActivity.toISOString() : "",
+          })),
+        };
+        const content =
+          format === "excel"
+            ? agentFinancialReportToExcel(report)
+            : format === "json"
+              ? JSON.stringify(report, null, 2)
+              : agentFinancialReportToCsv(report);
+        return buildExportResult({
+          format,
+          baseFileName: `agent-pnl-${agent?.username ?? input.agentId}`,
+          mimeTypeBase: "text/csv",
+          content,
+          json: report,
+        });
       }),
     /** ייצוא CSV – דוח רווח/הפסד שחקן (מנהל) */
     exportPlayerPnLCSV: adminProcedure
-      .input(z.object({ userId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }))
+      .input(z.object({ userId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional(), format: exportFormatSchema }))
       .query(async ({ ctx, input }) => {
         checkExportRateLimit(ctx);
-        const data = await getPlayerPnL(input.userId, { from: input.from, to: input.to, tournamentType: input.tournamentType });
-        return { csv: playerPnLToCsv(data.transactions, data.profit, data.loss, data.net) };
+        const format = input.format ?? "csv";
+        const generatedAt = new Date().toISOString();
+        const generatedBy = getGeneratedByUsername(ctx);
+        const player = await getUserById(input.userId);
+        const data = await getPlayerPnL(input.userId, {
+          from: input.from,
+          to: input.to,
+          tournamentType: input.tournamentType,
+          status: input.status,
+        });
+        const report = {
+          meta: {
+            generatedAt,
+            reportPeriod: buildReportPeriod(input.from, input.to),
+            reportType: "player-profit-loss",
+            generatedBy,
+          },
+          username: player?.username ?? `player-${input.userId}`,
+          phoneNumber: player?.phone ?? "",
+          summary: {
+            totalBets: data.totalBets,
+            totalWins: data.totalWinnings,
+            totalProfitLoss: data.net,
+            totalCommissionGenerated: data.totalCommission,
+            numberOfBets: data.betsCount,
+            totalProfit: data.totalProfit,
+            totalLoss: data.totalLoss,
+            netBalance: data.netBalance,
+          },
+          entries: data.entries.map((entry) => ({
+            date: entry.createdAt ? entry.createdAt.toISOString() : "",
+            tournament: entry.tournamentName,
+            tournamentType: entry.tournamentType,
+            status: `${entry.status}/${entry.paymentStatus}`,
+            betAmount: entry.betAmount,
+            result: entry.result,
+            winAmount: entry.winAmount,
+            commission: entry.commission,
+            profitLoss: entry.profitLoss,
+          })),
+        };
+        const content =
+          format === "excel"
+            ? playerFinancialReportToExcel(report)
+            : format === "json"
+              ? JSON.stringify(report, null, 2)
+              : playerFinancialReportToCsv(report);
+        return buildExportResult({
+          format,
+          baseFileName: `player-pnl-${player?.username ?? input.userId}`,
+          mimeTypeBase: "text/csv",
+          content,
+          json: report,
+        });
       }),
     /** ייצוא CSV – לוג תנועות נקודות (מנהל) עם פילטרים */
     exportPointsLogsCSV: adminProcedure
@@ -2187,27 +2336,27 @@ export const appRouter = router({
       }),
     /** דוח רווח והפסד לסוכן המחובר – עמלות מול הפקדות לשחקנים */
     getAgentPnL: protectedProcedure
-      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }).optional())
+      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional() }).optional())
       .query(async ({ ctx, input }) => {
         if ((ctx.user as { role?: string })?.role !== "agent") throw new TRPCError({ code: "FORBIDDEN", message: "גישה לסוכנים בלבד" });
-        return getAgentPnL(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType });
+        return getAgentPnL(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType, status: input?.status });
       }),
     /** דוח רווח והפסד לכל שחקן של הסוכן – לטבלה */
     getAgentPlayersPnL: protectedProcedure
-      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }).optional())
+      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional() }).optional())
       .query(async ({ ctx, input }) => {
         if ((ctx.user as { role?: string })?.role !== "agent") throw new TRPCError({ code: "FORBIDDEN", message: "גישה לסוכנים בלבד" });
-        return getAgentPlayersPnL(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType });
+        return getAgentPlayersPnL(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType, status: input?.status });
       }),
     /** דוח מפורט רווח/הפסד לשחקן של הסוכן (רק שחקנים שלו) */
     getPlayerPnLDetail: protectedProcedure
-      .input(z.object({ playerId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }))
+      .input(z.object({ playerId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional() }))
       .query(async ({ ctx, input }) => {
         if ((ctx.user as { role?: string })?.role !== "agent") throw new TRPCError({ code: "FORBIDDEN", message: "גישה לסוכנים בלבד" });
         const player = await getUserById(input.playerId);
         if (!player) throw new TRPCError({ code: "NOT_FOUND", message: "שחקן לא נמצא" });
         if ((player as { agentId?: number | null }).agentId !== ctx.user!.id) throw new TRPCError({ code: "FORBIDDEN", message: "השחקן לא משויך לסוכן זה" });
-        return getPlayerPnL(input.playerId, { from: input.from, to: input.to, tournamentType: input.tournamentType });
+        return getPlayerPnL(input.playerId, { from: input.from, to: input.to, tournamentType: input.tournamentType, status: input.status });
       }),
   }),
 });
