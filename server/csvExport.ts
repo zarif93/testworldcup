@@ -380,37 +380,133 @@ function escapeXml(value: string | number | null | undefined): string {
     .replace(/'/g, "&apos;");
 }
 
-function rowToExcelXml(cells: Array<string | number | null | undefined>): string {
+/** Cell for Excel: raw value or { v, s? } for styled cell */
+type ExcelCell = string | number | null | undefined | { v: string | number | null | undefined; s?: string };
+
+function isStyledCell(c: ExcelCell): c is { v: string | number | null | undefined; s?: string } {
+  return typeof c === "object" && c !== null && "v" in c;
+}
+
+function rowToExcelXml(cells: ExcelCell[]): string {
   const cols = cells
-    .map(
-      (cell) =>
-        `<Cell><Data ss:Type="${
-          typeof cell === "number" ? "Number" : "String"
-        }">${escapeXml(cell)}</Data></Cell>`
-    )
+    .map((cell) => {
+      const value = isStyledCell(cell) ? cell.v : cell;
+      const styleAttr = isStyledCell(cell) && cell.s ? ` ss:StyleID="${escapeXml(cell.s)}"` : "";
+      const type = typeof value === "number" ? "Number" : "String";
+      return `<Cell${styleAttr}><Data ss:Type="${type}">${escapeXml(value)}</Data></Cell>`;
+    })
     .join("");
   return `<Row>${cols}</Row>`;
 }
 
-function workbookToExcelXml(
-  sheets: Array<{ name: string; rows: Array<Array<string | number | null | undefined>> }>
+/** Style definition for Excel SpreadsheetML */
+const EXCEL_STYLES = `
+<Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+    <Alignment ss:Vertical="Bottom"/>
+    <Borders/><Font/><Interior/><NumberFormat/><Protection/>
+  </Style>
+  <Style ss:ID="Header">
+    <Font ss:Bold="1" ss:Color="#FFFFFF"/>
+    <Interior ss:Color="#2F5496" ss:Pattern="Solid"/>
+    <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+  </Style>
+  <Style ss:ID="SummarySection">
+    <Interior ss:Color="#F2F2F2" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="Bets">
+    <Interior ss:Color="#DDEBF7" ss:Pattern="Solid"/>
+    <NumberFormat ss:Format="Standard"/>
+  </Style>
+  <Style ss:ID="Winnings">
+    <Interior ss:Color="#E2EFDA" ss:Pattern="Solid"/>
+    <NumberFormat ss:Format="Standard"/>
+  </Style>
+  <Style ss:ID="ProfitLoss">
+    <Interior ss:Color="#FFF2CC" ss:Pattern="Solid"/>
+    <NumberFormat ss:Format="Standard"/>
+  </Style>
+  <Style ss:ID="PlatformCommission">
+    <Interior ss:Color="#FCE4D6" ss:Pattern="Solid"/>
+    <NumberFormat ss:Format="Standard"/>
+  </Style>
+  <Style ss:ID="AgentCommission">
+    <Interior ss:Color="#E4DFEC" ss:Pattern="Solid"/>
+    <NumberFormat ss:Format="Standard"/>
+  </Style>
+  <Style ss:ID="FinalBalancePositive">
+    <Interior ss:Color="#C6EFCE" ss:Pattern="Solid"/>
+    <Font ss:Bold="1"/>
+    <NumberFormat ss:Format="Standard"/>
+  </Style>
+  <Style ss:ID="FinalBalanceNegative">
+    <Interior ss:Color="#FFC7CE" ss:Pattern="Solid"/>
+    <Font ss:Bold="1"/>
+    <NumberFormat ss:Format="Standard"/>
+  </Style>
+  <Style ss:ID="FinalBalanceZero">
+    <Interior ss:Color="#D9D9D9" ss:Pattern="Solid"/>
+    <Font ss:Bold="1"/>
+    <NumberFormat ss:Format="Standard"/>
+  </Style>
+  <Style ss:ID="TableRowAlt">
+    <Interior ss:Color="#F2F2F2" ss:Pattern="Solid"/>
+  </Style>
+</Styles>`;
+
+/** Default column width (character units). */
+const EXCEL_COL_WIDTH = 14;
+
+/** Build Table with optional column count and optional freeze at row (1-based). */
+function tableToExcelXml(
+  rows: ExcelCell[][],
+  columnCount: number,
+  freezeHeaderAtRow?: number
 ): string {
+  const colEls = Array.from({ length: columnCount }, () => `<Column ss:Width="${EXCEL_COL_WIDTH}"/>`).join("");
+  const tableContent = colEls + rows.map((row) => rowToExcelXml(row)).join("");
+  const freezeXml =
+    freezeHeaderAtRow != null && freezeHeaderAtRow > 0
+      ? `
+  <x:WorksheetOptions>
+    <x:FreezePanes/>
+    <x:FrozenNoScroll/>
+    <x:SplitHorizontal>${freezeHeaderAtRow}</x:SplitHorizontal>
+    <x:TopRowBottomPane>${freezeHeaderAtRow}</x:TopRowBottomPane>
+    <x:ActivePane>2</x:ActivePane>
+  </x:WorksheetOptions>`
+      : "";
+  return `<Table>${tableContent}</Table>${freezeXml}`;
+}
+
+interface ExcelSheetInput {
+  name: string;
+  rows: ExcelCell[][];
+  columnCount?: number;
+  freezeHeaderAtRow?: number;
+}
+
+function workbookToExcelXml(sheets: ExcelSheetInput[]): string {
   const worksheets = sheets
-    .map(
-      (sheet) =>
-        `<Worksheet ss:Name="${escapeXml(sheet.name)}"><Table>${sheet.rows
-          .map((row) => rowToExcelXml(row))
-          .join("")}</Table></Worksheet>`
-    )
+    .map((sheet) => {
+      const colCount = sheet.columnCount ?? Math.max(...sheet.rows.map((r) => r.length), 1);
+      const tableAndOptions = tableToExcelXml(
+        sheet.rows,
+        colCount,
+        sheet.freezeHeaderAtRow
+      );
+      return `<Worksheet ss:Name="${escapeXml(sheet.name)}">${tableAndOptions}</Worksheet>`;
+    })
     .join("");
 
-  return `<?xml version="1.0"?>
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
  xmlns:o="urn:schemas-microsoft-com:office:office"
  xmlns:x="urn:schemas-microsoft-com:office:excel"
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
  xmlns:html="http://www.w3.org/TR/REC-html40">
+${EXCEL_STYLES}
 ${worksheets}
 </Workbook>`;
 }
@@ -423,42 +519,35 @@ export function buildReportPeriod(from?: string, to?: string): string {
 }
 
 export function agentFinancialReportToCsv(report: StructuredAgentReport): string {
+  const finalAgentBalance = report.summary.totalProfitLoss + report.summary.totalAgentCommission;
   const lines: string[] = [];
-  lines.push(rowToCsvLine(["Agent Report"]));
-  lines.push(rowToCsvLine(["Generated At", report.meta.generatedAt]));
-  lines.push(rowToCsvLine(["Report Period", report.meta.reportPeriod]));
-  lines.push(rowToCsvLine(["Report Type", report.meta.reportType]));
-  lines.push(rowToCsvLine(["Generated By", report.meta.generatedBy]));
-  lines.push(rowToCsvLine(["Agent Username", report.agentUsername]));
+  lines.push(rowToCsvLine(["דוח סוכן"]));
+  lines.push(rowToCsvLine(["נוצר בתאריך", report.meta.generatedAt]));
+  lines.push(rowToCsvLine(["תקופת הדוח", report.meta.reportPeriod]));
+  lines.push(rowToCsvLine(["סוג דוח", report.meta.reportType]));
+  lines.push(rowToCsvLine(["נוצר על ידי", report.meta.generatedBy]));
+  lines.push(rowToCsvLine(["שם משתמש סוכן", report.agentUsername]));
   lines.push("");
-  lines.push(rowToCsvLine(["Summary"]));
-  lines.push(rowToCsvLine(["TOTAL BETS", report.summary.totalBets]));
-  lines.push(rowToCsvLine(["TOTAL WINNINGS", report.summary.totalWinnings]));
-  lines.push(rowToCsvLine(["TOTAL PROFIT/LOSS", report.summary.totalProfitLoss]));
-  lines.push(rowToCsvLine(["TOTAL PROFIT", report.summary.totalProfit]));
-  lines.push(rowToCsvLine(["TOTAL LOSS", report.summary.totalLoss]));
-  lines.push(
-    rowToCsvLine([
-      "TOTAL PLATFORM COMMISSION",
-      report.summary.totalPlatformCommission,
-    ])
-  );
-  lines.push(
-    rowToCsvLine(["TOTAL AGENT COMMISSION", report.summary.totalAgentCommission])
-  );
-  lines.push(rowToCsvLine(["AGENT NET RESULT", report.summary.agentNetResult]));
+  lines.push(rowToCsvLine(["סיכום"]));
+  lines.push(rowToCsvLine(["סך כל ההימורים", report.summary.totalBets]));
+  lines.push(rowToCsvLine(["סך כל הזכיות", report.summary.totalWinnings]));
+  lines.push(rowToCsvLine(["רווח / הפסד כולל", report.summary.totalProfitLoss]));
+  lines.push(rowToCsvLine(["סך רווח", report.summary.totalProfit]));
+  lines.push(rowToCsvLine(["סך הפסד", report.summary.totalLoss]));
+  lines.push(rowToCsvLine(["עמלת אתר", report.summary.totalPlatformCommission]));
+  lines.push(rowToCsvLine(["עמלת סוכן", report.summary.totalAgentCommission]));
+  lines.push(rowToCsvLine(["יתרה סופית מול הסוכן", finalAgentBalance]));
   lines.push("");
   lines.push(
     rowToCsvLine([
-      "Username",
-      "Phone Number",
-      "Total Bets",
-      "Total Winnings",
-      "Profit / Loss",
-      "Commission Generated",
-      "Agent Commission Share",
-      "Number of Bets",
-      "Last Activity",
+      "שם משתמש",
+      "טלפון",
+      "מספר הימורים",
+      "סך הימורים",
+      "סך זכיות",
+      "רווח / הפסד",
+      "עמלת סוכן",
+      "פעילות אחרונה",
     ])
   );
   for (const row of report.players) {
@@ -466,12 +555,11 @@ export function agentFinancialReportToCsv(report: StructuredAgentReport): string
       rowToCsvLine([
         row.username,
         row.phoneNumber,
+        row.betsCount,
         row.totalBets,
         row.totalWinnings,
         row.profitLoss,
-        row.commissionGenerated,
         row.agentCommissionShare,
-        row.betsCount,
         row.lastActivity,
       ])
     );
@@ -481,38 +569,33 @@ export function agentFinancialReportToCsv(report: StructuredAgentReport): string
 
 export function playerFinancialReportToCsv(report: StructuredPlayerReport): string {
   const lines: string[] = [];
-  lines.push(rowToCsvLine(["Player Report"]));
-  lines.push(rowToCsvLine(["Generated At", report.meta.generatedAt]));
-  lines.push(rowToCsvLine(["Report Period", report.meta.reportPeriod]));
-  lines.push(rowToCsvLine(["Report Type", report.meta.reportType]));
-  lines.push(rowToCsvLine(["Generated By", report.meta.generatedBy]));
-  lines.push(rowToCsvLine(["Username", report.username]));
-  lines.push(rowToCsvLine(["Phone Number", report.phoneNumber]));
+  lines.push(rowToCsvLine(["דוח שחקן"]));
+  lines.push(rowToCsvLine(["נוצר בתאריך", report.meta.generatedAt]));
+  lines.push(rowToCsvLine(["תקופת הדוח", report.meta.reportPeriod]));
+  lines.push(rowToCsvLine(["סוג דוח", report.meta.reportType]));
+  lines.push(rowToCsvLine(["נוצר על ידי", report.meta.generatedBy]));
+  lines.push(rowToCsvLine(["שם משתמש", report.username]));
+  lines.push(rowToCsvLine(["טלפון", report.phoneNumber ?? ""]));
   lines.push("");
-  lines.push(rowToCsvLine(["Summary"]));
-  lines.push(rowToCsvLine(["Total Bets", report.summary.totalBets]));
-  lines.push(rowToCsvLine(["Total Wins", report.summary.totalWins]));
-  lines.push(rowToCsvLine(["Profit / Loss", report.summary.totalProfitLoss]));
-  lines.push(
-    rowToCsvLine([
-      "Total Commission Generated",
-      report.summary.totalCommissionGenerated,
-    ])
-  );
-  lines.push(rowToCsvLine(["Number of Bets", report.summary.numberOfBets]));
-  lines.push(rowToCsvLine(["Net Balance", report.summary.netBalance]));
+  lines.push(rowToCsvLine(["סיכום"]));
+  lines.push(rowToCsvLine(["סך כל ההימורים", report.summary.totalBets]));
+  lines.push(rowToCsvLine(["סך זכיות", report.summary.totalWins]));
+  lines.push(rowToCsvLine(["רווח / הפסד כולל", report.summary.totalProfitLoss]));
+  lines.push(rowToCsvLine(["סה\"כ עמלה", report.summary.totalCommissionGenerated]));
+  lines.push(rowToCsvLine(["מספר הימורים", report.summary.numberOfBets]));
+  lines.push(rowToCsvLine(["יתרה סופית שחקן", report.summary.totalProfitLoss]));
   lines.push("");
   lines.push(
     rowToCsvLine([
-      "Date",
-      "Tournament",
-      "Tournament Type",
-      "Status",
-      "Bet Amount",
-      "Result",
-      "Win Amount",
-      "Commission",
-      "Profit / Loss",
+      "תאריך",
+      "תחרות",
+      "סוג תחרות",
+      "סטטוס",
+      "סכום הימור",
+      "תוצאה",
+      "סכום זכייה",
+      "עמלה",
+      "רווח / הפסד",
     ])
   );
   for (const entry of report.entries) {
@@ -533,103 +616,167 @@ export function playerFinancialReportToCsv(report: StructuredPlayerReport): stri
   return BOM + lines.join("\r\n");
 }
 
+/** יתרה סופית מול הסוכן = TOTAL_PROFIT_LOSS + TOTAL_AGENT_COMMISSION */
+function getFinalAgentBalance(report: StructuredAgentReport): number {
+  return report.summary.totalProfitLoss + report.summary.totalAgentCommission;
+}
+
 export function agentFinancialReportToExcel(report: StructuredAgentReport): string {
+  const finalAgentBalance = getFinalAgentBalance(report);
+  const finalBalanceStyle =
+    finalAgentBalance > 0 ? "FinalBalancePositive" : finalAgentBalance < 0 ? "FinalBalanceNegative" : "FinalBalanceZero";
+
+  const summaryRows: ExcelCell[][] = [
+    [{ v: "דוח סוכן", s: "Header" }, { v: "", s: "Header" }],
+    ["נוצר בתאריך", report.meta.generatedAt],
+    ["תקופת הדוח", report.meta.reportPeriod],
+    ["סוג דוח", report.meta.reportType],
+    ["נוצר על ידי", report.meta.generatedBy],
+    ["שם משתמש סוכן", report.agentUsername],
+    [],
+    [{ v: "סיכום", s: "Header" }, { v: "", s: "Header" }],
+    [{ v: "סך כל ההימורים", s: "SummarySection" }, { v: report.summary.totalBets, s: "Bets" }],
+    [{ v: "סך כל הזכיות", s: "SummarySection" }, { v: report.summary.totalWinnings, s: "Winnings" }],
+    [
+      { v: "רווח / הפסד כולל", s: "SummarySection" },
+      { v: report.summary.totalProfitLoss, s: "ProfitLoss" },
+    ],
+    [{ v: "סך רווח", s: "SummarySection" }, { v: report.summary.totalProfit, s: "ProfitLoss" }],
+    [{ v: "סך הפסד", s: "SummarySection" }, { v: report.summary.totalLoss, s: "ProfitLoss" }],
+    [
+      { v: "עמלת אתר", s: "SummarySection" },
+      { v: report.summary.totalPlatformCommission, s: "PlatformCommission" },
+    ],
+    [
+      { v: "עמלת סוכן", s: "SummarySection" },
+      { v: report.summary.totalAgentCommission, s: "AgentCommission" },
+    ],
+    [
+      { v: "יתרה סופית מול הסוכן", s: "SummarySection" },
+      { v: finalAgentBalance, s: finalBalanceStyle },
+    ],
+  ];
+
+  const playerHeaderRow: ExcelCell[] = [
+    { v: "שם משתמש", s: "Header" },
+    { v: "טלפון", s: "Header" },
+    { v: "מספר הימורים", s: "Header" },
+    { v: "סך הימורים", s: "Header" },
+    { v: "סך זכיות", s: "Header" },
+    { v: "רווח / הפסד", s: "Header" },
+    { v: "עמלת סוכן", s: "Header" },
+    { v: "פעילות אחרונה", s: "Header" },
+  ];
+
+  const playerDataRows: ExcelCell[][] = report.players.map((row, idx) => {
+    const rowStyle = idx % 2 === 1 ? "TableRowAlt" : undefined;
+    const cell = (v: string | number | null | undefined): ExcelCell =>
+      rowStyle ? { v, s: rowStyle } : v;
+    return [
+      cell(row.username),
+      cell(row.phoneNumber),
+      cell(row.betsCount),
+      cell(row.totalBets),
+      cell(row.totalWinnings),
+      cell(row.profitLoss),
+      cell(row.agentCommissionShare),
+      cell(row.lastActivity),
+    ];
+  });
+
+  const allRows = [...summaryRows, [], playerHeaderRow, ...playerDataRows];
+  const columnCount = 8;
+  const freezeAtRow = summaryRows.length + 2; // after summary + blank + header
+
   return workbookToExcelXml([
     {
-      name: "Summary",
-      rows: [
-        ["Generated At", report.meta.generatedAt],
-        ["Report Period", report.meta.reportPeriod],
-        ["Report Type", report.meta.reportType],
-        ["Generated By", report.meta.generatedBy],
-        ["Agent Username", report.agentUsername],
-        [],
-        ["TOTAL BETS", report.summary.totalBets],
-        ["TOTAL WINNINGS", report.summary.totalWinnings],
-        ["TOTAL PROFIT/LOSS", report.summary.totalProfitLoss],
-        ["TOTAL PROFIT", report.summary.totalProfit],
-        ["TOTAL LOSS", report.summary.totalLoss],
-        ["TOTAL PLATFORM COMMISSION", report.summary.totalPlatformCommission],
-        ["TOTAL AGENT COMMISSION", report.summary.totalAgentCommission],
-        ["AGENT NET RESULT", report.summary.agentNetResult],
-      ],
-    },
-    {
-      name: "Players",
-      rows: [
-        [
-          "Username",
-          "Phone Number",
-          "Total Bets",
-          "Total Winnings",
-          "Profit / Loss",
-          "Commission Generated",
-          "Agent Commission Share",
-          "Number of Bets",
-          "Last Activity",
-        ],
-        ...report.players.map((row) => [
-          row.username,
-          row.phoneNumber,
-          row.totalBets,
-          row.totalWinnings,
-          row.profitLoss,
-          row.commissionGenerated,
-          row.agentCommissionShare,
-          row.betsCount,
-          row.lastActivity,
-        ]),
-      ],
+      name: "דוח סוכן",
+      rows: allRows,
+      columnCount,
+      freezeHeaderAtRow: freezeAtRow,
     },
   ]);
 }
 
+/** יתרה סופית שחקן = TOTAL_PROFIT_LOSS (אם שלילי – השחקן הפסיד, אם חיובי – השחקן הרוויח) */
+function getFinalPlayerBalance(report: StructuredPlayerReport): number {
+  return report.summary.totalProfitLoss;
+}
+
 export function playerFinancialReportToExcel(report: StructuredPlayerReport): string {
+  const finalPlayerBalance = getFinalPlayerBalance(report);
+  const finalBalanceStyle =
+    finalPlayerBalance > 0 ? "FinalBalancePositive" : finalPlayerBalance < 0 ? "FinalBalanceNegative" : "FinalBalanceZero";
+
+  const summaryRows: ExcelCell[][] = [
+    [{ v: "דוח שחקן", s: "Header" }, { v: "", s: "Header" }],
+    ["נוצר בתאריך", report.meta.generatedAt],
+    ["תקופת הדוח", report.meta.reportPeriod],
+    ["סוג דוח", report.meta.reportType],
+    ["נוצר על ידי", report.meta.generatedBy],
+    ["שם משתמש", report.username],
+    ["טלפון", report.phoneNumber ?? ""],
+    [],
+    [{ v: "סיכום", s: "Header" }, { v: "", s: "Header" }],
+    [{ v: "סך כל ההימורים", s: "SummarySection" }, { v: report.summary.totalBets, s: "Bets" }],
+    [{ v: "סך זכיות", s: "SummarySection" }, { v: report.summary.totalWins, s: "Winnings" }],
+    [
+      { v: "רווח / הפסד כולל", s: "SummarySection" },
+      { v: report.summary.totalProfitLoss, s: "ProfitLoss" },
+    ],
+    [
+      { v: "סה\"כ עמלה", s: "SummarySection" },
+      { v: report.summary.totalCommissionGenerated, s: "PlatformCommission" },
+    ],
+    [
+      { v: "מספר הימורים", s: "SummarySection" },
+      { v: report.summary.numberOfBets, s: "Bets" },
+    ],
+    [
+      { v: "יתרה סופית שחקן", s: "SummarySection" },
+      { v: finalPlayerBalance, s: finalBalanceStyle },
+    ],
+  ];
+
+  const entryHeaderRow: ExcelCell[] = [
+    { v: "תאריך", s: "Header" },
+    { v: "תחרות", s: "Header" },
+    { v: "סוג תחרות", s: "Header" },
+    { v: "סטטוס", s: "Header" },
+    { v: "סכום הימור", s: "Header" },
+    { v: "תוצאה", s: "Header" },
+    { v: "סכום זכייה", s: "Header" },
+    { v: "עמלה", s: "Header" },
+    { v: "רווח / הפסד", s: "Header" },
+  ];
+
+  const entryDataRows: ExcelCell[][] = report.entries.map((entry, idx) => {
+    const rowStyle = idx % 2 === 1 ? "TableRowAlt" : undefined;
+    const cell = (v: string | number | null | undefined): ExcelCell =>
+      rowStyle ? { v, s: rowStyle } : v;
+    return [
+      cell(entry.date),
+      cell(entry.tournament),
+      cell(entry.tournamentType),
+      cell(entry.status),
+      cell(entry.betAmount),
+      cell(entry.result),
+      cell(entry.winAmount),
+      cell(entry.commission),
+      cell(entry.profitLoss),
+    ];
+  });
+
+  const allRows = [...summaryRows, [], entryHeaderRow, ...entryDataRows];
+  const columnCount = 9;
+  const freezeAtRow = summaryRows.length + 2;
+
   return workbookToExcelXml([
     {
-      name: "Summary",
-      rows: [
-        ["Generated At", report.meta.generatedAt],
-        ["Report Period", report.meta.reportPeriod],
-        ["Report Type", report.meta.reportType],
-        ["Generated By", report.meta.generatedBy],
-        ["Username", report.username],
-        ["Phone Number", report.phoneNumber],
-        [],
-        ["Total Bets", report.summary.totalBets],
-        ["Total Wins", report.summary.totalWins],
-        ["Profit / Loss", report.summary.totalProfitLoss],
-        ["Total Commission Generated", report.summary.totalCommissionGenerated],
-        ["Number of Bets", report.summary.numberOfBets],
-        ["Net Balance", report.summary.netBalance],
-      ],
-    },
-    {
-      name: "Entries",
-      rows: [
-        [
-          "Date",
-          "Tournament",
-          "Tournament Type",
-          "Status",
-          "Bet Amount",
-          "Result",
-          "Win Amount",
-          "Commission",
-          "Profit / Loss",
-        ],
-        ...report.entries.map((entry) => [
-          entry.date,
-          entry.tournament,
-          entry.tournamentType,
-          entry.status,
-          entry.betAmount,
-          entry.result,
-          entry.winAmount,
-          entry.commission,
-          entry.profitLoss,
-        ]),
-      ],
+      name: "דוח שחקן",
+      rows: allRows,
+      columnCount,
+      freezeHeaderAtRow: freezeAtRow,
     },
   ]);
 }

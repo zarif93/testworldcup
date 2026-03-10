@@ -258,6 +258,6 @@ describe("pnl upgrade", () => {
     expect(playerExport.format).toBe("excel");
     expect(playerExport.mimeType).toBe("application/vnd.ms-excel");
     expect(playerExport.content).toContain("<Workbook");
-    expect(playerExport.content).toContain("Total Bets");
+    expect(playerExport.content).toContain("דוח שחקן");
   });
 });
