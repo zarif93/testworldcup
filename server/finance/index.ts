@@ -14,3 +14,4 @@ export * from "./recordFinancialEvents";
 export * from "./agentReportService";
 export * from "./playerReportService";
 export * from "./globalFinanceReportService";
+export * from "./generalFinanceReportService";

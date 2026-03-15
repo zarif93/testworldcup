@@ -197,6 +197,7 @@ import {
   agentReportDetailedToCsv,
   playerReportDetailedToCsv,
   globalFinanceReportToCsv,
+  generalFinanceReportToCsv,
   pointsLogsToCsv,
   adminPnLReportToCsv,
   agentPnLReportToCsv,
@@ -207,7 +208,7 @@ import {
   agentFinancialReportToExcel,
   playerFinancialReportToExcel,
 } from "./csvExport";
-import { agentReportDetailedToXlsx, playerReportDetailedToXlsx, globalFinanceReportToXlsx } from "./xlsxExport";
+import { agentReportDetailedToXlsx, playerReportDetailedToXlsx, globalFinanceReportToXlsx, generalFinanceReportToXlsx } from "./xlsxExport";
 import { getLegacyTypeFromCompetitionType } from "./competitionTypeUtils";
 import { resolveTournamentSchemas, resolveTournamentFormSchema, validateEntryAgainstFormSchema } from "./schema";
 import { resolveScoring, getLegacyScoreForContext } from "./scoring/resolveScoring";
@@ -246,7 +247,7 @@ import {
   createTournamentFromTemplate,
 } from "./db";
 import { resolveTournamentItems, validateOptionSchema, validateResultSchema, validateMetadataJson } from "./competitionItems";
-import { getAgentReportDetailed, getPlayerReportDetailed, getGlobalFinanceReport } from "./finance";
+import { getAgentReportDetailed, getPlayerReportDetailed, getGlobalFinanceReport, getGeneralFinanceReport } from "./finance";
 
 type PublicTournamentType = "WORLD_CUP" | "FOOTBALL" | "CHANCE" | "LOTTO";
 
@@ -531,7 +532,7 @@ export const appRouter = router({
       .input(z.object({
           username: z.string().min(3, "שם משתמש לפחות 3 תווים").max(64, "שם משתמש עד 64 תווים"),
         phone: z.string().min(9).max(20),
-          password: z.string().min(8, "סיסמה לפחות 8 תווים"),
+          password: z.string().min(6, "סיסמה לפחות 6 תווים"),
         name: z.string().min(1, "שם מלא חובה").max(200, "שם מלא עד 200 תווים"),
         referralCode: z.string().max(64).optional(),
       }))
@@ -3839,6 +3840,32 @@ export const appRouter = router({
         const buffer = await globalFinanceReportToXlsx(report);
         const base64 = buffer.toString("base64");
         const filename = `דוח_כספי_גלובלי_${input.from ?? "מ-תחילה"}_${input.to ?? "עד-עכשיו"}.xlsx`;
+        return { base64, filename };
+      }),
+    /** דוח כללי – כל המשתמשים הרשומים (כולל אפס פעילות). עמודות: שם משתמש | סוכן | סה"כ הימורים | סה"כ זכיות | עמלה | רווח/הפסד | יתרה סופית */
+    getGeneralFinanceReport: adminProcedure
+      .use(usePermission("finance.view"))
+      .input(z.object({ from: z.string().optional(), to: z.string().optional() }).strict())
+      .query(async ({ input }) => {
+        return getGeneralFinanceReport({ from: input.from, to: input.to });
+      }),
+    /** ייצוא CSV – דוח כספי כללי */
+    exportGeneralFinanceReportCSV: adminProcedure
+      .input(z.object({ from: z.string().optional(), to: z.string().optional() }).strict())
+      .query(async ({ ctx, input }) => {
+        checkExportRateLimit(ctx);
+        const report = await getGeneralFinanceReport({ from: input.from, to: input.to });
+        return { csv: generalFinanceReportToCsv(report) };
+      }),
+    /** ייצוא Excel – דוח כספי כללי */
+    exportGeneralFinanceReportXLSX: adminProcedure
+      .input(z.object({ from: z.string().optional(), to: z.string().optional() }).strict())
+      .query(async ({ ctx, input }) => {
+        checkExportRateLimit(ctx);
+        const report = await getGeneralFinanceReport({ from: input.from, to: input.to });
+        const buffer = await generalFinanceReportToXlsx(report);
+        const base64 = buffer.toString("base64");
+        const filename = `דוח_כספי_כללי_${input.from ?? "מ-תחילה"}_${input.to ?? "עד-עכשיו"}.xlsx`;
         return { base64, filename };
       }),
   }),

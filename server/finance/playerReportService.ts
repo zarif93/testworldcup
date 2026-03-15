@@ -6,7 +6,7 @@
 import { getFinancialEventsByUserFiltered } from "./financialEventService";
 import { getPlayerFinancialProfile } from "./playerFinanceService";
 import { computeCommissionFromEntry, computeReportCommissionSplit } from "./commissionService";
-import { getUserById, getTournamentById } from "../db";
+import { getUserById, getTournamentById, getSubmissionById } from "../db";
 import { DEFAULT_COMMISSION_BASIS_POINTS, DEFAULT_AGENT_SHARE_BASIS_POINTS } from "./constants";
 
 export interface PlayerReportSummary {
@@ -22,6 +22,9 @@ export interface PlayerReportSummary {
 
 export type PlayerReportRowStatus = "profit" | "loss" | "even";
 
+/** Result for display: Win / Loss / Refund */
+export type PlayerReportResultDisplay = "Win" | "Loss" | "Refund";
+
 export interface PlayerReportParticipationRow {
   tournamentId: number;
   tournamentName: string;
@@ -36,6 +39,10 @@ export interface PlayerReportParticipationRow {
   platformShare: number;
   status: PlayerReportRowStatus;
   submissionId: number | null;
+  /** Submission status for display (e.g. מאושר, ממתין) */
+  submissionStatus: string;
+  /** Result for display: Win | Loss | Refund */
+  resultDisplay: PlayerReportResultDisplay;
 }
 
 export interface PlayerReportDetailed {
@@ -127,6 +134,18 @@ export async function getPlayerReportDetailed(
     return c;
   };
 
+  const submissionStatusCache = new Map<number, string>();
+  const getSubmissionStatusDisplay = async (submissionId: number | null): Promise<string> => {
+    if (submissionId == null) return "—";
+    let s = submissionStatusCache.get(submissionId);
+    if (s != null) return s;
+    const sub = await getSubmissionById(submissionId);
+    const status = (sub as { status?: string })?.status ?? "";
+    s = status === "approved" ? "מאושר" : status === "pending" ? "ממתין" : status ? status : "—";
+    submissionStatusCache.set(submissionId, s);
+    return s;
+  };
+
   const rows: PlayerReportParticipationRow[] = [];
   const refundConsumed = new Map<number, number>();
 
@@ -150,6 +169,9 @@ export async function getPlayerReportDetailed(
     }
     const platformShare = totalCommission - agentShare;
 
+    const resultDisplay: PlayerReportResultDisplay = winnings > 0 ? "Win" : refundThisRow > 0 ? "Refund" : "Loss";
+    const submissionStatus = await getSubmissionStatusDisplay(entry.submissionId);
+
     rows.push({
       tournamentId,
       tournamentName: info.name,
@@ -164,6 +186,8 @@ export async function getPlayerReportDetailed(
       platformShare,
       status: rowStatus(netResult),
       submissionId: entry.submissionId,
+      submissionStatus,
+      resultDisplay,
     });
   }
 

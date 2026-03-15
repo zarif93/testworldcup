@@ -43,7 +43,7 @@ import {
   downloadBase64Xlsx,
 } from "@/lib/financeXlsx";
 
-type FinanceTab = "summary" | "tournaments" | "agents" | "players" | "global";
+type FinanceTab = "summary" | "tournaments" | "agents" | "players" | "global" | "general";
 
 const PERIOD_OPTIONS: { value: "day" | "week" | "month"; label: string }[] = [
   { value: "day", label: "היום" },
@@ -169,6 +169,9 @@ export function FinanceSection({ onBack }: Props) {
   });
   const [globalReportTo, setGlobalReportTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [globalReportExporting, setGlobalReportExporting] = useState(false);
+  const [generalReportFrom, setGeneralReportFrom] = useState("");
+  const [generalReportTo, setGeneralReportTo] = useState("");
+  const [generalReportExporting, setGeneralReportExporting] = useState(false);
 
   const useCustomRange = customFrom && customTo;
   const summaryInput = useCustomRange
@@ -209,6 +212,10 @@ export function FinanceSection({ onBack }: Props) {
   const { data: globalReport, isLoading: globalReportLoading } = trpc.admin.getGlobalFinanceReport.useQuery(
     { from: globalReportFrom || undefined, to: globalReportTo || undefined },
     { enabled: tab === "global" }
+  );
+  const { data: generalReport, isLoading: generalReportLoading } = trpc.admin.getGeneralFinanceReport.useQuery(
+    { from: generalReportFrom || undefined, to: generalReportTo || undefined },
+    { enabled: tab === "general" }
   );
   const { data: agentsForFilter } = trpc.admin.getAgentsWithBalances.useQuery(undefined, { enabled: tab === "players" });
 
@@ -429,6 +436,36 @@ export function FinanceSection({ onBack }: Props) {
       setGlobalReportExporting(false);
     }
   };
+  const exportGeneralReportXlsx = async () => {
+    setGeneralReportExporting(true);
+    try {
+      const { base64, filename } = await utils.admin.exportGeneralFinanceReportXLSX.fetch({
+        from: generalReportFrom || undefined,
+        to: generalReportTo || undefined,
+      });
+      downloadBase64Xlsx(base64, filename);
+    } finally {
+      setGeneralReportExporting(false);
+    }
+  };
+  const exportGeneralReportCsv = async () => {
+    setGeneralReportExporting(true);
+    try {
+      const { csv } = await utils.admin.exportGeneralFinanceReportCSV.fetch({
+        from: generalReportFrom || undefined,
+        to: generalReportTo || undefined,
+      });
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `דוח_כספי_כללי_${generalReportFrom || "מ-תחילה"}_${generalReportTo || "עד-עכשיו"}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setGeneralReportExporting(false);
+    }
+  };
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -585,6 +622,7 @@ export function FinanceSection({ onBack }: Props) {
           <TabsTrigger value="agents" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">סוכנים</TabsTrigger>
           <TabsTrigger value="players" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">שחקנים</TabsTrigger>
           <TabsTrigger value="global" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">דוח גלובלי</TabsTrigger>
+          <TabsTrigger value="general" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">דוח כללי</TabsTrigger>
         </TabsList>
 
         <TabsContent value="summary" className="mt-4">
@@ -1048,6 +1086,69 @@ export function FinanceSection({ onBack }: Props) {
             </>
           ) : (
             <p className="text-slate-400 py-4">טוען דוח גלובלי...</p>
+          )}
+        </TabsContent>
+
+        <TabsContent value="general" className="mt-4">
+          <p className="text-slate-400 text-sm mb-4">דוח כללי – כל המשתמשים הרשומים (כולל אפס פעילות). עמודות: שם משתמש | סוכן | סה״כ הימורים | סה״כ זכיות | עמלה | רווח/הפסד | יתרה סופית.</p>
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <label className="text-slate-400 text-sm">מתאריך</label>
+            <Input type="date" value={generalReportFrom} onChange={(e) => setGeneralReportFrom(e.target.value)} className="h-9 w-36 bg-slate-800 border-slate-600 text-slate-200" />
+            <label className="text-slate-400 text-sm">עד תאריך</label>
+            <Input type="date" value={generalReportTo} onChange={(e) => setGeneralReportTo(e.target.value)} className="h-9 w-36 bg-slate-800 border-slate-600 text-slate-200" />
+            <Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white h-9" onClick={exportGeneralReportXlsx} disabled={generalReportExporting || !generalReport}>
+              <Download className="w-4 h-4 ml-1" />
+              {generalReportExporting ? "מייצא..." : "ייצוא Excel"}
+            </Button>
+            <Button variant="outline" size="sm" className="border-amber-500/50 text-amber-400 h-9" onClick={exportGeneralReportCsv} disabled={generalReportExporting || !generalReport}>
+              ייצוא CSV
+            </Button>
+          </div>
+          {generalReportLoading ? (
+            <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-slate-400" /></div>
+          ) : generalReport ? (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+                <Card className="bg-slate-800/60 border-slate-700/80"><CardContent className="p-3"><p className="text-slate-500 text-xs">סה״כ הימורים</p><p className="text-white font-bold tabular-nums">{formatNum(generalReport.summary.totalBets)}</p></CardContent></Card>
+                <Card className="bg-slate-800/60 border-slate-700/80"><CardContent className="p-3"><p className="text-slate-500 text-xs">סה״כ זכיות</p><p className="text-amber-400 font-bold tabular-nums">{formatNum(generalReport.summary.totalWins)}</p></CardContent></Card>
+                <Card className="bg-slate-800/60 border-slate-700/80"><CardContent className="p-3"><p className="text-slate-500 text-xs">סה״כ עמלה</p><p className="text-emerald-400 font-bold tabular-nums">{formatNum(generalReport.summary.totalCommission)}</p></CardContent></Card>
+                <Card className="bg-slate-800/60 border-slate-700/80"><CardContent className="p-3"><p className="text-slate-500 text-xs">סה״כ רווח אתר</p><p className="text-emerald-400 font-bold tabular-nums">{formatNum(generalReport.summary.totalSiteProfit)}</p></CardContent></Card>
+                <Card className="bg-slate-800/60 border-slate-700/80"><CardContent className="p-3"><p className="text-slate-500 text-xs">סה״כ הפסד אתר</p><p className="text-red-400 font-bold tabular-nums">{formatNum(generalReport.summary.totalSiteLoss)}</p></CardContent></Card>
+                <Card className="bg-slate-800/60 border-slate-700/80"><CardContent className="p-3"><p className="text-slate-500 text-xs">סה״כ יתרה פתוחה</p><p className="text-white font-bold tabular-nums">{formatNum(generalReport.summary.totalOpenBalance)}</p></CardContent></Card>
+              </div>
+              <Card className="bg-slate-800/60 border-slate-700/80 overflow-hidden">
+                <div className="overflow-x-auto overflow-y-auto max-h-[60vh]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-slate-700 bg-slate-800/95 sticky top-0 z-10 shadow-sm">
+                        <TableHead className="text-slate-300 text-right font-semibold">שם משתמש</TableHead>
+                        <TableHead className="text-slate-300 text-right font-semibold min-w-[100px]">סוכן</TableHead>
+                        <TableHead className="text-slate-300 text-right font-semibold min-w-[90px]">סה״כ הימורים</TableHead>
+                        <TableHead className="text-slate-300 text-right font-semibold min-w-[90px]">סה״כ זכיות</TableHead>
+                        <TableHead className="text-slate-300 text-right font-semibold min-w-[80px]">עמלה</TableHead>
+                        <TableHead className="text-slate-300 text-right font-semibold min-w-[90px]">רווח/הפסד</TableHead>
+                        <TableHead className="text-slate-300 text-right font-semibold min-w-[90px]">יתרה סופית</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {generalReport.rows.map((r) => (
+                        <TableRow key={r.userId} className="border-slate-700 hover:bg-slate-800/80">
+                          <TableCell className="text-slate-200 text-right font-medium">{r.username ?? `#${r.userId}`}</TableCell>
+                          <TableCell className="text-slate-300 text-right min-w-[100px]">{[r.agentName, r.agentUsername].filter(Boolean).join(" ") || "—"}</TableCell>
+                          <TableCell className="text-slate-300 text-right tabular-nums min-w-[90px]">{formatNum(r.totalBets)}</TableCell>
+                          <TableCell className="text-amber-400/90 text-right tabular-nums min-w-[90px]">{formatNum(r.totalWins)}</TableCell>
+                          <TableCell className="text-emerald-400/90 text-right tabular-nums min-w-[80px]">{formatNum(r.commission)}</TableCell>
+                          <TableCell className={`text-right tabular-nums font-medium min-w-[90px] ${r.profitLoss >= 0 ? "text-emerald-400" : "text-red-400"}`}>{r.profitLoss >= 0 ? "+" : ""}{formatNum(r.profitLoss)}</TableCell>
+                          <TableCell className={`text-right tabular-nums font-medium min-w-[90px] ${r.finalBalance >= 0 ? "text-emerald-400" : "text-red-400"}`}>{r.finalBalance >= 0 ? "+" : ""}{formatNum(r.finalBalance)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </Card>
+            </>
+          ) : (
+            <p className="text-slate-400 py-4">טוען דוח כללי...</p>
           )}
         </TabsContent>
       </Tabs>

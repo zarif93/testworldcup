@@ -86,9 +86,12 @@ export async function agentReportDetailedToXlsx(report: {
     agentShareFromPlayer: number;
     platformShareFromPlayer: number;
     status: string;
+    finalBalanceSigned?: number;
+    isAgentRow?: boolean;
   }>;
   agentUsername: string | null;
   agentName: string | null;
+  agentFinalBalanceVsSite?: number;
 }): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("דוח סוכן", { views: [{ rightToLeft: true }] });
@@ -143,15 +146,30 @@ export async function agentReportDetailedToXlsx(report: {
     rowNum += 1;
   }
   rowNum += 1;
+  ws.getCell(rowNum, 1).value = "מאזן סוכן מול האתר";
+  ws.getCell(rowNum, 1).font = { bold: true, size: 12 };
+  ws.getCell(rowNum, 1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.headerBg } };
+  ws.getCell(rowNum, 1).alignment = { horizontal: "right" };
+  rowNum += 1;
+  const agentBal = typeof report.agentFinalBalanceVsSite === "number" ? report.agentFinalBalanceVsSite : 0;
+  ws.getCell(rowNum, 1).value = "+האתר חייב לסוכן / -סוכן חייב לאתר";
+  ws.getCell(rowNum, 2).value = agentBal >= 0 ? `+${agentBal}` : `${agentBal}`;
+  ws.getCell(rowNum, 1).font = { bold: true };
+  ws.getCell(rowNum, 1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.summaryBg } };
+  styleProfitLossCell(ws.getCell(rowNum, 2), agentBal);
+  rowNum += 1;
+  rowNum += 1;
 
   // Table headers
-  const headers = ["שם מלא", "שם משתמש", "השתתפויות", "סך דמי כניסה", "סך זכיות", "סך החזרים", "רווח/הפסד נטו", "עמלה שנוצרה", "חלק סוכן", "חלק פלטפורמה", "סטטוס"];
+  const headers = ["שם מלא", "שם משתמש", "השתתפויות", "סך דמי כניסה", "סך זכיות", "סך החזרים", "רווח/הפסד נטו", "עמלה שנוצרה", "חלק סוכן", "חלק פלטפורמה", "תוצאה סופית", "סטטוס"];
   ws.addRow(headers);
   styleHeaderRow(ws, rowNum, headers.length);
   rowNum += 1;
 
+  const signedDisplay = (v: number) => (v >= 0 ? `+${v}` : `${v}`);
   for (const p of report.players) {
     const statusHe = p.status === "profit" ? "רווח" : p.status === "loss" ? "הפסד" : "מאוזן";
+    const finalStr = typeof p.finalBalanceSigned === "number" ? signedDisplay(p.finalBalanceSigned) : "";
     const row = ws.addRow([
       p.fullName ?? "",
       p.username ?? "",
@@ -163,6 +181,7 @@ export async function agentReportDetailedToXlsx(report: {
       p.totalCommissionGenerated,
       p.agentShareFromPlayer,
       p.platformShareFromPlayer,
+      finalStr,
       statusHe,
     ]);
     const r = row.number;
@@ -172,7 +191,12 @@ export async function agentReportDetailedToXlsx(report: {
     ws.getCell(r, 8).font = { color: { argb: COLORS.commissionGenerated } };
     ws.getCell(r, 9).font = { color: { argb: COLORS.agentShare } };
     ws.getCell(r, 10).font = { color: { argb: COLORS.platformShare } };
-    const statusCell = ws.getCell(r, 11);
+    const finalCell = ws.getCell(r, 11);
+    if (typeof p.finalBalanceSigned === "number") styleProfitLossCell(finalCell, p.finalBalanceSigned);
+    if (p.isAgentRow) {
+      for (let c = 1; c <= 12; c++) ws.getCell(r, c).font = { bold: true };
+    }
+    const statusCell = ws.getCell(r, 12);
     if (p.status === "profit") {
       statusCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.badgeProfit } };
       statusCell.font = { color: { argb: COLORS.profitFg }, bold: true };
@@ -216,6 +240,8 @@ export async function playerReportDetailedToXlsx(report: {
     agentShare: number;
     platformShare: number;
     status: string;
+    submissionStatus?: string;
+    resultDisplay?: string;
   }>;
   username: string | null;
   fullName: string | null;
@@ -224,7 +250,7 @@ export async function playerReportDetailedToXlsx(report: {
   const ws = wb.addWorksheet("דוח שחקן", { views: [{ rightToLeft: true }] });
 
   let rowNum = 1;
-  ws.getCell(rowNum, 1).value = "דוח שחקן מפורט – עמלות ורווח/הפסד";
+  ws.getCell(rowNum, 1).value = "דוח שחקן מפורט – סיכום והיסטוריית הימורים";
   ws.getCell(rowNum, 1).font = { bold: true, size: 16 };
   rowNum += 1;
   ws.getCell(rowNum, 1).value = "שחקן";
@@ -263,36 +289,32 @@ export async function playerReportDetailedToXlsx(report: {
   }
   rowNum += 1;
 
-  const headers = ["תחרות", "סוג תחרות", "תאריך", "דמי כניסה", "זכיות", "החזר", "תוצאה נטו", "עמלה", "חלק סוכן", "חלק פלטפורמה", "סטטוס"];
+  const headers = ["תאריך", "תחרות", "סוג", "סטטוס", "סכום הימור", "תוצאה", "סכום זכייה", "עמלה", "רווח/הפסד"];
   ws.addRow(headers);
   styleHeaderRow(ws, rowNum, headers.length);
   rowNum += 1;
 
   for (const r of report.rows) {
     const dateStr = r.date ? new Date(r.date).toLocaleDateString("he-IL") : "";
-    const statusHe = r.status === "profit" ? "רווח" : r.status === "loss" ? "הפסד" : "מאוזן";
+    const statusD = r.submissionStatus ?? (r.status === "profit" ? "רווח" : r.status === "loss" ? "הפסד" : "מאוזן");
+    const resultD = r.resultDisplay ?? (r.winnings > 0 ? "Win" : r.refund > 0 ? "Refund" : "Loss");
     const row = ws.addRow([
+      dateStr,
       r.tournamentName,
       r.tournamentType,
-      dateStr,
+      statusD,
       r.entryFee,
+      resultD,
       r.winnings,
-      r.refund,
-      r.netResult,
       r.totalCommission,
-      r.agentShare,
-      r.platformShare,
-      statusHe,
+      r.netResult,
     ]);
     const rn = row.number;
     ws.getCell(rn, 2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: tournamentTypeBg(r.tournamentType) } };
-    ws.getCell(rn, 5).font = { color: { argb: COLORS.winningsFg } };
-    ws.getCell(rn, 6).font = { color: { argb: COLORS.refundsFg } };
-    styleProfitLossCell(ws.getCell(rn, 7), r.netResult);
+    ws.getCell(rn, 7).font = { color: { argb: COLORS.winningsFg } };
     ws.getCell(rn, 8).font = { color: { argb: COLORS.commissionGenerated } };
-    ws.getCell(rn, 9).font = { color: { argb: COLORS.agentShare } };
-    ws.getCell(rn, 10).font = { color: { argb: COLORS.platformShare } };
-    const statusCell = ws.getCell(rn, 11);
+    styleProfitLossCell(ws.getCell(rn, 9), r.netResult);
+    const statusCell = ws.getCell(rn, 4);
     if (r.status === "profit") {
       statusCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.badgeProfit } };
       statusCell.font = { color: { argb: COLORS.profitFg }, bold: true };
@@ -524,6 +546,93 @@ export async function globalFinanceReportToXlsx(report: {
     });
   }
 
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
+
+/** General finance report → XLSX (all registered users, RTL, currency, single table + summary) */
+export async function generalFinanceReportToXlsx(report: {
+  rows: Array<{
+    username: string | null;
+    agentName: string | null;
+    agentUsername: string | null;
+    totalBets: number;
+    totalWins: number;
+    commission: number;
+    profitLoss: number;
+    finalBalance: number;
+  }>;
+  summary: {
+    totalBets: number;
+    totalWins: number;
+    totalCommission: number;
+    totalSiteProfit: number;
+    totalSiteLoss: number;
+    totalOpenBalance: number;
+  };
+  from: string | null;
+  to: string | null;
+}): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("דוח כללי", { views: [{ rightToLeft: true }] });
+  let rowNum = 1;
+  ws.getCell(rowNum, 1).value = "דוח כספי כללי – כל המשתמשים הרשומים";
+  ws.getCell(rowNum, 1).font = { bold: true, size: 16 };
+  rowNum += 1;
+  ws.getCell(rowNum, 1).value = "תקופה";
+  ws.getCell(rowNum, 2).value = report.from && report.to ? `${report.from} — ${report.to}` : "כל התקופה";
+  ws.getCell(rowNum, 1).font = { bold: true };
+  rowNum += 2;
+  ws.getCell(rowNum, 1).value = "סיכום";
+  ws.getCell(rowNum, 1).font = { bold: true };
+  ws.getCell(rowNum, 1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.summaryBg } };
+  rowNum += 1;
+  const sumLabels = ["סה״כ הימורים", "סה״כ זכיות", "סה״כ עמלה", "סה״כ רווח אתר", "סה״כ הפסד אתר", "סה״כ יתרה פתוחה"];
+  const sumVals = [
+    report.summary.totalBets,
+    report.summary.totalWins,
+    report.summary.totalCommission,
+    report.summary.totalSiteProfit,
+    report.summary.totalSiteLoss,
+    report.summary.totalOpenBalance,
+  ];
+  for (let i = 0; i < sumLabels.length; i++) {
+    ws.getCell(rowNum, 1).value = sumLabels[i];
+    ws.getCell(rowNum, 2).value = sumVals[i];
+    ws.getCell(rowNum, 1).font = { bold: true };
+    ws.getCell(rowNum, 1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.summaryBg } };
+    if (i === 3 || i === 4) styleProfitLossCell(ws.getCell(rowNum, 2), sumVals[i]);
+    if (i === 2) ws.getCell(rowNum, 2).font = { color: { argb: COLORS.commissionGenerated } };
+    if (i === 1) ws.getCell(rowNum, 2).font = { color: { argb: COLORS.winningsFg } };
+    rowNum += 1;
+  }
+  rowNum += 1;
+  const headers = ["שם משתמש", "סוכן", "סה״כ הימורים", "סה״כ זכיות", "עמלה", "רווח/הפסד", "יתרה סופית"];
+  ws.addRow(headers);
+  styleHeaderRow(ws, rowNum, headers.length);
+  rowNum += 1;
+  const signedDisplay = (v: number) => (v >= 0 ? `+${v}` : `${v}`);
+  for (const r of report.rows) {
+    const agentDisplay = [r.agentName, r.agentUsername].filter(Boolean).join(" ") || "—";
+    const excelRow = ws.addRow([
+      r.username ?? "—",
+      agentDisplay,
+      r.totalBets,
+      r.totalWins,
+      r.commission,
+      signedDisplay(r.profitLoss),
+      signedDisplay(r.finalBalance),
+    ]);
+    const rn = excelRow.number;
+    ws.getCell(rn, 3).font = { color: { argb: COLORS.neutralFg } };
+    ws.getCell(rn, 4).font = { color: { argb: COLORS.winningsFg } };
+    ws.getCell(rn, 5).font = { color: { argb: COLORS.commissionGenerated } };
+    styleProfitLossCell(ws.getCell(rn, 6), r.profitLoss);
+    styleProfitLossCell(ws.getCell(rn, 7), r.finalBalance);
+  }
+  ws.columns.forEach((col) => {
+    if (col) col.width = Math.min(Math.max(12, (col.width ?? 10) + 2), 28);
+  });
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
 }

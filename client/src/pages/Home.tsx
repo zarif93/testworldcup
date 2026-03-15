@@ -107,6 +107,13 @@ function formatRemainingWithDays(until: string | Date | number | null | undefine
   return timePart;
 }
 
+/** תצוגת פרס/קופה – "0 פרסים" או "₪X פרס/פרסים" (ללא "סכום הקופה X למובילים") */
+function formatPrizeLabel(prizePool: number): string {
+  if (prizePool === 0) return "0 פרסים";
+  const formatted = prizePool.toLocaleString("he-IL");
+  return prizePool === 1 ? `₪${formatted} פרס` : `₪${formatted} פרסים`;
+}
+
 const HERO_URGENCY_LINES = [
   "הפרס מחכה למובילים",
   "תחרויות פתוחות – הצטרף כשמוכן",
@@ -669,7 +676,7 @@ export default function Home() {
                     >
                       <div className="pt-9 pb-2 px-2.5 flex flex-col gap-1">
                         <p className="text-white font-bold text-xs leading-tight line-clamp-2 break-words">{getTournamentDisplayName(t, t._type)}</p>
-                        <p className="text-emerald-400 font-black text-base leading-tight tabular-nums">₪{t.prizePool.toLocaleString("he-IL")} {t.amount === 0 && t.prizePool > 0 ? "פרס מובטח" : "פרס"}</p>
+                        <p className="text-emerald-400 font-black text-base leading-tight tabular-nums">{(t.prizePool ?? 0) === 0 ? formatPrizeLabel(0) : `₪${(t.prizePool ?? 0).toLocaleString("he-IL")} ${t.amount === 0 && (t.prizePool ?? 0) > 0 ? "פרס מובטח" : "פרס"}`}</p>
                         {prizeGrowing && <p className="text-emerald-400/90 text-[10px] font-semibold">הקופה גדלה</p>}
                         <p className="text-amber-400/95 font-semibold text-[11px]">{t.amount === 0 ? "חינם" : `₪${t.amount}`}</p>
                         <p className="text-slate-500 text-[10px] leading-tight">{(t.participants ?? 0)} משתתפים</p>
@@ -786,7 +793,8 @@ export default function Home() {
                           </>
                         ) : (
                           <>
-                            <p className="text-emerald-400 font-black text-lg mt-1.5 break-words leading-tight">₪{t.prizePool.toLocaleString("he-IL")} למובילים</p>
+                            <p className="text-emerald-400 font-black text-lg mt-1.5 break-words leading-tight">{formatPrizeLabel(t.prizePool ?? 0)}</p>
+                            <p className="text-amber-400/95 text-sm font-semibold mt-0.5">{t.amount === 0 ? "חינם" : `₪${t.amount} השתתפות`}</p>
                             <p className="text-slate-400 text-xs mt-1 break-words">{t.participants} משתתפים כבר בתחרות</p>
                           </>
                         )}
@@ -855,11 +863,14 @@ export default function Home() {
                           <>
                             <p className="text-slate-400 text-sm mt-1">⏳ נסגר בעוד</p>
                             <p className={`font-black text-xl mt-1 font-mono tabular-nums ${lessThanHourL ? "countdown-urgent is-less-than-hour" : "text-amber-400"}`}>{drawCountdown}</p>
+                            <p className="text-emerald-400 font-black text-base mt-0.5">{formatPrizeLabel(t.prizePool ?? 0)}</p>
+                            <p className="text-amber-400/95 text-sm font-semibold">{t.amount === 0 ? "חינם" : `₪${t.amount} השתתפות`}</p>
                             <p className="text-slate-400 text-xs mt-2 break-words">{t.participants} משתתפים כבר בתחרות</p>
                           </>
                         ) : (
                           <>
-                            <p className="text-emerald-400 font-black text-xl mt-1 break-words">₪{t.prizePool.toLocaleString("he-IL")} למובילים</p>
+                            <p className="text-emerald-400 font-black text-xl mt-1 break-words">{formatPrizeLabel(t.prizePool ?? 0)}</p>
+                            <p className="text-amber-400/95 text-sm font-semibold mt-0.5">{t.amount === 0 ? "חינם" : `₪${t.amount} השתתפות`}</p>
                             <p className="text-slate-400 text-xs mt-2 break-words">{t.participants} משתתפים כבר בתחרות</p>
                           </>
                         )}
@@ -929,7 +940,8 @@ export default function Home() {
                           </>
                         ) : !isLocked && (
                           <>
-                            <p className="text-emerald-400 font-black text-lg mt-1.5 break-words leading-tight">₪{t.prizePool.toLocaleString("he-IL")} למובילים</p>
+                            <p className="text-emerald-400 font-black text-lg mt-1.5 break-words leading-tight">{formatPrizeLabel(t.prizePool ?? 0)}</p>
+                            <p className="text-amber-400/95 text-sm font-semibold mt-0.5">{t.amount === 0 ? "חינם" : `₪${t.amount} השתתפות`}</p>
                             <p className="text-slate-400 text-xs mt-1.5 break-words">{t.participants} משתתפים כבר בתחרות</p>
                           </>
                         )}
@@ -998,7 +1010,8 @@ export default function Home() {
                           </>
                         ) : (
                           <>
-                            <p className="text-emerald-400 font-black text-lg mt-1.5 break-words leading-tight">₪{t.prizePool.toLocaleString("he-IL")} למובילים</p>
+                            <p className="text-emerald-400 font-black text-lg mt-1.5 break-words leading-tight">{formatPrizeLabel(t.prizePool ?? 0)}</p>
+                            <p className="text-amber-400/95 text-sm font-semibold mt-0.5">{t.amount === 0 ? "חינם" : `₪${t.amount} השתתפות`}</p>
                             <p className="text-slate-400 text-xs mt-1.5 break-words">{t.participants} משתתפים כבר בתחרות</p>
                           </>
                         )}
@@ -1026,7 +1039,8 @@ export default function Home() {
                         >
                           <Trophy className={`w-8 h-8 mx-auto mb-2 shrink-0 ${styles.icon}`} />
                           <p className="text-white font-bold text-lg break-words min-w-0 leading-tight">{getTournamentDisplayName(t, "custom")}</p>
-                          <p className="text-emerald-400 font-black text-lg mt-1.5 break-words">₪{t.prizePool.toLocaleString("he-IL")} למובילים</p>
+                          <p className="text-emerald-400 font-black text-lg mt-1.5 break-words">{formatPrizeLabel(t.prizePool ?? 0)}</p>
+                          <p className="text-amber-400/95 text-sm font-semibold mt-0.5">{t.amount === 0 ? "חינם" : `₪${t.amount} השתתפות`}</p>
                           <p className="text-slate-400 text-xs mt-1 break-words">{t.participants} משתתפים</p>
                         </button>
                       </div>

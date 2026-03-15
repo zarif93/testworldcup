@@ -1,11 +1,11 @@
 /**
  * Agent commission report – real data from financial_events.
  * Summary + per-player table; date-range filter; centralized commission logic.
+ * Includes ALL players under agent (including zero activity), agent himself as last row, and final balance +/- (site owes / owes site).
  */
 
-import { getAgentDashboardMetrics } from "./agentFinanceService";
-import { computeReportCommissionSplit } from "./commissionService";
-import type { AgentDashboardMetrics } from "./types";
+import { getUserById, getUsersByAgentId } from "../db";
+import { getPlayerFinancialProfile } from "./playerFinanceService";
 
 export interface AgentReportSummary {
   totalEntriesCollected: number;
@@ -34,6 +34,9 @@ export interface AgentReportPlayerRow {
   agentShareFromPlayer: number;
   platformShareFromPlayer: number;
   status: AgentReportPlayerStatus;
+  /** +XXX if site owes player, -XXX if player owes site (current points balance) */
+  finalBalanceSigned: number;
+  isAgentRow?: boolean;
 }
 
 export interface AgentReportDetailed {
@@ -42,6 +45,8 @@ export interface AgentReportDetailed {
   agentId: number;
   agentUsername: string | null;
   agentName: string | null;
+  /** Agent final balance vs site: +XXX if site owes agent, -XXX if agent owes site */
+  agentFinalBalanceVsSite: number;
 }
 
 export interface AgentReportFilter {
@@ -63,20 +68,61 @@ export async function getAgentReportDetailed(
   agentId: number,
   filter?: AgentReportFilter
 ): Promise<AgentReportDetailed | null> {
-  const metrics = await getAgentDashboardMetrics(agentId, {
-    from: filter?.from,
-    to: filter?.to,
-  });
-  if (!metrics) return null;
+  const agentUser = await getUserById(agentId);
+  if (!agentUser) return null;
 
-  const list = metrics.playerListWithPnL ?? [];
-  const totalEntriesCollected = list.reduce((s, p) => s + p.totalEntryFees, 0);
-  const totalWinningsPaid = list.reduce((s, p) => s + p.totalPrizesWon, 0);
-  const totalRefunds = list.reduce((s, p) => s + (p.totalEntryFeeRefunds ?? 0), 0);
-  const totalCommission = list.reduce((s, p) => s + p.commissionGenerated, 0);
-  const agentCommissionShare = list.reduce((s, p) => s + p.agentCommissionFromPlayer, 0);
-  const platformCommissionShare = list.reduce((s, p) => s + (p.platformShareFromPlayer ?? 0), 0);
-  const numberOfSubmissions = list.reduce((s, p) => s + (p.totalParticipations ?? 0), 0);
+  const referredPlayers = await getUsersByAgentId(agentId);
+  const dateFilter = filter?.from != null || filter?.to != null ? { from: filter.from, to: filter.to } : undefined;
+
+  let totalEntriesCollected = 0;
+  let totalWinningsPaid = 0;
+  let totalRefunds = 0;
+  let totalCommission = 0;
+  let agentCommissionShare = 0;
+  let platformCommissionShare = 0;
+  let numberOfSubmissions = 0;
+
+  const players: AgentReportPlayerRow[] = [];
+
+  for (const p of referredPlayers) {
+    const u = await getUserById(p.id);
+    const profile = await getPlayerFinancialProfile(p.id, dateFilter);
+    const pointsFinal = Number((u as { points?: number })?.points ?? 0);
+
+    const entryFees = profile?.totalEntryFees ?? 0;
+    const winnings = profile?.totalPrizesWon ?? 0;
+    const refunds = profile?.totalEntryFeeRefunds ?? 0;
+    const netPnL = profile?.competitionNetPnL ?? 0;
+    const commGen = profile?.totalCommissionGenerated ?? 0;
+    const agentShare = profile?.agentCommissionFromPlayer ?? 0;
+    const platformShare = profile?.platformProfitFromPlayer ?? 0;
+
+    totalEntriesCollected += entryFees;
+    totalWinningsPaid += winnings;
+    totalRefunds += refunds;
+    totalCommission += commGen;
+    agentCommissionShare += agentShare;
+    platformCommissionShare += platformShare;
+    numberOfSubmissions += profile?.totalParticipations ?? 0;
+
+    const pAsUser = p as { name?: string | null; username?: string | null };
+    players.push({
+      userId: p.id,
+      fullName: pAsUser.name ?? profile?.username ?? null,
+      username: (profile?.username ?? pAsUser.username) ?? null,
+      participations: profile?.totalParticipations ?? 0,
+      totalEntryFees: entryFees,
+      totalWinnings: winnings,
+      totalRefunds: refunds,
+      netProfitLoss: netPnL,
+      totalCommissionGenerated: commGen,
+      agentShareFromPlayer: agentShare,
+      platformShareFromPlayer: platformShare,
+      status: playerStatus(netPnL),
+      finalBalanceSigned: pointsFinal,
+      isAgentRow: false,
+    });
+  }
 
   const netProfitLoss = totalEntriesCollected - totalWinningsPaid + totalRefunds;
 
@@ -88,30 +134,35 @@ export async function getAgentReportDetailed(
     totalCommission,
     agentCommissionShare,
     platformCommissionShare,
-    numberOfPlayers: metrics.numberOfPlayers,
+    numberOfPlayers: referredPlayers.length,
     numberOfSubmissions,
   };
 
-  const players: AgentReportPlayerRow[] = list.map((p) => ({
-    userId: p.userId,
-    fullName: p.fullName ?? null,
-    username: p.username ?? null,
-    participations: p.totalParticipations ?? 0,
-    totalEntryFees: p.totalEntryFees,
-    totalWinnings: p.totalPrizesWon,
-    totalRefunds: p.totalEntryFeeRefunds ?? 0,
-    netProfitLoss: p.competitionNetPnL,
-    totalCommissionGenerated: p.commissionGenerated,
-    agentShareFromPlayer: p.agentCommissionFromPlayer,
-    platformShareFromPlayer: p.platformShareFromPlayer ?? 0,
-    status: playerStatus(p.competitionNetPnL),
-  }));
+  const agentPoints = Number((agentUser as { points?: number })?.points ?? 0);
+  const a = agentUser as { username?: string | null; name?: string | null };
+  players.push({
+    userId: agentId,
+    fullName: a.name ?? null,
+    username: a.username ?? null,
+    participations: 0,
+    totalEntryFees: 0,
+    totalWinnings: 0,
+    totalRefunds: 0,
+    netProfitLoss: 0,
+    totalCommissionGenerated: 0,
+    agentShareFromPlayer: 0,
+    platformShareFromPlayer: 0,
+    status: "even",
+    finalBalanceSigned: agentPoints,
+    isAgentRow: true,
+  });
 
   return {
     summary,
     players,
-    agentId: metrics.agentId,
-    agentUsername: metrics.agentUsername ?? null,
-    agentName: metrics.agentName ?? metrics.agentUsername ?? null,
+    agentId,
+    agentUsername: a.username ?? null,
+    agentName: a.name ?? a.username ?? null,
+    agentFinalBalanceVsSite: agentPoints,
   };
 }

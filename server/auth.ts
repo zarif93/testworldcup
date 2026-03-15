@@ -112,8 +112,8 @@ export async function registerUser(data: {
     throw new Error("Phone number too long");
   }
 
-  if (!data.password || data.password.length < 8) {
-    throw new Error("Password must be at least 8 characters");
+  if (!data.password || data.password.length < 6) {
+    throw new Error("Password must be at least 6 characters");
   }
 
   if (!data.name || !data.name.trim()) {

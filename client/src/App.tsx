@@ -150,10 +150,23 @@ function NavLinks({
         <button
           type="button"
           onClick={() => {
-            const url = typeof window !== "undefined" ? `${window.location.origin}/register${user.id != null ? `?ref=${user.id}` : ""}` : "";
-            if (url && navigator.clipboard?.writeText) {
-              navigator.clipboard.writeText(url);
-              toast.success("קישור ההזמנה הועתק");
+            if (typeof window === "undefined") return;
+            const inviteUrl = `${window.location.origin}/register${user.id != null ? `?ref=${user.id}` : ""}`;
+            const message = `היי! הצטרף אליי לתחרויות – הירשם כאן: ${inviteUrl}`;
+            const waShareUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+            try {
+              const opened = window.open(waShareUrl, "_blank", "noopener,noreferrer");
+              if (!opened || opened.closed) {
+                if (navigator.clipboard?.writeText) {
+                  navigator.clipboard.writeText(inviteUrl);
+                  toast.success("קישור ההזמנה הועתק");
+                }
+              }
+            } catch {
+              if (navigator.clipboard?.writeText) {
+                navigator.clipboard.writeText(inviteUrl);
+                toast.success("קישור ההזמנה הועתק");
+              }
             }
           }}
           className="flex items-center gap-1.5 text-slate-300 hover:text-amber-400 transition text-sm font-medium shrink-0 min-w-0 truncate"
@@ -339,10 +352,15 @@ function Layout({ children }: { children: React.ReactNode }) {
           <nav className="hidden md:flex items-center gap-4 md:gap-6 min-w-0 flex-1 justify-end flex-wrap">
             {user && (user.role === "user" || user.role === "agent") && <UserNotificationsBell />}
             {user && (
-              <span className="flex items-center gap-1.5 text-slate-300 text-sm font-medium tabular-nums shrink-0" aria-label="יתרת נקודות">
-                <Gem className="w-4 h-4 text-amber-400/90 shrink-0" />
-                {user.unlimitedPoints || user.role === "admin" ? "ללא הגבלה" : `${user.points ?? 0} נקודות`}
-              </span>
+              <>
+                <span className="flex items-center gap-1.5 text-slate-200 text-sm font-medium shrink-0 max-w-[140px] truncate" aria-label="מחובר כעת" title={user.name || user.username || ""}>
+                  {user.name || user.username || `#${user.id}`}
+                </span>
+                <span className="flex items-center gap-1.5 text-slate-300 text-sm font-medium tabular-nums shrink-0" aria-label="יתרת נקודות">
+                  <Gem className="w-4 h-4 text-amber-400/90 shrink-0" />
+                  {user.unlimitedPoints || user.role === "admin" ? "ללא הגבלה" : `${user.points ?? 0} נקודות`}
+                </span>
+              </>
             )}
             <ThemeToggle />
             <NavLinks setLocation={setLocation} user={user} logout={logout} onOpenTerms={() => setTermsOpen(true)} whatsappUrl={whatsappUrl} termsPageSlug={siteSettings?.["legal.terms_page_slug"]} privacyPageSlug={siteSettings?.["legal.privacy_page_slug"]} ctaPrimaryText={siteSettings?.["cta.primary_text"]} ctaPrimaryUrl={siteSettings?.["cta.primary_url"]} />
@@ -364,6 +382,11 @@ function Layout({ children }: { children: React.ReactNode }) {
               </SheetTrigger>
               <SheetContent side="left" className="w-[min(100vw-2rem,288px)] bg-slate-900 border-slate-700 text-white p-4 text-right" dir="rtl">
                 <div className="flex flex-col gap-2 pt-6">
+                  {user && (
+                    <p className="text-slate-200 font-semibold text-sm pb-2 border-b border-slate-700 mb-1" aria-label="מחובר כעת">
+                      מחובר: <span className="text-white truncate block">{user.name || user.username || `#${user.id}`}</span>
+                    </p>
+                  )}
                   <ThemeToggle />
                   <NavLinks setLocation={setLocation} user={user} logout={logout} onNavigate={() => setMobileOpen(false)} onOpenTerms={() => { setMobileOpen(false); setTermsOpen(true); }} whatsappUrl={whatsappUrl} termsPageSlug={siteSettings?.["legal.terms_page_slug"]} privacyPageSlug={siteSettings?.["legal.privacy_page_slug"]} ctaPrimaryText={siteSettings?.["cta.primary_text"]} ctaPrimaryUrl={siteSettings?.["cta.primary_url"]} />
                 </div>
