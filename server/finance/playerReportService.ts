@@ -58,6 +58,8 @@ export interface PlayerReportDetailed {
 export interface PlayerReportFilter {
   from?: string;
   to?: string;
+  /** When set, only events for these tournament IDs (e.g. settled-only reporting). */
+  tournamentIds?: number[];
 }
 
 function rowStatus(netResult: number): PlayerReportRowStatus {
@@ -80,8 +82,31 @@ export async function getPlayerReportDetailed(
   const events = await getFinancialEventsByUserFiltered(userId, {
     from: filter?.from,
     to: filter?.to,
+    tournamentIds: filter?.tournamentIds,
     limit: 10_000,
   });
+
+  if (process.env.NODE_ENV !== "production") {
+    const entryEvents = events.filter((e) => e.eventType === "ENTRY_FEE");
+    const payoutEvents = events.filter((e) => e.eventType === "PRIZE_PAYOUT");
+    const refundEvents = events.filter((e) => e.eventType === "REFUND");
+    console.log("[PlayerReportDetailed] events loaded", {
+      playerId: userId,
+      dateRange: { from: filter?.from ?? null, to: filter?.to ?? null },
+      tournamentIdsFilter: filter?.tournamentIds?.length ?? 0,
+      totalEvents: events.length,
+      entryFeeEvents: entryEvents.length,
+      prizePayoutEvents: payoutEvents.length,
+      refundEvents: refundEvents.length,
+      sampleEntryEvents: entryEvents.slice(0, 3).map((e) => ({
+        id: (e as { id?: number }).id,
+        tournamentId: e.tournamentId,
+        submissionId: e.submissionId,
+        amountPoints: e.amountPoints,
+        createdAt: e.createdAt,
+      })),
+    });
+  }
 
   const entryRows: Array<{
     submissionId: number | null;
@@ -220,6 +245,24 @@ export async function getPlayerReportDetailed(
     agentShare: agentShareSum,
     platformShare: platformShareSum,
   };
+
+  if (process.env.NODE_ENV !== "production" && rows.length > 0) {
+    console.log("[PlayerReportDetailed] raw rows before settlement filter", {
+      playerId: userId,
+      rowCount: rows.length,
+      firstRow: rows[0]
+        ? {
+            tournamentId: rows[0].tournamentId,
+            tournamentName: rows[0].tournamentName,
+            entryFee: rows[0].entryFee,
+            winnings: rows[0].winnings,
+            refund: rows[0].refund,
+            netResult: rows[0].netResult,
+            resultDisplay: rows[0].resultDisplay,
+          }
+        : null,
+    });
+  }
 
   const u = user as { username?: string | null; name?: string | null; points?: number };
   return {

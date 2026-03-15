@@ -88,6 +88,8 @@ export async function getFinancialEventsByUserFiltered(userId: number, filter: G
   const { financialEvents } = await getSchema();
   const db = await getDb();
   if (!db) return [];
+  // Explicit empty tournamentIds => no events (e.g. settled-only report when no tournaments are settled)
+  if (filter.tournamentIds !== undefined && filter.tournamentIds.length === 0) return [];
   const conditions = [eq(financialEvents.userId, userId)];
   if (filter.from) conditions.push(gte(financialEvents.createdAt, new Date(filter.from)));
   if (filter.to) {

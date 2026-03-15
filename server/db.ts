@@ -3601,7 +3601,10 @@ export async function getTournamentStatuses(tournamentIds: number[]): Promise<Ma
   return map;
 }
 
-/** Tournament IDs with status SETTLED and not deleted. For settled-only financial reporting. */
+/** Statuses that mean "settled" (prizes distributed / archived). DB stores ARCHIVED or PRIZES_DISTRIBUTED after settlement, not literal "SETTLED". */
+const SETTLED_REPORT_STATUSES = ["SETTLED", "PRIZES_DISTRIBUTED", "ARCHIVED"] as const;
+
+/** Tournament IDs with status SETTLED/PRIZES_DISTRIBUTED/ARCHIVED and not deleted. For settled-only financial reporting. */
 export async function getSettledTournamentIds(): Promise<number[]> {
   const { tournaments } = await getSchema();
   const db = await getDb();
@@ -3609,7 +3612,7 @@ export async function getSettledTournamentIds(): Promise<number[]> {
   const rows = await db
     .select({ id: tournaments.id })
     .from(tournaments)
-    .where(and(eq(tournaments.status, "SETTLED"), isNull(tournaments.deletedAt)));
+    .where(and(inArray(tournaments.status, [...SETTLED_REPORT_STATUSES]), isNull(tournaments.deletedAt)));
   return rows.map((r) => (r as { id: number }).id);
 }
 

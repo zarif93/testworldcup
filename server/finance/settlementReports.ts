@@ -16,8 +16,11 @@ import { getPlayerFinancialProfile } from "./playerFinanceService";
 import { getFinancialEventsFiltered } from "./financialEventService";
 import type { PlayerFinancialProfileFilter } from "./playerFinanceService";
 
-const SETTLED = "SETTLED";
 const CANCELLED = "CANCELLED";
+/** DB stores ARCHIVED or PRIZES_DISTRIBUTED after settlement; literal SETTLED may also exist. */
+function isSettledForReport(status: string): boolean {
+  return status === "SETTLED" || status === "PRIZES_DISTRIBUTED" || status === "ARCHIVED";
+}
 
 function isExcludedFromReport(row: { status: string; deletedAt: Date | null }): boolean {
   return row.status === CANCELLED || row.deletedAt != null;
@@ -56,7 +59,12 @@ export async function getPlayerSettlementReport(
   userId: number,
   filter?: SettlementFilter
 ): Promise<PlayerSettlementReport | null> {
-  const detailed = await getPlayerReportDetailed(userId, { from: filter?.from, to: filter?.to });
+  const settledIds = await getSettledTournamentIds();
+  const detailed = await getPlayerReportDetailed(userId, {
+    from: filter?.from,
+    to: filter?.to,
+    tournamentIds: settledIds,
+  });
   if (!detailed) return null;
 
   const tournamentIds = [...new Set(detailed.rows.map((r) => r.tournamentId))];
@@ -65,7 +73,7 @@ export async function getPlayerSettlementReport(
   const rows: PlayerSettlementRow[] = [];
   for (const r of detailed.rows) {
     const info = statusMap.get(r.tournamentId);
-    if (!info || isExcludedFromReport(info) || info.status !== SETTLED) continue; // only SETTLED in reports
+    if (!info || isExcludedFromReport(info) || !isSettledForReport(info.status)) continue; // only settled (SETTLED/PRIZES_DISTRIBUTED/ARCHIVED) in reports
     const entry = r.entryFee - r.refund;
     const commission = r.totalCommission ?? 0;
     const result = r.winnings - entry - commission;
@@ -79,6 +87,22 @@ export async function getPlayerSettlementReport(
   }
 
   const finalResult = rows.reduce((s, r) => s + r.result, 0);
+
+  // Temporary debug: player settlement report data loading (end-to-end)
+  if (process.env.NODE_ENV !== "production") {
+    const tournamentStatuses = tournamentIds.map((tid) => ({ id: tid, status: statusMap.get(tid)?.status ?? "missing" }));
+    console.log("[PlayerSettlementReport]", {
+      playerId: userId,
+      dateRange: { from: filter?.from ?? null, to: filter?.to ?? null },
+      settledTournamentIdsFound: settledIds.length,
+      settledIdsExact: settledIds.slice(0, 50),
+      tournamentStatusesInDetail: tournamentStatuses,
+      detailedRowsBeforeFilter: detailed.rows.length,
+      playerRowsAfterFilter: rows.length,
+      finalCsvRowCount: rows.length,
+      firstMappedRow: rows[0] ?? null,
+    });
+  }
 
   return {
     userId,
@@ -224,7 +248,7 @@ async function getGlobalSettledProfit(filter?: SettlementFilter): Promise<number
   let totalSiteProfit = 0;
   for (const [tid, agg] of byTournament) {
     const info = statusMap.get(tid);
-    if (!info || isExcludedFromReport(info) || info.status !== SETTLED) continue;
+    if (!info || isExcludedFromReport(info) || !isSettledForReport(info.status)) continue;
     const entries = agg.entryFees - agg.refunds;
     const payout = agg.prizes;
     const siteCommission = agg.totalCommission - agg.agentCommission;
@@ -355,7 +379,7 @@ export async function getFreerollSettlementReport(filter?: SettlementFilter): Pr
 
   for (const [tid, agg] of byTournament) {
     const info = statusMap.get(tid);
-    if (!info || isExcludedFromReport(info) || info.status !== SETTLED) continue;
+    if (!info || isExcludedFromReport(info) || !isSettledForReport(info.status)) continue;
     const netEntries = agg.entryFees - agg.refunds;
     if (netEntries > 0) continue; // only freerolls (no entry revenue)
     const prizePaid = agg.prizes;
