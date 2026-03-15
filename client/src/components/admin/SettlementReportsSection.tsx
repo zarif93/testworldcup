@@ -125,7 +125,7 @@ export function SettlementReportsSection({ onBack }: Props) {
         <ArrowLeft className="w-4 h-4 ml-1" />
         חזרה
       </Button>
-      <h2 className="text-xl font-bold text-white">חשבונאות הסדר</h2>
+      <h2 className="text-xl font-bold text-white">מרכז כספים</h2>
       <p className="text-slate-400 text-sm">עמלה 12.5% (אחרי חלוקת פרסים). רק תחרויות שהוסדרו. תחרויות שבוטלו — החזר מלא, לא בדוח. פרירול — הוצאה אתר, ללא עמלה.</p>
 
       <div className="flex flex-wrap items-center gap-2">
