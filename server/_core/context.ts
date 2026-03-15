@@ -16,8 +16,7 @@ export type TrpcContext = {
 export async function createContext(
   opts: CreateExpressContextOptions
 ): Promise<TrpcContext> {
-  let user: User | null = null;
-
+  let user: User | null;
   try {
     user = await sdk.authenticateRequest(opts.req, opts.res);
   } catch {
@@ -28,7 +27,7 @@ export async function createContext(
     user = null;
   }
 
-  let adminCodeVerified = false;
+  let adminCodeVerified: boolean;
   if (ENV.adminSecret) {
     const cookieHeader = opts.req.headers.cookie;
     const parsed = cookieHeader ? parseCookie(cookieHeader) : {};

@@ -305,6 +305,89 @@
 .btn-sport:hover { @apply shadow-lg scale-[1.02]; }
 .btn-sport:active { @apply scale-[0.98]; }
 
+/* Phase 32 + Phase 2: Tournament experience – urgency and card states */
+.countdown-urgent {
+  @apply text-amber-400 font-mono font-bold tabular-nums;
+}
+.countdown-urgent.is-less-than-hour {
+  @apply text-red-400;
+  animation: pulse-subtle 1.5s ease-in-out infinite;
+}
+.card-tournament-live {
+  box-shadow: 0 4px 20px -4px rgba(0,0,0,0.4), 0 0 0 1px rgba(34, 197, 94, 0.12);
+  transition: box-shadow 0.25s ease, border-color 0.2s ease;
+}
+.card-tournament-live:hover {
+  box-shadow: 0 8px 28px -6px rgba(0,0,0,0.45), 0 0 0 1px rgba(34, 197, 94, 0.25);
+}
+.card-tournament-closing {
+  box-shadow: 0 4px 20px -4px rgba(0,0,0,0.4), 0 0 0 1px rgba(245, 158, 11, 0.35);
+  animation: pulse-border 2s ease-in-out infinite;
+}
+@keyframes pulse-border {
+  0%, 100% { box-shadow: 0 4px 20px -4px rgba(0,0,0,0.4), 0 0 0 1px rgba(245, 158, 11, 0.25); }
+  50% { box-shadow: 0 4px 20px -4px rgba(0,0,0,0.4), 0 0 0 1px rgba(245, 158, 11, 0.5); }
+}
+
+/* Phase 2: Urgency bar on cards when closing soon */
+.tournament-card-urgency-bar {
+  height: 3px;
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.9) 0%, rgba(239, 68, 68, 0.8) 100%);
+  animation: urgency-bar-pulse 1.5s ease-in-out infinite;
+}
+@keyframes urgency-bar-pulse {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 1; }
+}
+
+/* Phase 2: Subtle glow for high-engagement cards */
+.card-tournament-premium.card-prize-high {
+  box-shadow: 0 4px 24px -4px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04), 0 0 20px -4px rgba(34, 197, 94, 0.15);
+}
+.card-tournament-premium.card-participation-high:hover {
+  box-shadow: 0 12px 40px -8px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06), 0 0 28px -6px rgba(34, 197, 94, 0.25);
+}
+
+/* Premium tournament card – elevated, trustworthy, sports-platform feel */
+.card-tournament-premium {
+  background: linear-gradient(165deg, rgba(30, 41, 59, 0.98) 0%, rgba(15, 23, 42, 0.99) 100%);
+  border-radius: 1rem;
+  box-shadow:
+    0 4px 24px -4px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 0 0 0 rgba(34, 197, 94, 0);
+  transition: box-shadow 0.25s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+.card-tournament-premium:hover {
+  box-shadow:
+    0 12px 40px -8px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 32px -8px rgba(34, 197, 94, 0.2);
+}
+.card-tournament-premium.card-tournament-closing:hover {
+  box-shadow:
+    0 12px 40px -8px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 24px -6px rgba(245, 158, 11, 0.25);
+}
+.btn-tournament-cta {
+  min-height: 44px;
+  font-weight: 700;
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 14px -2px rgba(0, 0, 0, 0.35);
+  transition: box-shadow 0.2s ease, transform 0.15s ease, background-color 0.2s ease;
+}
+.btn-tournament-cta:not(:disabled):hover {
+  box-shadow: 0 6px 20px -4px rgba(34, 197, 94, 0.4);
+  transform: translateY(-1px);
+}
+.btn-tournament-cta:not(:disabled):active {
+  transform: translateY(0);
+}
+.animate-pulse-subtle {
+  animation: pulse-subtle 1.5s ease-in-out infinite;
+}
+
 /* Mobile: improve tap feedback and readability */
 @media (max-width: 767px) {
   .card-sport {

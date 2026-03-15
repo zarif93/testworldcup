@@ -5,7 +5,6 @@ import dotenv from "dotenv";
 import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
-import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 
 // Derive OAuth/Analytics URLs: BASE_URL (domain) or http://localhost:PORT
 dotenv.config();
@@ -159,24 +158,10 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [
-  react(),
-  tailwindcss(),
-  jsxLocPlugin(),
-  vitePluginManusRuntime(),
-  vitePluginManusDebugCollector(),
-];
-
-export default defineConfig(({ command, mode }) => {
-  // Exclude Manus preview runtime from production builds so the live site
-  // does not show "Preview mode" / "This page is not live..." (injected by the plugin).
-  const isProductionBuild = command === "build" || mode === "production";
-  const effectivePlugins = isProductionBuild
-    ? [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusDebugCollector()]
-    : plugins;
-
+export default defineConfig(() => {
+  // Platform is live: Manus preview runtime is not used, so "Preview mode" / "This page is not live..." never appears.
   return {
-  plugins: effectivePlugins,
+  plugins: [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusDebugCollector()],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),

@@ -15,5 +15,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
+    // Single fork so only one process uses SQLite DB file (avoids "database is locked").
+    pool: "forks",
+    poolOptions: { forks: { singleFork: true } },
   },
 });

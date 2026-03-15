@@ -16,6 +16,7 @@ export const users = mysqlTable("users", {
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
+  /** Phase 24: SQLite also supports "agent"; MySQL migration needed if agents are used with MySQL. */
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   /** נקודות למשתמש */
   points: int("points").default(0).notNull(),

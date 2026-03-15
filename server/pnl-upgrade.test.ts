@@ -44,10 +44,14 @@ const adminUser = {
 
 describe("pnl upgrade", () => {
   const unique = Date.now();
+  const suf = String(unique).slice(-6);
   const player1Username = `pnl_player1_${unique}`;
   const player2Username = `pnl_player2_${unique}`;
   const agentUsername = `pnl_agent_${unique}`;
   const tournamentName = `P/L Upgrade Tournament ${unique}`;
+  const player1Phone = `0501${suf}`;
+  const player2Phone = `0502${suf}`;
+  const agentPhone = `0503${suf}`;
   let player1Id = 0;
   let player2Id = 0;
   let agentId = 0;
@@ -59,13 +63,13 @@ describe("pnl upgrade", () => {
     const adminCaller = appRouter.createCaller(createContext(adminUser));
     const player1 = await publicCaller.auth.register({
       username: player1Username,
-      phone: "0501111111",
+      phone: player1Phone,
       password: "TestPass123",
       name: "Pnl Player One",
     });
     const player2 = await publicCaller.auth.register({
       username: player2Username,
-      phone: "0502222222",
+      phone: player2Phone,
       password: "TestPass123",
       name: "Pnl Player Two",
     });
@@ -74,7 +78,7 @@ describe("pnl upgrade", () => {
 
     const agentRes = await adminCaller.admin.createAgent({
       username: agentUsername,
-      phone: "0503333333",
+      phone: agentPhone,
       password: "AgentPass123",
       name: "Pnl Agent",
     });
@@ -83,11 +87,12 @@ describe("pnl upgrade", () => {
     await adminCaller.admin.assignAgent({ playerId: player1Id, agentId });
     await adminCaller.admin.assignAgent({ playerId: player2Id, agentId });
 
+    const day = (unique % 28) + 1;
     await adminCaller.admin.createTournament({
       name: tournamentName,
       amount: 100,
       type: "chance",
-      drawDate: "2030-05-01",
+      drawDate: `2030-06-${String(day).padStart(2, "0")}`,
       drawTime: "12:00",
     });
     const tournamentsList = await adminCaller.tournaments.getAll();

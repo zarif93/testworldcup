@@ -3,7 +3,17 @@ npm-debug.log
 .git
 .gitignore
 .cursor
+.manus
 .manus-logs
 Dockerfile
 docker-compose.yml
 
+# Secrets and runtime data (injected at runtime or created in container)
+.env
+.env.*
+!.env.production.example
+data/
+uploads/
+dist/
+*.log
+logs/

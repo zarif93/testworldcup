@@ -1,7 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Tooltip,
@@ -20,15 +19,10 @@ function formatNis(n: number) {
 
 export default function Transparency() {
   const [, setLocation] = useLocation();
-  const { user, loading: authLoading } = useAuth();
   const [expandedTournament, setExpandedTournament] = useState<number | null>(null);
   const { data, isLoading } = trpc.transparency.getSummary.useQuery(undefined, {
     refetchInterval: 15_000,
   });
-
-  useEffect(() => {
-    if (!authLoading && user?.role !== "admin") setLocation("/");
-  }, [authLoading, user, setLocation]);
 
   if (isLoading) {
     return (
@@ -56,8 +50,11 @@ export default function Transparency() {
           <Coins className="w-9 h-9 text-amber-400" />
           שקיפות כספית
         </h1>
-        <p className="text-slate-400 mb-8">
+        <p className="text-slate-400 mb-4">
           כל הסכומים מתעדכנים לפי טפסים מאושרים. הצגה בלבד – לא ניתן לערוך.
+        </p>
+        <p className="text-slate-500 text-sm mb-8">
+          שקיפות מלאה כדי שתוכלו לראות איך הכסף נאסף, איך קופת הפרסים מחושבת ואיך הזכיות מחולקות.
         </p>
 
         {/* סיכום כולל */}

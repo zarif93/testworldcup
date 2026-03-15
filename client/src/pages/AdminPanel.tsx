@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -30,6 +30,13 @@ import {
   TrendingUp,
   FileDown,
   Menu,
+  Shield,
+  Image,
+  Settings,
+  Bell,
+  BarChart3,
+  Activity,
+  CreditCard,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import {
@@ -51,16 +58,32 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { RolesManagementSection } from "@/components/admin/RolesManagementSection";
+import { CompetitionsTable } from "@/components/admin/CompetitionsTable";
+import { SchemaDebugModal } from "@/components/admin/SchemaDebugModal";
+import { CompetitionItemsManageModal } from "@/components/admin/CompetitionItemsManageModal";
+import { CmsSection } from "@/components/admin/CmsSection";
+import { SettingsSection } from "@/components/admin/SettingsSection";
+import { MediaManagerSection } from "@/components/admin/MediaManagerSection";
+import { NotificationsSection } from "@/components/admin/NotificationsSection";
+import { AnalyticsDashboardSection } from "@/components/admin/AnalyticsDashboardSection";
+import { OpsStatusSection } from "@/components/admin/OpsStatusSection";
+import { PaymentsSection } from "@/components/admin/PaymentsSection";
+import { FinanceSection } from "@/components/admin/FinanceSection";
 
-type AdminSection = "dashboard" | "autoFill" | "submissions" | "competitions" | "agents" | "players" | "pnl" | "admins";
+type AdminSection = "dashboard" | "analytics" | "ops" | "finance" | "autoFill" | "submissions" | "competitions" | "agents" | "players" | "pnl" | "admins" | "roles" | "cms" | "media" | "notifications" | "payments" | "settings";
 type CompetitionSubType = "lotto" | "chance" | "mondial" | "football_custom" | null;
 
 export default function AdminPanel() {
-  const { user, logout } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
   const [, setLocation] = useLocation();
   const [section, setSection] = useState<AdminSection>("dashboard");
   const [competitionSubType, setCompetitionSubType] = useState<CompetitionSubType>(null);
+  const [schemaDebugTournamentId, setSchemaDebugTournamentId] = useState<number | null>(null);
+  const [itemsManageTournament, setItemsManageTournament] = useState<{ id: number; name: string } | null>(null);
   const [adminCode, setAdminCode] = useState("");
   const [codeError, setCodeError] = useState(false);
   const [searchSubmissions, setSearchSubmissions] = useState("");
@@ -88,6 +111,7 @@ export default function AdminPanel() {
   const [footballCustomSelectedId, setFootballCustomSelectedId] = useState<number | "">("");
   const [footballCustomNewMatch, setFootballCustomNewMatch] = useState({ homeTeam: "", awayTeam: "", matchDate: "", matchTime: "" });
   const [footballCustomResultEdit, setFootballCustomResultEdit] = useState<Record<number, { homeScore: string; awayScore: string }>>({});
+  const [editCustomMatch, setEditCustomMatch] = useState<{ id: number; homeTeam: string; awayTeam: string; matchDate: string; matchTime: string } | null>(null);
 
   const [pointsSelectedUserId, setPointsSelectedUserId] = useState<number | "">("");
   const [pointsDepositAmount, setPointsDepositAmount] = useState("");
@@ -101,7 +125,7 @@ export default function AdminPanel() {
   const [pointsLogExporting, setPointsLogExporting] = useState(false);
   const [playerDepositAmount, setPlayerDepositAmount] = useState<Record<number, string>>({});
   const [playerWithdrawAmount, setPlayerWithdrawAmount] = useState<Record<number, string>>({});
-  const [financialDetailTournamentId, setFinancialDetailTournamentId] = useState<number | null>(null);
+  const [financialDetailTournamentId, _setFinancialDetailTournamentId] = useState<number | null>(null);
 
   const [userPasswordResetId, setUserPasswordResetId] = useState<number | null>(null);
   const [userPasswordNew, setUserPasswordNew] = useState("");
@@ -110,10 +134,10 @@ export default function AdminPanel() {
 
   const [pnlFrom, setPnlFrom] = useState("");
   const [pnlTo, setPnlTo] = useState("");
-  const [playersReportFrom, setPlayersReportFrom] = useState("");
-  const [playersReportTo, setPlayersReportTo] = useState("");
-  const [agentsReportFrom, setAgentsReportFrom] = useState("");
-  const [agentsReportTo, setAgentsReportTo] = useState("");
+  const [playersReportFrom, _setPlayersReportFrom] = useState("");
+  const [playersReportTo, _setPlayersReportTo] = useState("");
+  const [agentsReportFrom, _setAgentsReportFrom] = useState("");
+  const [agentsReportTo, _setAgentsReportTo] = useState("");
   const [exportingPlayerId, setExportingPlayerId] = useState<number | null>(null);
   const [exportingAgentId, setExportingAgentId] = useState<number | null>(null);
   const [exportPlayerModalOpen, setExportPlayerModalOpen] = useState(false);
@@ -129,6 +153,7 @@ export default function AdminPanel() {
   const [exportAgentTo, setExportAgentTo] = useState("");
   const [exportAgentError, setExportAgentError] = useState("");
   const [pnlTournamentType, setPnlTournamentType] = useState("");
+  const [pnlSourceLabel, setPnlSourceLabel] = useState<"" | "legacy" | "universal">("");
   const [pnlFilterAgentId, setPnlFilterAgentId] = useState<number | "">("");
   const [pnlFilterPlayerId, setPnlFilterPlayerId] = useState<number | "">("");
   const [pnlDetailAgentId, setPnlDetailAgentId] = useState<number | null>(null);
@@ -142,13 +167,22 @@ export default function AdminPanel() {
   const [assignAgentPlayerName, setAssignAgentPlayerName] = useState("");
   const [assignAgentSelectedId, setAssignAgentSelectedId] = useState<number | "">("");
 
-  const PNL_TOURNAMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
-    { value: "", label: "כל הסוגים" },
-    { value: "football", label: "כדורגל" },
-    { value: "lotto", label: "לוטו" },
-    { value: "chance", label: "צ'אנס" },
-    { value: "football_custom", label: "כדורגל מותאם" },
-  ];
+  /** Phase 9: PnL type filter from competition_types (dynamic). Fallback to legacy list if API empty. */
+  const { data: competitionTypesForPnL } = trpc.competitionTypes.list.useQuery(undefined, { enabled: section === "pnl" });
+  const PNL_TOURNAMENT_TYPE_OPTIONS: { value: string; label: string }[] = useMemo(() => {
+    const all = [{ value: "", label: "כל הסוגים" }];
+    if (competitionTypesForPnL?.length) {
+      return all.concat(competitionTypesForPnL.map((t) => ({ value: t.code, label: (t as { name?: string }).name ?? t.code })));
+    }
+    return all.concat(
+      [
+        { value: "football", label: "כדורגל" },
+        { value: "lotto", label: "לוטו" },
+        { value: "chance", label: "צ'אנס" },
+        { value: "football_custom", label: "כדורגל מותאם" },
+      ]
+    );
+  }, [competitionTypesForPnL]);
 
   const [autoFillTournamentId, setAutoFillTournamentId] = useState<number | "">("");
   const [autoFillCount, setAutoFillCount] = useState(50);
@@ -171,10 +205,14 @@ export default function AdminPanel() {
   const { data: tournaments } = trpc.tournaments.getAll.useQuery(undefined, {
     enabled: !!status?.verified || !status?.codeRequired,
   });
-  const { data: financialReport } = trpc.admin.getFinancialReport.useQuery(undefined, {
+  const { data: competitionTypesList } = trpc.competitionTypes.list.useQuery(
+    { activeOnly: true },
+    { enabled: (!!status?.verified || !status?.codeRequired) && section === "competitions" }
+  );
+  const { data: _financialReport } = trpc.admin.getFinancialReport.useQuery(undefined, {
     enabled: false,
   });
-  const { data: financialDetailPrizeLogs } = trpc.admin.getPointsLogs.useQuery(
+  const { data: _financialDetailPrizeLogs } = trpc.admin.getPointsLogs.useQuery(
     { tournamentId: financialDetailTournamentId ?? undefined, limit: 200 },
     { enabled: false }
   );
@@ -191,15 +229,15 @@ export default function AdminPanel() {
     enabled: (!!status?.verified || !status?.codeRequired) && (section === "dashboard" || section === "agents"),
   });
   const { data: pnlSummary, isLoading: pnlSummaryLoading } = trpc.admin.getPnLSummary.useQuery(
-    { from: pnlFrom || undefined, to: pnlTo || undefined, tournamentType: pnlTournamentType || undefined },
+    { from: pnlFrom || undefined, to: pnlTo || undefined, tournamentType: pnlTournamentType || undefined, sourceLabel: pnlSourceLabel || undefined },
     { enabled: (!!status?.verified || !status?.codeRequired) && section === "pnl" }
   );
   const { data: pnlAgentDetail } = trpc.admin.getAgentPnL.useQuery(
-    { agentId: pnlDetailAgentId!, from: pnlFrom || undefined, to: pnlTo || undefined, tournamentType: pnlTournamentType || undefined },
+    { agentId: pnlDetailAgentId!, from: pnlFrom || undefined, to: pnlTo || undefined, tournamentType: pnlTournamentType || undefined, sourceLabel: pnlSourceLabel || undefined },
     { enabled: (!!status?.verified || !status?.codeRequired) && section === "pnl" && pnlDetailAgentId != null }
   );
   const { data: pnlPlayerDetail } = trpc.admin.getPlayerPnL.useQuery(
-    { userId: pnlDetailPlayerId!, from: pnlFrom || undefined, to: pnlTo || undefined, tournamentType: pnlTournamentType || undefined },
+    { userId: pnlDetailPlayerId!, from: pnlFrom || undefined, to: pnlTo || undefined, tournamentType: pnlTournamentType || undefined, sourceLabel: pnlSourceLabel || undefined },
     { enabled: (!!status?.verified || !status?.codeRequired) && section === "pnl" && pnlDetailPlayerId != null }
   );
   const { data: pnlReportRows, isLoading: pnlReportRowsLoading } = trpc.admin.getPnLReport.useQuery(
@@ -207,6 +245,7 @@ export default function AdminPanel() {
       from: pnlFrom || undefined,
       to: pnlTo || undefined,
       tournamentType: pnlTournamentType || undefined,
+      sourceLabel: pnlSourceLabel || undefined,
       agentId: pnlFilterAgentId === "" ? undefined : pnlFilterAgentId,
       playerId: pnlFilterPlayerId === "" ? undefined : pnlFilterPlayerId,
       limit: 2000,
@@ -216,7 +255,7 @@ export default function AdminPanel() {
   const { data: playersData } = trpc.admin.getPlayers.useQuery(undefined, {
     enabled: (!!status?.verified || !status?.codeRequired) && (section === "players" || section === "dashboard"),
   });
-  const players = playersData?.players ?? [];
+  const _players = playersData?.players ?? [];
   const totalUsers = playersData?.totalUsers ?? 0;
   const [usersListRoleFilter, setUsersListRoleFilter] = useState<"all" | "user" | "agent" | "admin">("all");
   const { data: usersListData, refetch: refetchUsersList } = trpc.admin.getUsersList.useQuery(
@@ -340,6 +379,7 @@ export default function AdminPanel() {
   );
   const addCustomFootballMatchMut = trpc.admin.addCustomFootballMatch.useMutation();
   const updateCustomFootballMatchResultMut = trpc.admin.updateCustomFootballMatchResult.useMutation();
+  const updateCustomFootballMatchMut = trpc.admin.updateCustomFootballMatch.useMutation();
   const deleteCustomFootballMatchMut = trpc.admin.deleteCustomFootballMatch.useMutation();
   const recalcCustomFootballPointsMut = trpc.admin.recalcCustomFootballPoints.useMutation();
 
@@ -353,8 +393,9 @@ export default function AdminPanel() {
   const [newTournament, setNewTournament] = useState({
     name: "",
     amount: "",
+    freeEntry: false,
     description: "",
-    type: "football" as "football" | "lotto" | "chance" | "custom",
+    type: "football" as "football" | "football_custom" | "lotto" | "chance" | "custom",
     startDate: "",
     endDate: "",
     maxParticipants: "",
@@ -362,6 +403,8 @@ export default function AdminPanel() {
     prize1: "100",
     prize2: "30",
     prize3: "20",
+    guaranteedPrizeAmount: "",
+    guaranteedPrizeEnabled: false,
     drawCode: "",
     drawDate: "",
     drawTime: "",
@@ -406,6 +449,8 @@ export default function AdminPanel() {
   const activeTournamentsCount = (tournaments ?? []).filter(
     (t) => !(t as { isLocked?: boolean }).isLocked && (t as { resultsFinalizedAt?: unknown }).resultsFinalizedAt == null
   ).length;
+  const canViewReports = user?.isSuperAdmin || user?.permissions?.includes("reports.view");
+  const canViewSubmissions = user?.isSuperAdmin || user?.permissions?.includes("submissions.view");
 
   type DashboardCardRoute = AdminSection;
   const dashboardCards: Array<{
@@ -456,6 +501,17 @@ export default function AdminPanel() {
       icon: <Users className="w-8 h-8 text-amber-400" />,
       route: "agents" as DashboardCardRoute,
     },
+    ...(canViewReports
+      ? [
+          {
+            id: "analytics",
+            title: "אנליטיקה / BI",
+            description: "סיכום פלטפורמה, תחרויות, כספים, תבניות וסוכנים.",
+            icon: <BarChart3 className="w-8 h-8 text-amber-400" />,
+            route: "analytics" as DashboardCardRoute,
+          },
+        ]
+      : []),
     {
       id: "autoFill",
       title: "מילוי אוטומטי",
@@ -499,8 +555,20 @@ export default function AdminPanel() {
     }
   }, [section, lottoDrawResult, lottoDrawCodeInput]);
 
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user || user.role !== "admin") setLocation("/");
+    // setLocation omitted from deps to avoid re-run on router updates (infinite re-render)
+  }, [authLoading, user]);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <Loader2 className="w-12 h-12 animate-spin text-amber-500" />
+      </div>
+    );
+  }
   if (!user || user.role !== "admin") {
-    setLocation("/");
     return null;
   }
 
@@ -653,10 +721,21 @@ export default function AdminPanel() {
 
   const handleCreateTournament = async (e: React.FormEvent, typeOverride?: "football" | "football_custom" | "lotto" | "chance" | "custom") => {
     e.preventDefault();
-    const amount = parseInt(newTournament.amount, 10);
-    if (!newTournament.name.trim() || isNaN(amount) || amount < 1) {
-      toast.error("הזן שם וסכום תקין");
+    const amount = newTournament.freeEntry ? 0 : parseInt(newTournament.amount, 10);
+    if (!newTournament.name.trim()) {
+      toast.error("שם תחרות חובה");
       return;
+    }
+    if (newTournament.freeEntry) {
+      if (amount !== 0) {
+        toast.error("בתחרות FreeRoll מחיר ההשתתפות חייב להיות 0");
+        return;
+      }
+    } else {
+      if (isNaN(amount) || amount <= 0) {
+        toast.error("בתחרות רגילה מחיר השתתפות חובה (גדול מ-0)");
+        return;
+      }
     }
     const tournamentType = typeOverride ?? newTournament.type;
     if (tournamentType === "lotto" && !newTournament.drawCode?.trim()) {
@@ -711,6 +790,14 @@ export default function AdminPanel() {
         drawDate: tournamentType === "chance" || tournamentType === "lotto" ? newTournament.drawDate.trim() : undefined,
         drawTime: tournamentType === "chance" || tournamentType === "lotto" ? newTournament.drawTime.trim() : undefined,
         customIdentifier: newTournament.customIdentifier?.trim() || undefined,
+        guaranteedPrizeAmount: (() => {
+          if (!newTournament.freeEntry) return undefined;
+          if (!newTournament.guaranteedPrizeEnabled) return undefined;
+          const v = newTournament.guaranteedPrizeAmount?.trim();
+          if (!v) return undefined;
+          const n = parseInt(v, 10);
+          return Number.isFinite(n) && n > 0 ? n : undefined;
+        })(),
         ...((tournamentType === "football" || tournamentType === "football_custom") && (() => {
           const built = buildOpensClosesMondial(
             newTournament.openDate,
@@ -725,6 +812,7 @@ export default function AdminPanel() {
       setNewTournament({
         name: "",
         amount: "",
+        freeEntry: false,
         description: "",
         type: "football",
         startDate: "",
@@ -734,6 +822,8 @@ export default function AdminPanel() {
         prize1: "100",
         prize2: "30",
         prize3: "20",
+        guaranteedPrizeAmount: "",
+        guaranteedPrizeEnabled: false,
         drawCode: "",
         drawDate: "",
         drawTime: "",
@@ -780,13 +870,25 @@ export default function AdminPanel() {
     }
   };
 
+  const canManageRoles = user?.isSuperAdmin || user?.permissions?.includes("roles.manage");
+  const canViewCms = user?.isSuperAdmin || user?.permissions?.includes("cms.view") || user?.permissions?.includes("cms.edit");
+  const canManageSettings = user?.isSuperAdmin || user?.permissions?.includes("settings.manage");
   const navItems: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
     { id: "dashboard", label: "דשבורד", icon: <LayoutDashboard className="w-5 h-5" /> },
+    ...(canViewReports ? [{ id: "analytics" as const, label: "אנליטיקה", icon: <BarChart3 className="w-5 h-5" /> }] : []),
+    ...(canViewReports ? [{ id: "ops" as const, label: "סטטוס מערכת", icon: <Activity className="w-5 h-5" /> }] : []),
     ...(user?.isSuperAdmin ? [{ id: "admins" as const, label: "ניהול מנהלים", icon: <Lock className="w-5 h-5" /> }] : []),
+    ...(canManageRoles ? [{ id: "roles" as const, label: "תפקידים והרשאות", icon: <Shield className="w-5 h-5" /> }] : []),
+    ...(canViewCms ? [{ id: "cms" as const, label: "תוכן (CMS)", icon: <Image className="w-5 h-5" /> }] : []),
+    ...(canViewCms ? [{ id: "media" as const, label: "מדיה", icon: <Image className="w-5 h-5" /> }] : []),
+    { id: "notifications" as const, label: "התראות", icon: <Bell className="w-5 h-5" /> },
+    ...(canViewSubmissions ? [{ id: "payments" as const, label: "תשלומים", icon: <CreditCard className="w-5 h-5" /> }] : []),
+    ...(canManageSettings ? [{ id: "settings" as const, label: "הגדרות אתר", icon: <Settings className="w-5 h-5" /> }] : []),
     { id: "agents", label: "סוכנים", icon: <Users className="w-5 h-5" /> },
+    { id: "finance", label: "כספים ועמלות", icon: <DollarSign className="w-5 h-5" /> },
     { id: "pnl", label: "דוח רווח והפסד", icon: <TrendingUp className="w-5 h-5" /> },
     { id: "players", label: "שחקנים", icon: <UserPlus className="w-5 h-5" /> },
-    { id: "competitions", label: "פתיחת תחרות חדשה", icon: <Trophy className="w-5 h-5" /> },
+    { id: "competitions", label: "תחרויות", icon: <Trophy className="w-5 h-5" /> },
     { id: "autoFill", label: "מילוי אוטומטי", icon: <Zap className="w-5 h-5" /> },
     { id: "submissions", label: "טפסים", icon: <FileText className="w-5 h-5" /> },
   ];
@@ -1017,6 +1119,19 @@ export default function AdminPanel() {
           </div>
         )}
 
+        {section === "analytics" && (
+          <AnalyticsDashboardSection onBack={() => setSection("dashboard")} />
+        )}
+        {section === "ops" && (
+          <OpsStatusSection onBack={() => setSection("dashboard")} />
+        )}
+        {section === "payments" && (
+          <PaymentsSection onBack={() => setSection("dashboard")} />
+        )}
+        {section === "finance" && (
+          <FinanceSection onBack={() => setSection("dashboard")} />
+        )}
+
         {section === "autoFill" && (
           <div className="space-y-4">
             <Button variant="ghost" size="sm" className="text-slate-400 -ml-2 md:ml-0" onClick={() => setSection("dashboard")}>
@@ -1188,7 +1303,8 @@ export default function AdminPanel() {
                   </thead>
                   <tbody>
                 {filteredSubmissions.map((s) => {
-                  const tourName = tournaments?.find((t) => t.id === s.tournamentId)?.name ?? `#${s.tournamentId}`;
+                  const removed = !!(s as { tournamentRemoved?: boolean }).tournamentRemoved;
+                  const tourName = removed ? "תחרות לא זמינה" : (tournaments?.find((t) => t.id === s.tournamentId)?.name ?? `#${s.tournamentId}`);
                   return (
                     <tr key={s.id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
                       <td className="py-2 px-2 text-white font-medium min-w-0 max-w-0 break-words" title={s.username}>{s.username}</td>
@@ -1259,55 +1375,281 @@ export default function AdminPanel() {
         )}
 
         {section === "competitions" && competitionSubType === null && (
-          <Card className="bg-slate-800/50 border-slate-700 max-w-2xl">
-            <CardHeader>
+          <div className="space-y-6 max-w-5xl">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <Trophy className="w-6 h-6 text-amber-400" />
-                פתיחת תחרות חדשה
+                תחרויות
               </h2>
-              <p className="text-slate-400 text-sm">בחר סוג תחרות לפתיחה וניהול.</p>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-auto py-6 flex flex-col gap-2 border-slate-600 hover:bg-slate-700/50 hover:border-amber-500/50 text-white"
-                  onClick={() => setCompetitionSubType("lotto")}
+            </div>
+
+            {/* Competition creation form – above list */}
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardHeader>
+                <CardTitle className="text-white">צור תחרות חדשה</CardTitle>
+                <CardDescription className="text-slate-400">מלא את הפרטים ולחץ ליצירה. התחרות תופיע ברשימה למטה.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form
+                  onSubmit={(e) => handleCreateTournament(e)}
+                  className="space-y-4"
+                  dir="rtl"
                 >
-                  <span className="text-2xl">🎱</span>
-                  <span>פתיחת תחרות לוטו</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-auto py-6 flex flex-col gap-2 border-slate-600 hover:bg-slate-700/50 hover:border-amber-500/50 text-white"
-                  onClick={() => setCompetitionSubType("chance")}
-                >
-                  <span className="text-2xl">🎟</span>
-                  <span>פתיחת תחרות צ'אנס</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-auto py-6 flex flex-col gap-2 border-slate-600 hover:bg-slate-700/50 hover:border-amber-500/50 text-white"
-                  onClick={() => setCompetitionSubType("football_custom")}
-                >
-                  <span className="text-2xl">⚽</span>
-                  <span>פתיחת תחרות כדורגל</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-auto py-6 flex flex-col gap-2 border-slate-600 hover:bg-slate-700/50 hover:border-amber-500/50 text-white"
-                  onClick={() => setCompetitionSubType("mondial")}
-                >
-                  <span className="text-2xl">🌍</span>
-                  <span>פתיחת תחרות מונדיאל</span>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-300">סוג תחרות</label>
+                      <select
+                        className="w-full h-9 rounded-md bg-slate-900 border border-slate-600 text-slate-200 text-sm px-3"
+                        value={newTournament.type}
+                        onChange={(e) => setNewTournament((prev) => ({ ...prev, type: e.target.value as typeof prev.type }))}
+                      >
+                        <option value="football">מונדיאל</option>
+                        <option value="football_custom">כדורגל מותאם</option>
+                        <option value="lotto">לוטו</option>
+                        <option value="chance">צ'אנס</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-300">שם תחרות</label>
+                      <Input
+                        className="bg-slate-900 border-slate-600 text-slate-200"
+                        placeholder="שם התחרות"
+                        value={newTournament.name}
+                        onChange={(e) => setNewTournament((prev) => ({ ...prev, name: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="free-entry"
+                        checked={newTournament.freeEntry}
+                        onCheckedChange={(checked) =>
+                          setNewTournament((prev) => ({
+                            ...prev,
+                            freeEntry: !!checked,
+                            ...(!!checked ? { amount: "0" } : {}),
+                            ...(!checked ? { guaranteedPrizeEnabled: false, guaranteedPrizeAmount: "" } : {}),
+                          }))
+                        }
+                      />
+                      <label htmlFor="free-entry" className="text-sm text-slate-300 cursor-pointer">FreeRoll / השתתפות חינם</label>
+                    </div>
+                    {!newTournament.freeEntry && (
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-300">מחיר השתתפות (₪) <span className="text-amber-400">*</span></label>
+                        <Input
+                          type="number"
+                          min={1}
+                          className="w-28 bg-slate-900 border-slate-600 text-slate-200"
+                          value={newTournament.amount}
+                          onChange={(e) => setNewTournament((prev) => ({ ...prev, amount: e.target.value }))}
+                          placeholder="0"
+                        />
+                      </div>
+                    )}
+                    {newTournament.freeEntry && (
+                      <p className="text-slate-400 text-sm">מחיר השתתפות: 0 ₪ (FreeRoll)</p>
+                    )}
+                  </div>
+
+                  {(newTournament.type === "lotto" || newTournament.type === "chance") && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-slate-700">
+                      {newTournament.type === "lotto" && (
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-slate-300">מזהה הגרלה (לוטו)</label>
+                          <Input
+                            className="bg-slate-900 border-slate-600 text-slate-200"
+                            placeholder="מזהה לעדכון תוצאות"
+                            value={newTournament.drawCode}
+                            onChange={(e) => setNewTournament((prev) => ({ ...prev, drawCode: e.target.value }))}
+                          />
+                        </div>
+                      )}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-300">תאריך הגרלה</label>
+                        <Input
+                          type="date"
+                          className="bg-slate-900 border-slate-600 text-slate-200"
+                          value={newTournament.drawDate}
+                          onChange={(e) => setNewTournament((prev) => ({ ...prev, drawDate: e.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-300">שעת הגרלה</label>
+                        <select
+                          className="w-full h-9 rounded-md bg-slate-900 border border-slate-600 text-slate-200 text-sm px-3"
+                          value={newTournament.drawTime}
+                          onChange={(e) => setNewTournament((prev) => ({ ...prev, drawTime: e.target.value }))}
+                        >
+                          <option value="">בחר שעה</option>
+                          {(newTournament.type === "lotto" ? LOTTO_DRAW_TIMES : CHANCE_DRAW_TIMES).map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {(newTournament.type === "football" || newTournament.type === "football_custom") && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-700">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-300">תאריך פתיחה</label>
+                        <Input
+                          type="date"
+                          className="bg-slate-900 border-slate-600 text-slate-200"
+                          value={newTournament.openDate}
+                          onChange={(e) => setNewTournament((prev) => ({ ...prev, openDate: e.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-300">שעת פתיחה</label>
+                        <Input
+                          type="time"
+                          className="bg-slate-900 border-slate-600 text-slate-200"
+                          value={newTournament.openTime}
+                          onChange={(e) => setNewTournament((prev) => ({ ...prev, openTime: e.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-300">תאריך סגירה</label>
+                        <Input
+                          type="date"
+                          className="bg-slate-900 border-slate-600 text-slate-200"
+                          value={newTournament.closeDate}
+                          onChange={(e) => setNewTournament((prev) => ({ ...prev, closeDate: e.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-300">שעת סגירה</label>
+                        <Input
+                          type="time"
+                          className="bg-slate-900 border-slate-600 text-slate-200"
+                          value={newTournament.closeTime}
+                          onChange={(e) => setNewTournament((prev) => ({ ...prev, closeTime: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Guaranteed prize – only for FreeRoll tournaments */}
+                  {newTournament.freeEntry && (
+                    <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-slate-700">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id="guaranteed-prize"
+                          checked={newTournament.guaranteedPrizeEnabled}
+                          onCheckedChange={(checked) => setNewTournament((prev) => ({ ...prev, guaranteedPrizeEnabled: !!checked }))}
+                        />
+                        <label htmlFor="guaranteed-prize" className="text-sm text-slate-300">פרס מובטח (FreeRoll)</label>
+                      </div>
+                      {newTournament.guaranteedPrizeEnabled && (
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm text-slate-400">סכום (₪)</label>
+                          <Input
+                            type="number"
+                            min={1}
+                            className="w-28 bg-slate-900 border-slate-600 text-slate-200"
+                            value={newTournament.guaranteedPrizeAmount}
+                            onChange={(e) => setNewTournament((prev) => ({ ...prev, guaranteedPrizeAmount: e.target.value }))}
+                            placeholder="0"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="pt-2">
+                    <Button type="submit" disabled={createTournamentMut.isPending}>
+                      {createTournamentMut.isPending ? <Loader2 className="w-4 h-4 animate-spin ml-1" /> : null}
+                      צור תחרות
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+
+            <CompetitionsTable
+              tournaments={(tournaments ?? []).map((t) => ({
+                id: t.id,
+                name: t.name,
+                amount: t.amount,
+                type: (t as { type?: string }).type,
+                competitionTypeId: (t as { competitionTypeId?: number }).competitionTypeId,
+                status: (t as { status?: string }).status,
+                isLocked: (t as { isLocked?: boolean }).isLocked,
+                opensAt: (t as { opensAt?: unknown }).opensAt,
+                closesAt: (t as { closesAt?: unknown }).closesAt,
+                createdAt: (t as { createdAt?: unknown }).createdAt,
+              }))}
+              typesFromApi={competitionTypesList}
+              submissionCountByTournamentId={submissionsCountByTournament}
+              onLock={handleLock}
+              onDelete={handleDeleteTournament}
+              onViewSchema={setSchemaDebugTournamentId}
+              onViewItems={(id, name) => setItemsManageTournament({ id, name })}
+            />
+            <Card className="bg-slate-800/50 border-slate-700 max-w-2xl">
+              <CardHeader>
+                <h3 className="text-lg font-bold text-white">ניהול לפי סוג תחרות</h3>
+                <p className="text-slate-400 text-sm">רשימות, עדכון תוצאות ופתיחת תחרות מהטופס הישן.</p>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-auto py-6 flex flex-col gap-2 border-slate-600 hover:bg-slate-700/50 hover:border-amber-500/50 text-white"
+                    onClick={() => setCompetitionSubType("lotto")}
+                  >
+                    <span className="text-2xl">🎱</span>
+                    <span>לוטו</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-auto py-6 flex flex-col gap-2 border-slate-600 hover:bg-slate-700/50 hover:border-amber-500/50 text-white"
+                    onClick={() => setCompetitionSubType("chance")}
+                  >
+                    <span className="text-2xl">🎟</span>
+                    <span>צ'אנס</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-auto py-6 flex flex-col gap-2 border-slate-600 hover:bg-slate-700/50 hover:border-amber-500/50 text-white"
+                    onClick={() => setCompetitionSubType("football_custom")}
+                  >
+                    <span className="text-2xl">⚽</span>
+                    <span>כדורגל מותאם</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-auto py-6 flex flex-col gap-2 border-slate-600 hover:bg-slate-700/50 hover:border-amber-500/50 text-white"
+                    onClick={() => setCompetitionSubType("mondial")}
+                  >
+                    <span className="text-2xl">🌍</span>
+                    <span>מונדיאל</span>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+            <Dialog open={schemaDebugTournamentId != null} onOpenChange={(open) => !open && setSchemaDebugTournamentId(null)}>
+              <SchemaDebugModal
+                tournamentId={schemaDebugTournamentId}
+                onClose={() => setSchemaDebugTournamentId(null)}
+              />
+            </Dialog>
+            {itemsManageTournament != null && (
+              <CompetitionItemsManageModal
+                tournamentId={itemsManageTournament.id}
+                tournamentName={itemsManageTournament.name}
+                onClose={() => setItemsManageTournament(null)}
+              />
+            )}
+          </div>
         )}
 
         {section === "competitions" && competitionSubType === "chance" && (
@@ -1324,40 +1666,9 @@ export default function AdminPanel() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <h3 className="text-white font-medium mb-2">צור תחרות צ'אנס חדשה</h3>
-                <form onSubmit={(e) => handleCreateTournament(e, "chance")} className="flex flex-wrap gap-4 items-end p-4 rounded-lg bg-slate-700/30">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">שם תחרות</label>
-                    <Input className="bg-slate-800 text-white w-40" placeholder="צ'אנס 100" value={newTournament.name} onChange={(e) => setNewTournament((p) => ({ ...p, name: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">סכום (₪)</label>
-                    <Input type="number" min={1} className="bg-slate-800 text-white w-24" value={newTournament.amount} onChange={(e) => setNewTournament((p) => ({ ...p, amount: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">תאריך הגרלה</label>
-                    <Input type="date" placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 text-white w-36" value={newTournament.drawDate} onChange={(e) => setNewTournament((p) => ({ ...p, drawDate: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">שעת הגרלה</label>
-                    <select className="bg-slate-800 text-white rounded-lg px-3 py-2 w-24 border border-slate-600" value={newTournament.drawTime} onChange={(e) => setNewTournament((p) => ({ ...p, drawTime: e.target.value }))}>
-                      <option value="">בחר</option>
-                      {CHANCE_DRAW_TIMES.map((h) => <option key={h} value={h}>{h}</option>)}
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">מזהה ייחודי (אופציונלי)</label>
-                    <Input className="bg-slate-800 text-white w-44" placeholder="ריק = כמה תחרויות באותו סכום" value={newTournament.customIdentifier} onChange={(e) => setNewTournament((p) => ({ ...p, customIdentifier: e.target.value }))} title="אם ריק – ניתן לפתוח כמה תחרויות צ'אנס עם אותו סכום (בתאריך/שעה שונים)" />
-                  </div>
-                  <Button type="submit" size="sm" disabled={createTournamentMut.isPending} className="bg-amber-600 hover:bg-amber-700">
-                    {createTournamentMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "צור תחרות צ'אנס"}
-                  </Button>
-                </form>
-              </div>
-              <div>
                 <h3 className="text-white font-medium mb-2">רשימת תחרויות צ'אנס</h3>
                 {chanceTournaments.length === 0 ? (
-                  <p className="text-slate-500 text-sm">אין תחרויות צ'אנס. צור אחת למעלה.</p>
+                  <p className="text-slate-500 text-sm">אין תחרויות צ'אנס.</p>
                 ) : (
                   <div className="space-y-2">
                     {chanceTournaments.map((t) => {
@@ -1548,44 +1859,9 @@ export default function AdminPanel() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <h3 className="text-white font-medium mb-2">צור תחרות לוטו חדשה</h3>
-                <form onSubmit={(e) => handleCreateTournament(e, "lotto")} className="flex flex-wrap gap-4 items-end p-4 rounded-lg bg-slate-700/30">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">שם תחרות</label>
-                    <Input className="bg-slate-800 text-white w-40" placeholder="לוטו 50" value={newTournament.name} onChange={(e) => setNewTournament((p) => ({ ...p, name: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">סכום (₪)</label>
-                    <Input type="number" min={1} className="bg-slate-800 text-white w-24" value={newTournament.amount} onChange={(e) => setNewTournament((p) => ({ ...p, amount: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">תאריך סגירת הגרלה</label>
-                    <Input type="date" placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 text-white w-36" value={newTournament.drawDate} onChange={(e) => setNewTournament((p) => ({ ...p, drawDate: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">שעת סגירת הגרלה</label>
-                    <select className="bg-slate-800 text-white rounded-lg px-3 py-2 w-24 border border-slate-600" value={newTournament.drawTime} onChange={(e) => setNewTournament((p) => ({ ...p, drawTime: e.target.value }))}>
-                      <option value="">בחר</option>
-                      {LOTTO_DRAW_TIMES.map((h) => <option key={h} value={h}>{h}</option>)}
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">מזהה תחרות</label>
-                    <Input className="bg-slate-800 text-white w-36" placeholder="למשל lotto-1" value={newTournament.drawCode} onChange={(e) => setNewTournament((p) => ({ ...p, drawCode: e.target.value }))} title="מזהה ייחודי לעדכון תוצאות בהמשך" />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">מזהה ייחודי (אופציונלי)</label>
-                    <Input className="bg-slate-800 text-white w-36" placeholder="ריק = אפשר כמה עם אותו סכום" value={newTournament.customIdentifier} onChange={(e) => setNewTournament((p) => ({ ...p, customIdentifier: e.target.value }))} />
-                  </div>
-                  <Button type="submit" size="sm" disabled={createTournamentMut.isPending} className="bg-amber-600 hover:bg-amber-700">
-                    {createTournamentMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "צור תחרות לוטו"}
-                  </Button>
-                </form>
-              </div>
-              <div>
                 <h3 className="text-white font-medium mb-2">רשימת תחרויות לוטו</h3>
                 {lottoTournaments.length === 0 ? (
-                  <p className="text-slate-500 text-sm">אין תחרויות לוטו. צור אחת למעלה.</p>
+                  <p className="text-slate-500 text-sm">אין תחרויות לוטו.</p>
                 ) : (
                   <div className="space-y-2">
 {lottoTournaments.map((t) => {
@@ -1841,6 +2117,7 @@ export default function AdminPanel() {
                 </div>
               </CardContent>
             </Card>
+            {(user?.isSuperAdmin || user?.permissions?.includes("competitions.settle")) && (
             <Card className="bg-slate-800/50 border-slate-700">
               <CardHeader>
                 <h2 className="text-xl font-bold text-white">חלוקת פרסים לתחרות</h2>
@@ -1884,6 +2161,7 @@ export default function AdminPanel() {
                 </Button>
               </CardContent>
             </Card>
+            )}
             <Card className="bg-slate-800/50 border-slate-700">
               <CardHeader>
                 <h2 className="text-xl font-bold text-white">משתמשים ושחקנים</h2>
@@ -2632,6 +2910,26 @@ export default function AdminPanel() {
           </DialogContent>
         </Dialog>
 
+        {section === "roles" && canManageRoles && (
+          <RolesManagementSection />
+        )}
+
+        {section === "cms" && canViewCms && (
+          <CmsSection />
+        )}
+
+        {section === "media" && canViewCms && (
+          <MediaManagerSection />
+        )}
+
+        {section === "notifications" && (
+          <NotificationsSection />
+        )}
+
+        {section === "settings" && canManageSettings && (
+          <SettingsSection />
+        )}
+
         {section === "admins" && !user?.isSuperAdmin && (
           <Card className="bg-slate-800/50 border-slate-700">
             <CardContent className="pt-6">
@@ -3122,6 +3420,14 @@ export default function AdminPanel() {
                 </select>
               </div>
               <div>
+                <label className="text-slate-400 text-xs block mb-1">מקור פריטים</label>
+                <select value={pnlSourceLabel} onChange={(e) => setPnlSourceLabel(e.target.value as "" | "legacy" | "universal")} className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm w-36">
+                  <option value="">כל המקורות</option>
+                  <option value="legacy">Legacy</option>
+                  <option value="universal">Universal (DB)</option>
+                </select>
+              </div>
+              <div>
                 <label className="text-slate-400 text-xs block mb-1">סוכן</label>
                 <select
                   value={pnlFilterAgentId === "" ? "" : pnlFilterAgentId}
@@ -3160,6 +3466,7 @@ export default function AdminPanel() {
                       from: pnlFrom || undefined,
                       to: pnlTo || undefined,
                       tournamentType: pnlTournamentType || undefined,
+                      sourceLabel: pnlSourceLabel || undefined,
                     });
                     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
                     const url = URL.createObjectURL(blob);
@@ -3192,6 +3499,7 @@ export default function AdminPanel() {
                       from: pnlFrom || undefined,
                       to: pnlTo || undefined,
                       tournamentType: pnlTournamentType || undefined,
+                      sourceLabel: pnlSourceLabel || undefined,
                       agentId: pnlFilterAgentId === "" ? undefined : pnlFilterAgentId,
                       playerId: pnlFilterPlayerId === "" ? undefined : pnlFilterPlayerId,
                       limit: 5000,
@@ -3294,7 +3602,7 @@ export default function AdminPanel() {
                     <h3 className="text-lg font-bold text-white">טבלת סוכנים</h3>
                   </CardHeader>
                   <CardContent>
-                    {pnlSummary.agents.length > 0 ? (
+                    {(pnlSummary.agents ?? []).length > 0 ? (
                       <div className="overflow-x-auto -mx-1 min-w-0">
                         <table className="w-full text-xs sm:text-sm text-right min-w-[320px] border-collapse">
                           <thead>
@@ -3307,7 +3615,7 @@ export default function AdminPanel() {
                             </tr>
                           </thead>
                           <tbody>
-                            {pnlSummary.agents.map((a, idx) => (
+                            {(pnlSummary.agents ?? []).map((a, idx) => (
                               <tr key={a.id} className={`border-b border-slate-700/50 ${idx % 2 === 1 ? "bg-slate-800/30" : ""}`}>
                                 <td className="py-1.5 sm:py-2 px-2 text-white font-medium whitespace-nowrap bg-slate-800/95 sm:bg-transparent sticky right-0 z-10 border-l border-slate-600/50">{a.name || a.username || `#${a.id}`}</td>
                                 <td className="py-1.5 sm:py-2 px-2 text-emerald-400 whitespace-nowrap">{a.profit}</td>
@@ -3331,9 +3639,9 @@ export default function AdminPanel() {
                     <h3 className="text-lg font-bold text-white">שחקנים לפי סוכן</h3>
                   </CardHeader>
                   <CardContent>
-                    {pnlSummary.playersByAgent.length > 0 ? (
+                    {(pnlSummary.playersByAgent ?? []).length > 0 ? (
                       <div className="space-y-4">
-                        {pnlSummary.playersByAgent.map((group) => (
+                        {(pnlSummary.playersByAgent ?? []).map((group) => (
                           <div key={group.agentId}>
                             <p className="text-slate-400 text-sm font-medium mb-2">סוכן: {group.agentName}</p>
                             <div className="overflow-x-auto">
@@ -3348,7 +3656,7 @@ export default function AdminPanel() {
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {group.players.map((p) => (
+                                  {(group.players ?? []).map((p) => (
                                     <tr key={p.playerId} className="border-b border-slate-700/50">
                                       <td className="py-2 px-2 text-white">{p.name || p.username || `#${p.playerId}`}</td>
                                       <td className="py-2 px-2 text-emerald-400">{p.profit}</td>
@@ -3490,6 +3798,7 @@ export default function AdminPanel() {
                           from: pnlFrom || undefined,
                           to: pnlTo || undefined,
                           tournamentType: pnlTournamentType || undefined,
+                          sourceLabel: pnlSourceLabel || undefined,
                         });
                         const blob = new Blob([csv ?? ""], { type: "text/csv;charset=utf-8" });
                         const url = URL.createObjectURL(blob);
@@ -3526,7 +3835,7 @@ export default function AdminPanel() {
                         <div><span className="text-slate-500">הפסד:</span> <span className="text-amber-400 font-bold">{pnlPlayerDetail.loss}</span></div>
                         <div><span className="text-slate-500">רווח נטו:</span> <span className="text-white font-bold">{pnlPlayerDetail.net}</span></div>
                       </div>
-                      {pnlPlayerDetail.transactions.length > 0 ? (
+                      {(pnlPlayerDetail.transactions ?? []).length > 0 ? (
                         <table className="w-full text-sm text-right">
                           <thead>
                             <tr className="border-b border-slate-600 text-slate-400">
@@ -3537,7 +3846,7 @@ export default function AdminPanel() {
                             </tr>
                           </thead>
                           <tbody>
-                            {pnlPlayerDetail.transactions.map((t) => (
+                            {(pnlPlayerDetail.transactions ?? []).map((t) => (
                               <tr key={t.id} className="border-b border-slate-700/50">
                                 <td className="py-2 px-2 text-slate-300">{t.createdAt ? new Date(t.createdAt).toLocaleDateString("he-IL") : "—"}</td>
                                 <td className="py-2 px-2 text-slate-300">{t.actionType === "prize" ? "זכייה" : t.actionType === "refund" ? "החזר" : "השתתפות"}</td>
@@ -3570,6 +3879,7 @@ export default function AdminPanel() {
                           from: pnlFrom || undefined,
                           to: pnlTo || undefined,
                           tournamentType: pnlTournamentType || undefined,
+                          sourceLabel: pnlSourceLabel || undefined,
                         });
                         const blob = new Blob([csv ?? ""], { type: "text/csv;charset=utf-8" });
                         const url = URL.createObjectURL(blob);
@@ -3610,45 +3920,9 @@ export default function AdminPanel() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <h3 className="text-white font-medium mb-2">צור תחרות מונדיאל חדשה</h3>
-                <form onSubmit={(e) => handleCreateTournament(e, "football")} className="flex flex-wrap gap-4 items-end p-4 rounded-lg bg-slate-700/30">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">שם תחרות</label>
-                    <Input className="bg-slate-800 text-white w-40" placeholder="טורניר 300" value={newTournament.name} onChange={(e) => setNewTournament((p) => ({ ...p, name: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">סכום (₪)</label>
-                    <Input type="number" min={1} className="bg-slate-800 text-white w-24" value={newTournament.amount} onChange={(e) => setNewTournament((p) => ({ ...p, amount: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">מזהה ייחודי (אופציונלי)</label>
-                    <Input className="bg-slate-800 text-white w-36" placeholder="ריק = אפשר כמה עם אותו סכום" value={newTournament.customIdentifier} onChange={(e) => setNewTournament((p) => ({ ...p, customIdentifier: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">תאריך פתיחה <span className="text-red-400">*</span></label>
-                    <Input type="date" required className="bg-slate-800 text-white w-40" value={newTournament.openDate} onChange={(e) => setNewTournament((p) => ({ ...p, openDate: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">שעת פתיחה <span className="text-red-400">*</span></label>
-                    <Input type="time" required className="bg-slate-800 text-white w-28" value={newTournament.openTime} onChange={(e) => setNewTournament((p) => ({ ...p, openTime: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">תאריך סגירה <span className="text-red-400">*</span></label>
-                    <Input type="date" required className="bg-slate-800 text-white w-40" value={newTournament.closeDate} onChange={(e) => setNewTournament((p) => ({ ...p, closeDate: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">שעת סגירה <span className="text-red-400">*</span></label>
-                    <Input type="time" required className="bg-slate-800 text-white w-28" value={newTournament.closeTime} onChange={(e) => setNewTournament((p) => ({ ...p, closeTime: e.target.value }))} />
-                  </div>
-                  <Button type="submit" size="sm" disabled={createTournamentMut.isPending} className="bg-amber-600 hover:bg-amber-700">
-                    {createTournamentMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "צור תחרות מונדיאל"}
-                  </Button>
-                </form>
-              </div>
-              <div>
                 <h3 className="text-white font-medium mb-2">רשימת תחרויות מונדיאל</h3>
                 {footballTournaments.length === 0 ? (
-                  <p className="text-slate-500 text-sm">אין תחרויות מונדיאל. צור אחת למעלה.</p>
+                  <p className="text-slate-500 text-sm">אין תחרויות מונדיאל.</p>
                 ) : (
                   <div className="space-y-2">
                     {footballTournaments.map((t) => (
@@ -3782,45 +4056,9 @@ export default function AdminPanel() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <h3 className="text-white font-medium mb-2">פתיחת תחרות חדשה</h3>
-                <form onSubmit={(e) => handleCreateTournament(e, "football_custom")} className="flex flex-wrap gap-4 items-end p-4 rounded-lg bg-slate-700/30">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">שם התחרות</label>
-                    <Input className="bg-slate-800 text-white w-40" placeholder="למשל ליגה חודשית" value={newTournament.name} onChange={(e) => setNewTournament((p) => ({ ...p, name: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">סכום השתתפות (₪)</label>
-                    <Input type="number" min={1} className="bg-slate-800 text-white w-24" value={newTournament.amount} onChange={(e) => setNewTournament((p) => ({ ...p, amount: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">מזהה ייחודי (אופציונלי)</label>
-                    <Input className="bg-slate-800 text-white w-36" placeholder="ריק = אפשר כמה עם אותו סכום" value={newTournament.customIdentifier} onChange={(e) => setNewTournament((p) => ({ ...p, customIdentifier: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">תאריך פתיחה <span className="text-red-400">*</span></label>
-                    <Input type="date" required className="bg-slate-800 text-white w-40" value={newTournament.openDate} onChange={(e) => setNewTournament((p) => ({ ...p, openDate: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">שעת פתיחה <span className="text-red-400">*</span></label>
-                    <Input type="time" required className="bg-slate-800 text-white w-28" value={newTournament.openTime} onChange={(e) => setNewTournament((p) => ({ ...p, openTime: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">תאריך סגירה <span className="text-red-400">*</span></label>
-                    <Input type="date" required className="bg-slate-800 text-white w-40" value={newTournament.closeDate} onChange={(e) => setNewTournament((p) => ({ ...p, closeDate: e.target.value }))} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400 text-sm">שעת סגירה <span className="text-red-400">*</span></label>
-                    <Input type="time" required className="bg-slate-800 text-white w-28" value={newTournament.closeTime} onChange={(e) => setNewTournament((p) => ({ ...p, closeTime: e.target.value }))} />
-                  </div>
-                  <Button type="submit" size="sm" disabled={createTournamentMut.isPending} className="bg-amber-600 hover:bg-amber-700">
-                    {createTournamentMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "צור תחרות"}
-                  </Button>
-                </form>
-              </div>
-              <div>
                 <h3 className="text-white font-medium mb-2">רשימת תחרויות כדורגל</h3>
                 {footballCustomTournaments.length === 0 ? (
-                  <p className="text-slate-500 text-sm">אין תחרויות. צור תחרות למעלה, אחר כך הוסף משחקים.</p>
+                  <p className="text-slate-500 text-sm">אין תחרויות.</p>
                 ) : (
                   <div className="space-y-4">
                     {footballCustomTournaments.map((t) => (
@@ -3828,8 +4066,8 @@ export default function AdminPanel() {
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="text-white font-medium">{t.name} – ₪{t.amount}</span>
                           <div className="flex gap-2">
+                            <Button size="sm" variant="default" onClick={() => { setFootballCustomSelectedId(t.id); setFootballCustomResultEdit({}); setEditCustomMatch(null); }}>ניהול משחקים</Button>
                             <Button size="sm" variant={t.isLocked ? "outline" : "default"} onClick={() => handleLock(t.id, !t.isLocked)}>{t.isLocked ? "פתח" : "נעל"}</Button>
-                            <Button size="sm" variant="outline" onClick={() => { setFootballCustomSelectedId(t.id); setFootballCustomResultEdit({}); }}>משחקים / עדכון תוצאות</Button>
                             <Button size="sm" variant="outline" onClick={() => setFootballCustomSelectedId(t.id)}>דירוג</Button>
                             <Button size="sm" variant="outline" className="text-red-400 border-red-400/50 hover:bg-red-500/20" onClick={() => handleDeleteTournament(t.id, t.name)} disabled={deleteTournamentMut.isPending}><Trash2 className="w-4 h-4" /></Button>
                           </div>
@@ -3869,46 +4107,83 @@ export default function AdminPanel() {
                             </form>
                             {customFootballMatches && customFootballMatches.length > 0 && (
                               <>
-                                <h4 className="text-amber-400 text-sm font-medium">משחקים – עדכון תוצאות</h4>
+                                <h4 className="text-amber-400 text-sm font-medium">משחקים – עריכה ותוצאות</h4>
                                 <div className="space-y-2">
                                   {customFootballMatches.map((m) => (
                                     <div key={m.id} className="flex flex-wrap items-center gap-2 p-2 rounded bg-slate-800/50">
-                                      <span className="text-slate-300 text-sm min-w-[140px]">{m.homeTeam} – {m.awayTeam}</span>
-                                      <Input type="number" min={0} className="bg-slate-800 text-white w-14 text-center" placeholder="בית" value={footballCustomResultEdit[m.id]?.homeScore ?? (m.homeScore != null ? String(m.homeScore) : "")} onChange={(e) => setFootballCustomResultEdit((p) => ({ ...p, [m.id]: { ...(p[m.id] ?? {}), homeScore: e.target.value } }))} />
-                                      <span className="text-slate-500">-</span>
-                                      <Input type="number" min={0} className="bg-slate-800 text-white w-14 text-center" placeholder="חוץ" value={footballCustomResultEdit[m.id]?.awayScore ?? (m.awayScore != null ? String(m.awayScore) : "")} onChange={(e) => setFootballCustomResultEdit((p) => ({ ...p, [m.id]: { ...(p[m.id] ?? {}), awayScore: e.target.value } }))} />
-                                      <Button
-                                        size="sm"
-                                        onClick={async () => {
-                                          const h = footballCustomResultEdit[m.id]?.homeScore != null ? parseInt(footballCustomResultEdit[m.id].homeScore, 10) : m.homeScore;
-                                          const a = footballCustomResultEdit[m.id]?.awayScore != null ? parseInt(footballCustomResultEdit[m.id].awayScore, 10) : m.awayScore;
-                                          if (h == null || a == null || isNaN(h) || isNaN(a)) {
-                                            toast.error("הזן תוצאה למשחק");
-                                            return;
-                                          }
-                                          try {
-                                            await updateCustomFootballMatchResultMut.mutateAsync({ matchId: m.id, homeScore: h, awayScore: a });
-                                            toast.success("תוצאה נשמרה, נקודות חושבו מחדש");
-                                            await utils.admin.getCustomFootballMatches.invalidate();
-                                            await utils.admin.getCustomFootballLeaderboard.invalidate();
-                                          } catch {
-                                            toast.error("שגיאה");
-                                          }
-                                        }}
-                                        disabled={updateCustomFootballMatchResultMut.isPending}
-                                      >
-                                        שמור תוצאה
-                                      </Button>
-                                      <Button size="sm" variant="outline" className="text-red-400" onClick={async () => {
-                                        if (!confirm("למחוק משחק?")) return;
-                                        try {
-                                          await deleteCustomFootballMatchMut.mutateAsync({ matchId: m.id });
-                                          toast.success("משחק נמחק");
-                                          await utils.admin.getCustomFootballMatches.invalidate();
-                                        } catch {
-                                          toast.error("שגיאה");
-                                        }
-                                      }} disabled={deleteCustomFootballMatchMut.isPending}><Trash2 className="w-4 h-4" /></Button>
+                                      {editCustomMatch?.id === m.id ? (
+                                        <>
+                                          <Input placeholder="קבוצה ביתית" className="bg-slate-800 text-white w-32" value={editCustomMatch.homeTeam} onChange={(e) => setEditCustomMatch((x) => (x ? { ...x, homeTeam: e.target.value } : null))} />
+                                          <Input placeholder="קבוצה אורחת" className="bg-slate-800 text-white w-32" value={editCustomMatch.awayTeam} onChange={(e) => setEditCustomMatch((x) => (x ? { ...x, awayTeam: e.target.value } : null))} />
+                                          <Input type="date" className="bg-slate-800 text-white w-36" value={editCustomMatch.matchDate} onChange={(e) => setEditCustomMatch((x) => (x ? { ...x, matchDate: e.target.value } : null))} />
+                                          <Input type="time" className="bg-slate-800 text-white w-28" value={editCustomMatch.matchTime} onChange={(e) => setEditCustomMatch((x) => (x ? { ...x, matchTime: e.target.value } : null))} />
+                                          <Button size="sm" onClick={async () => {
+                                            if (!editCustomMatch) return;
+                                            try {
+                                              await updateCustomFootballMatchMut.mutateAsync({
+                                                matchId: m.id,
+                                                homeTeam: editCustomMatch.homeTeam.trim(),
+                                                awayTeam: editCustomMatch.awayTeam.trim(),
+                                                matchDate: editCustomMatch.matchDate.trim() || null,
+                                                matchTime: editCustomMatch.matchTime.trim() || null,
+                                              });
+                                              toast.success("משחק עודכן");
+                                              setEditCustomMatch(null);
+                                              await utils.admin.getCustomFootballMatches.invalidate();
+                                            } catch {
+                                              toast.error("שגיאה");
+                                            }
+                                          }} disabled={updateCustomFootballMatchMut.isPending}>
+                                            {updateCustomFootballMatchMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "שמור"}
+                                          </Button>
+                                          <Button size="sm" variant="outline" onClick={() => setEditCustomMatch(null)}>ביטול</Button>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <span className="text-slate-300 text-sm min-w-[140px]">{m.homeTeam} – {m.awayTeam}</span>
+                                          {(m.matchDate || m.matchTime) && <span className="text-slate-500 text-xs">{[m.matchDate, m.matchTime].filter(Boolean).join(" ")}</span>}
+                                          <Button size="sm" variant="outline" className="text-slate-400" onClick={() => setEditCustomMatch({ id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam, matchDate: m.matchDate ?? "", matchTime: m.matchTime ?? "" })} title="ערוך משחק">
+                                            <Pencil className="w-3.5 h-3.5 ml-1" />
+                                            ערוך משחק
+                                          </Button>
+                                          <Input type="number" min={0} className="bg-slate-800 text-white w-14 text-center" placeholder="בית" value={footballCustomResultEdit[m.id]?.homeScore ?? (m.homeScore != null ? String(m.homeScore) : "")} onChange={(e) => setFootballCustomResultEdit((p) => ({ ...p, [m.id]: { ...(p[m.id] ?? {}), homeScore: e.target.value } }))} />
+                                          <span className="text-slate-500">-</span>
+                                          <Input type="number" min={0} className="bg-slate-800 text-white w-14 text-center" placeholder="חוץ" value={footballCustomResultEdit[m.id]?.awayScore ?? (m.awayScore != null ? String(m.awayScore) : "")} onChange={(e) => setFootballCustomResultEdit((p) => ({ ...p, [m.id]: { ...(p[m.id] ?? {}), awayScore: e.target.value } }))} />
+                                          <Button
+                                            size="sm"
+                                            onClick={async () => {
+                                              const h = footballCustomResultEdit[m.id]?.homeScore != null ? parseInt(footballCustomResultEdit[m.id].homeScore, 10) : m.homeScore;
+                                              const a = footballCustomResultEdit[m.id]?.awayScore != null ? parseInt(footballCustomResultEdit[m.id].awayScore, 10) : m.awayScore;
+                                              if (h == null || a == null || isNaN(h) || isNaN(a)) {
+                                                toast.error("הזן תוצאה למשחק");
+                                                return;
+                                              }
+                                              try {
+                                                await updateCustomFootballMatchResultMut.mutateAsync({ matchId: m.id, homeScore: h, awayScore: a });
+                                                toast.success("תוצאה נשמרה, נקודות חושבו מחדש");
+                                                await utils.admin.getCustomFootballMatches.invalidate();
+                                                await utils.admin.getCustomFootballLeaderboard.invalidate();
+                                              } catch {
+                                                toast.error("שגיאה");
+                                              }
+                                            }}
+                                            disabled={updateCustomFootballMatchResultMut.isPending}
+                                          >
+                                            שמור תוצאה
+                                          </Button>
+                                          <Button size="sm" variant="outline" className="text-red-400" onClick={async () => {
+                                            if (!confirm("למחוק משחק?")) return;
+                                            try {
+                                              await deleteCustomFootballMatchMut.mutateAsync({ matchId: m.id });
+                                              toast.success("משחק נמחק");
+                                              setEditCustomMatch(null);
+                                              await utils.admin.getCustomFootballMatches.invalidate();
+                                            } catch {
+                                              toast.error("שגיאה");
+                                            }
+                                          }} disabled={deleteCustomFootballMatchMut.isPending}><Trash2 className="w-4 h-4" /></Button>
+                                        </>
+                                      )}
                                     </div>
                                   ))}
                                 </div>

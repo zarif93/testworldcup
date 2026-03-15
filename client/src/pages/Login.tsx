@@ -56,6 +56,9 @@ export default function Login() {
           <CardDescription className="text-slate-400">
             התחבר לחשבון כדי לשלוח טפסים ולעקוב אחרי הדירוג
           </CardDescription>
+          <p className="text-slate-500 text-xs mt-1">
+            אחרי ההתחברות תוכלו לבחור תחרות, לשלוח ניחושים ולעקוב אחרי הדירוג
+          </p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

@@ -1,10 +1,10 @@
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Gem, Loader2, Calendar, TrendingUp } from "lucide-react";
-import { useState } from "react";
 import { Input } from "@/components/ui/input";
 
 const ACTION_LABELS: Record<string, string> = {
@@ -26,12 +26,17 @@ const TOURNAMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export default function PointsHistory() {
-  const { user, isAuthenticated } = useAuth();
+  const { user, loading: authLoading, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
   const [useDateFilter, setUseDateFilter] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [tournamentType, setTournamentType] = useState("");
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isAuthenticated) setLocation("/login");
+  }, [authLoading, isAuthenticated, setLocation]);
 
   const { data: history, isLoading } = trpc.auth.getPointsHistory.useQuery(
     {
@@ -51,8 +56,14 @@ export default function PointsHistory() {
     { enabled: !!isAuthenticated }
   );
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-10 h-10 animate-spin text-amber-500" />
+      </div>
+    );
+  }
   if (!isAuthenticated) {
-    setLocation("/login");
     return null;
   }
 

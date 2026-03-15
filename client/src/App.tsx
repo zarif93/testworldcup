@@ -6,14 +6,18 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { useAuth } from "./contexts/AuthContext";
-import { Loader2, Trophy, LayoutGrid, LogOut, Coins, Menu, MessageCircle, FileText, Gem, Sun, Moon } from "lucide-react";
+import { Loader2, Trophy, LayoutGrid, LogOut, Coins, Menu, MessageCircle, FileText, Gem, Sun, Moon, Bell, Share2 } from "lucide-react";
+import { toast } from "sonner";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { WorldCupBackground } from "@/components/WorldCupBackground";
 
 import { AdminNewSubmissionNotifier } from "./components/AdminNewSubmissionNotifier";
+import { UserNotificationsBell } from "./components/UserNotificationsBell";
 import { PointsSocketSync } from "./components/PointsSocketSync";
 import { MobileBottomNav } from "./components/MobileBottomNav";
+import { SiteFooter } from "./components/SiteFooter";
+import { trpc } from "@/lib/trpc";
 
 const Home = lazy(() => import("./pages/Home"));
 const Login = lazy(() => import("./pages/Login"));
@@ -27,6 +31,8 @@ const Transparency = lazy(() => import("./pages/Transparency"));
 const PointsHistory = lazy(() => import("./pages/PointsHistory"));
 const AdminPanel = lazy(() => import("./pages/AdminPanel"));
 const AgentDashboard = lazy(() => import("./pages/AgentDashboard"));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
+const CmsPageView = lazy(() => import("./pages/CmsPageView"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 function PageFallback() {
@@ -63,18 +69,30 @@ function ThemeToggle({ className }: { className?: string }) {
   );
 }
 
+const DEFAULT_WHATSAPP = "972538099212";
+
 function NavLinks({
   setLocation,
   user,
   logout,
   onNavigate,
   onOpenTerms,
+  whatsappUrl,
+  termsPageSlug,
+  privacyPageSlug,
+  ctaPrimaryText,
+  ctaPrimaryUrl,
 }: {
   setLocation: (path: string) => void;
-  user: { role?: string; points?: number; unlimitedPoints?: boolean } | null;
+  user: { id?: number; role?: string; points?: number; unlimitedPoints?: boolean } | null;
   logout: () => void;
   onNavigate?: () => void;
   onOpenTerms?: () => void;
+  whatsappUrl?: string;
+  termsPageSlug?: string;
+  privacyPageSlug?: string;
+  ctaPrimaryText?: string;
+  ctaPrimaryUrl?: string;
 }) {
   const go = (path: string) => {
     setLocation(path);
@@ -86,13 +104,14 @@ function NavLinks({
       : typeof user?.points === "number"
         ? String(user.points)
         : "0";
-const WHATSAPP_NUMBER = "972538099212";
-  const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}`;
+  const waUrl = whatsappUrl ?? `https://wa.me/${DEFAULT_WHATSAPP}`;
+  const termsSlug = termsPageSlug?.trim();
+  const privacySlug = privacyPageSlug?.trim();
 
   return (
     <>
       <a
-        href={whatsappUrl}
+        href={waUrl}
         target="_blank"
         rel="noopener noreferrer"
         className="flex items-center gap-1.5 text-[#25D366] hover:text-[#20bd5a] transition text-sm font-medium shrink-0"
@@ -101,10 +120,23 @@ const WHATSAPP_NUMBER = "972538099212";
         <MessageCircle className="w-5 h-5 shrink-0" />
         <span className="hidden sm:inline truncate">וואטסאפ</span>
       </a>
-      <button onClick={() => onOpenTerms?.()} className="flex items-center gap-1.5 text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0" aria-label="תקנון האתר">
-        <FileText className="w-4 h-4 shrink-0" />
-        <span className="truncate">תקנון</span>
-      </button>
+      {termsSlug ? (
+        <button onClick={() => go(`/page/${encodeURIComponent(termsSlug)}`)} className="flex items-center gap-1.5 text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0" aria-label="תקנון האתר">
+          <FileText className="w-4 h-4 shrink-0" />
+          <span className="truncate">תקנון</span>
+        </button>
+      ) : (
+        <button onClick={() => onOpenTerms?.()} className="flex items-center gap-1.5 text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0" aria-label="תקנון האתר">
+          <FileText className="w-4 h-4 shrink-0" />
+          <span className="truncate">תקנון</span>
+        </button>
+      )}
+      {privacySlug ? (
+        <button onClick={() => go(`/page/${encodeURIComponent(privacySlug)}`)} className="flex items-center gap-1.5 text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0" aria-label="פרטיות">
+          <FileText className="w-4 h-4 shrink-0" />
+          <span className="truncate">פרטיות</span>
+        </button>
+      ) : null}
       <button onClick={() => go("/how-it-works")} className="text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0 truncate">
         איך זה עובד
       </button>
@@ -114,16 +146,45 @@ const WHATSAPP_NUMBER = "972538099212";
       <button onClick={() => go("/submissions")} className="text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0 truncate">
         טפסים
       </button>
-      {user && (
-        <button onClick={() => go("/points")} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-400/90 hover:text-amber-300 hover:bg-amber-500/20 transition text-sm font-medium shrink-0 min-w-0">
-          <Gem className="w-4 h-4 shrink-0" />
-          <span className="hidden sm:inline truncate">נקודות שלי:</span>
-          <span className="font-bold tabular-nums">{pointsLabel}</span>
-          <span aria-hidden>💎</span>
+      {user && (user.role === "user" || user.role === "agent") && (
+        <button
+          type="button"
+          onClick={() => {
+            const url = typeof window !== "undefined" ? `${window.location.origin}/register${user.id != null ? `?ref=${user.id}` : ""}` : "";
+            if (url && navigator.clipboard?.writeText) {
+              navigator.clipboard.writeText(url);
+              toast.success("קישור ההזמנה הועתק");
+            }
+          }}
+          className="flex items-center gap-1.5 text-slate-300 hover:text-amber-400 transition text-sm font-medium shrink-0 min-w-0 truncate"
+          aria-label="הזמן חברים"
+        >
+          <Share2 className="w-4 h-4 shrink-0" />
+          <span className="truncate">הזמן חברים</span>
         </button>
       )}
-      <button onClick={() => go("/tournaments")} className="text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0 truncate" aria-label="תחרויות">
-        תחרויות
+      {user && (
+        <>
+          {(user.role === "user" || user.role === "agent") && (
+            <button onClick={() => go("/notifications")} className="flex items-center gap-1.5 text-slate-300 hover:text-amber-400 transition text-sm font-medium shrink-0 min-w-0">
+              <Bell className="w-4 h-4 shrink-0" />
+              <span className="truncate">התראות</span>
+            </button>
+          )}
+          <button onClick={() => go("/points")} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-400/90 hover:text-amber-300 hover:bg-amber-500/20 transition text-sm font-medium shrink-0 min-w-0">
+            <Gem className="w-4 h-4 shrink-0" />
+            <span className="hidden sm:inline truncate">נקודות שלי:</span>
+            <span className="font-bold tabular-nums">{pointsLabel}</span>
+            <span aria-hidden>💎</span>
+          </button>
+        </>
+      )}
+      <button
+        onClick={() => go((ctaPrimaryUrl?.trim() && ctaPrimaryUrl.startsWith("/") ? ctaPrimaryUrl.trim() : "/tournaments"))}
+        className="text-slate-300 hover:text-emerald-400 transition text-sm font-medium shrink-0 min-w-0 truncate"
+        aria-label={ctaPrimaryText?.trim() || "תחרויות"}
+      >
+        {ctaPrimaryText?.trim() || "תחרויות"}
       </button>
       {user ? (
         <>
@@ -162,6 +223,10 @@ function Layout({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
+  const { data: siteSettings } = trpc.settings.getPublic.useQuery();
+  const whatsappNumber = siteSettings?.["contact.whatsapp"]?.trim() || DEFAULT_WHATSAPP;
+  const whatsappUrl = `https://wa.me/${whatsappNumber}`;
+  const siteName = siteSettings?.["brand.site_name"]?.trim() || "WinMondial";
 
   if (loading) return <LoadingScreen />;
 
@@ -264,14 +329,15 @@ function Layout({ children }: { children: React.ReactNode }) {
           <button
             onClick={() => setLocation("/")}
             className="flex items-center gap-2.5 text-white font-bold text-sm md:text-lg hover:text-emerald-400 transition-colors min-w-0 shrink-0 touch-target min-h-[44px] active:opacity-90"
-            aria-label="WinMondial – דף הבית"
+            aria-label={`${siteName} – דף הבית`}
           >
             <Trophy className="w-6 h-6 md:w-7 md:h-7 text-amber-400 drop-shadow-sm shrink-0" />
             <span className="tracking-tight truncate text-right sm:max-w-[200px] md:max-w-none font-semibold">
-              WinMondial
+              {siteName}
             </span>
           </button>
           <nav className="hidden md:flex items-center gap-4 md:gap-6 min-w-0 flex-1 justify-end flex-wrap">
+            {user && (user.role === "user" || user.role === "agent") && <UserNotificationsBell />}
             {user && (
               <span className="flex items-center gap-1.5 text-slate-300 text-sm font-medium tabular-nums shrink-0" aria-label="יתרת נקודות">
                 <Gem className="w-4 h-4 text-amber-400/90 shrink-0" />
@@ -279,9 +345,10 @@ function Layout({ children }: { children: React.ReactNode }) {
               </span>
             )}
             <ThemeToggle />
-            <NavLinks setLocation={setLocation} user={user} logout={logout} onOpenTerms={() => setTermsOpen(true)} />
+            <NavLinks setLocation={setLocation} user={user} logout={logout} onOpenTerms={() => setTermsOpen(true)} whatsappUrl={whatsappUrl} termsPageSlug={siteSettings?.["legal.terms_page_slug"]} privacyPageSlug={siteSettings?.["legal.privacy_page_slug"]} ctaPrimaryText={siteSettings?.["cta.primary_text"]} ctaPrimaryUrl={siteSettings?.["cta.primary_url"]} />
           </nav>
           <div className="flex md:hidden items-center gap-1.5 shrink-0">
+            {user && (user.role === "user" || user.role === "agent") && <UserNotificationsBell />}
             {user && (
               <span className="flex items-center gap-1 rounded-lg px-2 py-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-bold tabular-nums min-h-[36px] items-center" aria-label="יתרת נקודות">
                 <Gem className="w-3.5 h-3.5 shrink-0" />
@@ -298,7 +365,7 @@ function Layout({ children }: { children: React.ReactNode }) {
               <SheetContent side="left" className="w-[min(100vw-2rem,288px)] bg-slate-900 border-slate-700 text-white p-4 text-right" dir="rtl">
                 <div className="flex flex-col gap-2 pt-6">
                   <ThemeToggle />
-                  <NavLinks setLocation={setLocation} user={user} logout={logout} onNavigate={() => setMobileOpen(false)} onOpenTerms={() => { setMobileOpen(false); setTermsOpen(true); }} />
+                  <NavLinks setLocation={setLocation} user={user} logout={logout} onNavigate={() => setMobileOpen(false)} onOpenTerms={() => { setMobileOpen(false); setTermsOpen(true); }} whatsappUrl={whatsappUrl} termsPageSlug={siteSettings?.["legal.terms_page_slug"]} privacyPageSlug={siteSettings?.["legal.privacy_page_slug"]} ctaPrimaryText={siteSettings?.["cta.primary_text"]} ctaPrimaryUrl={siteSettings?.["cta.primary_url"]} />
                 </div>
               </SheetContent>
             </Sheet>
@@ -314,10 +381,11 @@ function Layout({ children }: { children: React.ReactNode }) {
         </DialogContent>
       </Dialog>
       <main className="flex-1 pb-safe-nav md:pb-0 min-w-0 w-full max-w-full overflow-x-hidden py-3 md:py-4 md:container md:mx-auto">{children}</main>
+      <SiteFooter />
       <MobileBottomNav isAdmin={user?.role === "admin"} isAgent={user?.role === "agent"} />
       {/* כפתור וואטסאפ צף – מובייל בלבד, מעל הסרגל התחתון */}
       <a
-        href={`https://wa.me/972538099212`}
+        href={whatsappUrl}
         target="_blank"
         rel="noopener noreferrer"
         className="md:hidden fixed z-[38] flex items-center justify-center w-11 h-11 rounded-full bg-[#25D366] text-white shadow-lg shadow-black/25 hover:bg-[#20bd5a] active:scale-95 transition-all duration-200"
@@ -348,8 +416,10 @@ function App() {
                   <Route path="/predict/:id" component={PredictionForm} />
                   <Route path="/leaderboard" component={Leaderboard} />
                   <Route path="/submissions" component={Submissions} />
+                  <Route path="/page/:slug" component={CmsPageView} />
                   <Route path="/how-it-works" component={HowItWorks} />
                   <Route path="/points" component={PointsHistory} />
+                  <Route path="/notifications" component={NotificationsPage} />
                   <Route path="/transparency" component={Transparency} />
                   <Route path="/admin" component={AdminPanel} />
                   <Route path="/agent" component={AgentDashboard} />

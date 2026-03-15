@@ -44,8 +44,9 @@ export function SubmissionPredictionsModal({
   const rawPredictions = submission?.predictions;
   const predictions: Prediction[] = isFootballPredictions(rawPredictions) ? rawPredictions : [];
   const matchMap = new Map<number, MatchRow>(matches?.map((m: MatchRow) => [m.id, m]) ?? []);
-  const tourName = tournaments?.find((t: { id: number; name: string }) => t.id === submission?.tournamentId)?.name ?? `טורניר ${submission?.tournamentId ?? ""}`;
-  const tournament = tournaments?.find((t: { id: number; type?: string }) => t.id === submission?.tournamentId);
+  const removed = !!(submission as { tournamentRemoved?: boolean } | undefined)?.tournamentRemoved;
+  const tourName = removed ? "תחרות לא זמינה" : (tournaments?.find((t: { id: number; name: string }) => t.id === submission?.tournamentId)?.name ?? `טורניר ${submission?.tournamentId ?? ""}`);
+  const tournament = removed ? undefined : tournaments?.find((t: { id: number; type?: string }) => t.id === submission?.tournamentId);
   const isChance = (tournament as { type?: string } | undefined)?.type === "chance";
   const isLotto = (tournament as { type?: string } | undefined)?.type === "lotto";
 

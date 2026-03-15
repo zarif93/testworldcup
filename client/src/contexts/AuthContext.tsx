@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc";
 
-interface User {
+export interface User {
   id: number;
   username?: string;
   email?: string;
@@ -12,6 +12,8 @@ interface User {
   points?: number;
   unlimitedPoints?: boolean;
   isSuperAdmin?: boolean;
+  /** Phase 6 RBAC: permission codes the user has (admins only) */
+  permissions?: string[];
 }
 
 interface AuthContextType {
@@ -38,8 +40,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(isLoading);
     if (currentUser) {
       setUser({
-        ...(currentUser as Omit<User, "unlimitedPoints"> & { unlimitedPoints?: boolean | number | null }),
+        ...(currentUser as Omit<User, "unlimitedPoints"> & { unlimitedPoints?: boolean | number | null; permissions?: string[] }),
         unlimitedPoints: Boolean((currentUser as { unlimitedPoints?: boolean | number | null }).unlimitedPoints),
+        permissions: Array.isArray((currentUser as { permissions?: string[] }).permissions) ? (currentUser as { permissions: string[] }).permissions : undefined,
       });
     } else {
       setUser(null);

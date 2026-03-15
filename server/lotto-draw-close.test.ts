@@ -74,7 +74,7 @@ describe("lotto draw close", () => {
       type: "lotto",
       drawCode: `lotto-open-${Date.now()}`,
       drawDate: "2035-06-15",
-      drawTime: "22:00",
+      drawTime: "23:00",
     });
     const listOpen = await adminCaller.tournaments.getAll();
     const tOpen = listOpen.find((tt: { name?: string }) => tt.name === "Lotto Open Test");
@@ -263,21 +263,20 @@ describe("lotto draw close", () => {
   });
 
   it("blocks edit submission when draw time has passed", async () => {
-    const { getSubmissionsByTournament, insertSubmission } = await import("./db");
+    const { getSubmissionsByTournament, getSqlite } = await import("./db");
     const subs = await getSubmissionsByTournament(tournamentClosedId);
     let subIdForEdit: number;
     if (subs.length > 0) {
       subIdForEdit = (subs[0] as { id: number }).id;
     } else {
-      subIdForEdit = await insertSubmission({
-        userId: testUserId,
-        username: testUsername,
-        tournamentId: tournamentClosedId,
-        agentId: null,
-        predictions: { numbers: [1, 2, 3, 4, 5, 6], strongNumber: 1 },
-        status: "approved",
-        paymentStatus: "completed",
-      });
+      const sqlite = await getSqlite();
+      if (!sqlite) throw new Error("SQLite not available");
+      const predictionsJson = JSON.stringify({ numbers: [1, 2, 3, 4, 5, 6], strongNumber: 1 });
+      sqlite.prepare(
+        `INSERT INTO submissions (userId, username, tournamentId, agentId, submissionNumber, predictions, points, status, paymentStatus) VALUES (?, ?, ?, ?, 1, ?, 0, 'approved', 'completed')`
+      ).run(testUserId, testUsername, tournamentClosedId, null, predictionsJson);
+      const row = sqlite.prepare("SELECT id FROM submissions WHERE userId = ? AND tournamentId = ? ORDER BY id DESC LIMIT 1").get(testUserId, tournamentClosedId) as { id: number };
+      subIdForEdit = row.id;
     }
 
     const userCaller = appRouter.createCaller(

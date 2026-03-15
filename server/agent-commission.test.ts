@@ -48,8 +48,8 @@ describe("agent commission on submit", () => {
   let agentId: number;
   let tournamentId: number;
   const unique = Date.now();
-  const drawDate = `2030-03-${String((unique % 28) + 1).padStart(2, "0")}`;
-  const drawTime = `12:${String(unique % 60).padStart(2, "0")}`;
+  const drawDate = `2030-04-${String((unique % 28) + 1).padStart(2, "0")}`;
+  const drawTime = `15:${String(unique % 60).padStart(2, "0")}`;
 
   beforeAll(async () => {
     const publicCaller = appRouter.createCaller(createContext(null));

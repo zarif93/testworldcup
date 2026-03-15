@@ -107,3 +107,15 @@ temp/
 *.sqlite
 *.sqlite3
 data/
+
+# Runtime / user content (do not commit)
+uploads/
+
+# Editor / tooling (local only)
+.manus/
+.manus-logs/
+
+# Local / OS junk (do not commit)
+*.lnk
+*.pkg
+.vite

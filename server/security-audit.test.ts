@@ -174,10 +174,11 @@ describe("SECURITY AUDIT – סימולציה ומתקפות", () => {
   });
 
   describe("9. Brute Force Login – חסימה אחרי ניסיונות", () => {
-    it("checkLoginRateLimit חוסם אחרי MAX_ATTEMPTS", async () => {
-      const { checkLoginRateLimit } = await import("./_core/loginRateLimit");
+    it("checkLoginRateLimit חוסם אחרי MAX_ATTEMPTS של failed login", async () => {
+      const { checkLoginRateLimit, recordFailedLogin } = await import("./_core/loginRateLimit");
       const req = { headers: {}, ip: "192.168.99.99" };
-      for (let i = 0; i < 5; i++) expect(checkLoginRateLimit(req)).toBe(true);
+      expect(checkLoginRateLimit(req)).toBe(true);
+      for (let i = 0; i < 5; i++) recordFailedLogin(req);
       expect(checkLoginRateLimit(req)).toBe(false);
     });
   });

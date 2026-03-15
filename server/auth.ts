@@ -7,7 +7,9 @@ import {
   createUser,
   getUserById,
   getAgentByReferralCode,
+  getUserTokenVersion,
 } from "./db";
+import { randomUUID } from "crypto";
 import { ENV } from "./_core/env";
 
 const getJwtSecret = (): Uint8Array => {
@@ -46,14 +48,20 @@ export async function verifyPassword(
 }
 
 /**
- * Generate JWT token
+ * Generate JWT token with jti (replay/id) and tokenVersion (invalidated after role/permission change).
  */
 export async function generateToken(userId: number, username: string) {
+  const tokenVersion = await getUserTokenVersion(userId);
+  const jti = randomUUID();
   const token = await new SignJWT({
     userId,
     username,
+    jti,
+    tokenVersion,
   })
     .setProtectedHeader({ alg: "HS256" })
+    .setSubject(String(userId))
+    .setJti(jti)
     .setIssuedAt()
     .setExpirationTime(Math.floor(Date.now() / 1000) + JWT_EXPIRATION)
     .sign(JWT_SECRET);
@@ -62,13 +70,18 @@ export async function generateToken(userId: number, username: string) {
 }
 
 /**
- * Verify and decode JWT token
+ * Verify and decode JWT token. Returns null if expired, invalid, or tokenVersion no longer matches (e.g. after role change).
  */
-export async function verifyToken(token: string) {
+export async function verifyToken(token: string): Promise<{ userId: number; username: string } | null> {
   try {
     const verified = await jwtVerify(token, JWT_SECRET);
-    return verified.payload as { userId: number; username: string };
-  } catch (error) {
+    const payload = verified.payload as { userId: number; username: string; tokenVersion?: number };
+    const currentVersion = await getUserTokenVersion(payload.userId);
+    if (Number(payload.tokenVersion ?? 0) !== Number(currentVersion)) {
+      return null;
+    }
+    return { userId: payload.userId, username: payload.username };
+  } catch {
     return null;
   }
 }

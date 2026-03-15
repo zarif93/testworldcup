@@ -11,7 +11,11 @@ export async function setupVite(app: Express, server: Server) {
   // Load Vite config only in dev so production bundle doesn't need @builder.io/vite-plugin-jsx-loc etc.
   const configPath = path.join(process.cwd(), "vite.config.ts");
   const configUrl = pathToFileURL(configPath).href;
-  const { default: viteConfig } = await import(/* @vite-ignore */ configUrl);
+  const rawConfig = (await import(/* @vite-ignore */ configUrl)).default;
+  const resolvedConfig =
+    typeof rawConfig === "function"
+      ? rawConfig({ command: "serve", mode: "development" })
+      : rawConfig;
 
   const serverOptions = {
     middlewareMode: true,
@@ -20,7 +24,7 @@ export async function setupVite(app: Express, server: Server) {
   };
 
   const vite = await createViteServer({
-    ...viteConfig,
+    ...resolvedConfig,
     configFile: false,
     server: serverOptions,
     appType: "custom",
@@ -60,6 +64,9 @@ export function serveStatic(app: Express) {
       : path.resolve(import.meta.dirname, "public");
   if (!fs.existsSync(distPath)) {
     logger.error("Could not find the build directory – run build first", { distPath });
+    if (process.env.NODE_ENV === "production") {
+      process.exit(1);
+    }
   }
 
   app.use(express.static(distPath));

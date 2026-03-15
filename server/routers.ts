@@ -1,7 +1,7 @@
 import { COOKIE_NAME, ADMIN_VERIFIED_COOKIE, SUPER_ADMIN_USERNAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { ENV } from "./_core/env";
-import { logger } from "./_core/logger";
+import { logger, logError } from "./_core/logger";
 import { systemRouter } from "./_core/systemRouter";
 import { emitPointsUpdate } from "./_core/pointsSocket";
 import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
@@ -18,15 +18,26 @@ import {
   getSubmissionsByUserAndTournament,
   updateSubmissionStatus,
   updateSubmissionPayment,
+  createPaymentTransaction,
+  getPaymentBySubmissionId,
+  updatePaymentTransactionStatus,
+  getPaymentTransactions,
+  getPaymentTransactionById,
+  getPaymentReportSummary,
+  getPaymentTransactionDetail,
   updateSubmissionPoints,
   updateSubmissionContent,
   getTournaments,
   getActiveTournaments,
   getTournamentById,
+  getTournamentDeletedAtMap,
   getTournamentByDrawCode,
   getTournamentByDrawDateAndTime,
   isChanceDrawClosed,
   drawDateAndTimeToTimestamp,
+  getCompetitionTypes,
+  getCompetitionTypeById,
+  getCompetitionTypeByCode,
   getMatches,
   getMatchById,
   updateMatchResult,
@@ -34,6 +45,9 @@ import {
   setTournamentLocked,
   createTournament,
   deleteTournament,
+  isTournamentCompleted,
+  refundTournamentParticipants,
+  repairUnrefundedCancelledCompetitions,
   getAllUsers,
   getAdmins,
   insertAdminAuditLog,
@@ -45,13 +59,18 @@ import {
   getFinancialTransparency,
   getAdminFinancialReport,
   getFinancialRecords,
+  insertFinancialRecord,
   getFinancialRecordById,
   getFinancialSummary,
   deleteAllFinancialRecords,
   getTournamentPublicStats,
+  getMyCompetitionSummary,
+  getRecommendedTournamentForUser,
   getPendingSubmissionsCount,
   getSiteSettings,
   setSiteSetting,
+  setSiteSettingsBatch,
+  getPublicSiteSettings,
   getChanceDrawResult,
   setChanceDrawResult,
   lockChanceDrawResult,
@@ -87,6 +106,12 @@ import {
   recalcCustomFootballPoints,
   getCustomFootballLeaderboard,
   getCustomFootballMatchById,
+  getNearWinMessage,
+  getRivalStatus,
+  getPositionDrama,
+  getLossAversionMessage,
+  getSocialProofSummary,
+  getParticipationStreak,
   getOrCreateVirtualUser,
   insertAutoSubmission,
   deductUserPoints,
@@ -99,6 +124,12 @@ import {
   insertLedgerTransaction,
   deleteAllPointsLogsHistory,
   distributePrizesForTournament,
+  getSettlementComparison,
+  getAutomationJobsForTournament,
+  listNotifications,
+  getNotificationById,
+  markNotificationRead,
+  getNotificationUnreadCountForRecipient,
   getPointsHistory,
   insertTransparencyLog,
   getTransparencySummary,
@@ -127,12 +158,43 @@ import {
   createLeague,
   updateLeague,
   softDeleteLeague,
+  getActiveBanners,
+  getActiveAnnouncements,
+  listContentPages,
+  getContentPageBySlug,
+  getPublicPageWithSections,
+  getContentPageById,
+  createContentPage,
+  updateContentPage,
+  deleteContentPage,
+  listContentSections,
+  getContentSectionById,
+  createContentSection,
+  updateContentSection,
+  deleteContentSection,
+  listSiteBanners,
+  getSiteBannerById,
+  createSiteBanner,
+  updateSiteBanner,
+  deleteSiteBanner,
+  listSiteAnnouncements,
+  getSiteAnnouncementById,
+  createSiteAnnouncement,
+  updateSiteAnnouncement,
+  deleteSiteAnnouncement,
+  listMediaAssets,
+  createMediaAsset,
+  deleteMediaAsset,
+  updateMediaAsset,
 } from "./db";
 import {
   pnLSummaryToCsv,
   agentPnLToCsv,
   playerPnLToCsv,
   commissionReportToCsv,
+  agentReportDetailedToCsv,
+  playerReportDetailedToCsv,
+  globalFinanceReportToCsv,
   pointsLogsToCsv,
   adminPnLReportToCsv,
   agentPnLReportToCsv,
@@ -143,8 +205,46 @@ import {
   agentFinancialReportToExcel,
   playerFinancialReportToExcel,
 } from "./csvExport";
-import { calcSubmissionPoints } from "./services/scoringService";
+import { agentReportDetailedToXlsx, playerReportDetailedToXlsx, globalFinanceReportToXlsx } from "./xlsxExport";
+import { getLegacyTypeFromCompetitionType } from "./competitionTypeUtils";
+import { resolveTournamentSchemas, resolveTournamentFormSchema, validateEntryAgainstFormSchema } from "./schema";
+import { resolveScoring, getLegacyScoreForContext } from "./scoring/resolveScoring";
+import { scoreBySchema } from "./scoring/schemaScoringEngine";
+import { resolveTournamentScoringConfig } from "./schema/resolveTournamentSchemas";
 import { TRPCError } from "@trpc/server";
+import { requirePermission, requireAnyPermission, getEffectivePermissions } from "./rbac";
+import * as analyticsDashboard from "./analytics/dashboard";
+import { trackTournamentJoin, trackLeaderboardView } from "./analytics/events";
+import { recordDevice } from "./lib/antiCheat";
+import {
+  getUserRoles,
+  getAllRoles,
+  getAllPermissions,
+  getRolePermissions,
+  assignRoleToUser,
+  removeRoleFromUser,
+  getCompetitionItemSetsByTournament,
+  getCompetitionItemsBySetId,
+  createCompetitionItemSet,
+  updateCompetitionItemSet,
+  deleteCompetitionItemSet,
+  createCompetitionItem,
+  updateCompetitionItem,
+  deleteCompetitionItem,
+  reorderCompetitionItems,
+  listCompetitionTemplates,
+  getCompetitionTemplateById,
+  createCompetitionTemplate,
+  updateCompetitionTemplate,
+  deleteCompetitionTemplate,
+  duplicateCompetitionTemplate,
+  getTournamentTemplateCategories,
+  getTournamentTemplates,
+  getTournamentTemplateById,
+  createTournamentFromTemplate,
+} from "./db";
+import { resolveTournamentItems, validateOptionSchema, validateResultSchema, validateMetadataJson } from "./competitionItems";
+import { getAgentReportDetailed, getPlayerReportDetailed, getGlobalFinanceReport } from "./finance";
 
 type PublicTournamentType = "WORLD_CUP" | "FOOTBALL" | "CHANCE" | "LOTTO";
 
@@ -173,19 +273,8 @@ function tournamentMatchesPublicType(t: { type?: unknown }, want: PublicTourname
 
 const ADMIN_CODE_MSG = "גישה אסורה – אין הרשאות";
 
-/** Rate limit: מקסימום 30 שליחות טפסים בדקה למשתמש (נגד ספאם/בוטים) */
-const SUBMISSIONS_PER_MINUTE = 30;
-const submissionTimestampsByUser = new Map<number, number[]>();
-function checkSubmissionRateLimit(userId: number): boolean {
-  const now = Date.now();
-  const windowStart = now - 60 * 1000;
-  let list = submissionTimestampsByUser.get(userId) ?? [];
-  list = list.filter((t) => t > windowStart);
-  if (list.length >= SUBMISSIONS_PER_MINUTE) return false;
-  list.push(now);
-  submissionTimestampsByUser.set(userId, list);
-  return true;
-}
+/** Phase 12: Rate limits – submissions and leaderboard from _core/rateLimits. */
+import { checkSubmissionRateLimit, checkLeaderboardRateLimit } from "./_core/rateLimits";
 
 /** Idempotency: מפתח תקף 30 שניות למניעת כפילות בלחיצה כפולה */
 const idempotencyStore = new Map<string, { result: { success: boolean; pendingApproval: boolean }; at: number }>();
@@ -249,6 +338,20 @@ function checkExportRateLimit(ctx: { user?: { id?: number } | null; req?: ReqLik
 
 const exportFormatSchema = z.enum(["csv", "excel", "json"]).optional();
 
+/** Reusable strict schemas for admin/finance/export – prevent injection and unsafe defaults */
+const safe = {
+  id: z.number().int().positive(),
+  idOptional: z.number().int().positive().optional(),
+  tournamentId: z.number().int().positive(),
+  userId: z.number().int().positive(),
+  agentId: z.number().int().positive(),
+  limit: (max: number) => z.number().int().min(1).max(max).optional(),
+  offset: z.number().int().min(0).optional(),
+  /** YYYY-MM-DD only; rejects malformed dates */
+  dateFromTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  cursor: z.number().int().min(0).optional(),
+};
+
 function getGeneratedByUsername(ctx: { user?: { username?: string | null } | null }): string {
   return ctx.user?.username?.trim() || "system";
 }
@@ -300,16 +403,92 @@ const superAdminProcedure = adminProcedure.use(({ ctx, next }) => {
   return next({ ctx });
 });
 
+/** RBAC permission middleware; cast to satisfy tRPC MiddlewareResult (internal marker). Runtime unchanged. */
+type PermissionMiddleware = Parameters<typeof adminProcedure.use>[0];
+const usePermission = (code: string) => requirePermission(code) as PermissionMiddleware;
+
+/** Phase 11: Public CMS read – active banners, announcements, page by slug */
+const cmsPublicRouter = router({
+  getActiveBanners: publicProcedure
+    .input(z.object({ key: z.string().optional() }).optional())
+    .query(({ input }) => getActiveBanners(input?.key)),
+  getActiveAnnouncements: publicProcedure.query(() => getActiveAnnouncements()),
+  getPageBySlug: publicProcedure
+    .input(z.object({ slug: z.string().min(1) }))
+    .query(({ input }) => getContentPageBySlug(input.slug)),
+  getPublicPageWithSections: publicProcedure
+    .input(z.object({ slug: z.string().min(1) }))
+    .query(({ input }) => getPublicPageWithSections(input.slug)),
+});
+
+/** Phase 12: Public site settings – global config for frontend (contact, CTA, brand, etc.) */
+const settingsPublicRouter = router({
+  getPublic: publicProcedure.query(() => getPublicSiteSettings()),
+});
+
 export const appRouter = router({
   system: systemRouter,
+  cms: cmsPublicRouter,
+  settings: settingsPublicRouter,
+
+  /** Phase 22: User/agent notifications – list mine, mark read, unread count. RBAC: only user/agent see their own. */
+  notifications: router({
+    listMine: protectedProcedure
+      .input(z.object({ limit: z.number().int().min(1).max(100).optional(), offset: z.number().int().min(0).optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+        const role = (ctx.user as { role?: string }).role;
+        const recipientType = role === "agent" ? "agent" : "user";
+        return listNotifications({
+          recipientType,
+          recipientId: ctx.user.id,
+          limit: input?.limit ?? 50,
+          offset: input?.offset ?? 0,
+        });
+      }),
+    getMyUnreadCount: protectedProcedure.query(async ({ ctx }) => {
+      if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+      const role = (ctx.user as { role?: string }).role;
+      const recipientType = role === "agent" ? "agent" : "user";
+      return getNotificationUnreadCountForRecipient(recipientType, ctx.user.id);
+    }),
+    getMineById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+        const n = await getNotificationById(input.id);
+        if (!n) return null;
+        const role = (ctx.user as { role?: string }).role;
+        const recipientType = role === "agent" ? "agent" : "user";
+        if (n.recipientType !== recipientType || n.recipientId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "אין גישה להתראה זו" });
+        }
+        return n;
+      }),
+    markMineRead: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+        const n = await getNotificationById(input.id);
+        if (!n) return { success: false };
+        const role = (ctx.user as { role?: string }).role;
+        const recipientType = role === "agent" ? "agent" : "user";
+        if (n.recipientType !== recipientType || n.recipientId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "אין גישה להתראה זו" });
+        }
+        const ok = await markNotificationRead(input.id);
+        return { success: ok };
+      }),
+  }),
 
   auth: router({
-    me: publicProcedure.query((opts) => {
+    me: publicProcedure.query(async (opts) => {
       const u = opts.ctx.user;
       if (!u) return null;
       const username = (u as { username?: string }).username;
       const isSuperAdmin = !!(u.role === "admin" && username && ENV.superAdminUsernames.includes(username));
-      return { ...u, isSuperAdmin };
+      const permissions = await getEffectivePermissions(u);
+      return { ...u, isSuperAdmin, permissions };
     }),
     /** היסטוריית תנועות נקודות של המשתמש המחובר – אופציונלי טווח תאריכים */
     getPointsHistory: protectedProcedure
@@ -320,25 +499,29 @@ export const appRouter = router({
       }),
     /** דוח רווח והפסד למשתמש המחובר (שחקן) – טווח תאריכים */
     getPlayerPnL: protectedProcedure
-      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional() }).optional())
+      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), sourceLabel: z.enum(["legacy", "universal"]).optional(), status: z.string().optional() }).optional())
       .query(async ({ ctx, input }) => {
         if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
-        return getPlayerPnL(ctx.user.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType, status: input?.status });
+        return getPlayerPnL(ctx.user.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType, sourceLabel: input?.sourceLabel, status: input?.status });
       }),
     /** ייצוא דוח שחקן (CSV) – זמין למנהלים בלבד */
     exportMyPlayerReport: adminProcedure
-      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }).optional())
+      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), sourceLabel: z.enum(["legacy", "universal"]).optional() }).optional())
       .query(async ({ ctx, input }) => {
         if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
         checkExportRateLimit(ctx);
-        const data = await getPlayerPnL(ctx.user.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType });
+        const data = await getPlayerPnL(ctx.user.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType, sourceLabel: input?.sourceLabel });
         const { playerPnLToCsv } = await import("./csvExport");
         return { csv: playerPnLToCsv(data.transactions, data.profit, data.loss, data.net) };
       }),
-    /** בדיקה אם שם משתמש פנוי – להצגה בטופס הרשמה */
+    /** בדיקה אם שם משתמש פנוי – להצגה בטופס הרשמה. Rate limited to reduce enumeration. */
     checkUsername: publicProcedure
       .input(z.object({ username: z.string().min(1).max(64) }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
+        const { checkUsernameCheckRateLimit } = await import("./_core/rateLimits");
+        if (!checkUsernameCheckRateLimit(ctx.req)) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "יותר מדי בדיקות. נסה שוב בעוד דקה." });
+        }
         const existing = await getUserByUsername(input.username.trim());
         return { available: !existing };
       }),
@@ -351,9 +534,9 @@ export const appRouter = router({
         referralCode: z.string().max(64).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        const { checkLoginRateLimit } = await import("./_core/loginRateLimit");
-        if (!checkLoginRateLimit(ctx.req)) {
-          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "יותר מדי ניסיונות. נסה שוב בעוד דקה." });
+        const { checkRegistrationRateLimit } = await import("./_core/rateLimits");
+        if (!checkRegistrationRateLimit(ctx.req)) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "יותר מדי הרשמות מדף זה. נסה שוב בעוד דקה." });
         }
           const result = await registerUser({
             username: input.username,
@@ -371,22 +554,52 @@ export const appRouter = router({
     login: publicProcedure
       .input(z.object({ username: z.string().min(1).max(64), password: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        const { checkLoginRateLimit } = await import("./_core/loginRateLimit");
+        const { checkLoginRateLimit, recordFailedLogin } = await import("./_core/loginRateLimit");
         if (!checkLoginRateLimit(ctx.req)) {
-          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "יותר מדי ניסיונות התחברות. נסה שוב בעוד דקה." });
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "יותר מדי ניסיונות התחברות כושלים. נסה שוב בעוד דקה." });
         }
-        const result = await loginUser(input);
+        try {
+          const result = await loginUser(input);
           ctx.res.cookie(COOKIE_NAME, result.token, {
-          ...getSessionCookieOptions(ctx.req),
-          maxAge: 7 * 24 * 60 * 60 * 1000,
+            ...getSessionCookieOptions(ctx.req),
+            maxAge: 7 * 24 * 60 * 60 * 1000,
           });
+          const ip = getReqIp(ctx.req);
+          const userAgent = (ctx.req?.headers && (ctx.req.headers["user-agent"] as string)) ?? undefined;
+          recordDevice({ userId: result.user.id, ip, userAgent }).catch(() => {});
           return result;
+        } catch (err) {
+          recordFailedLogin(ctx.req);
+          const { securityAudit } = await import("./_core/logger");
+          securityAudit("failed_login", { ip: getReqIp(ctx.req), username: input.username.trim() });
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "שם משתמש או סיסמה שגויים." });
+        }
       }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const opts = { ...getSessionCookieOptions(ctx.req), maxAge: -1 };
       ctx.res.clearCookie(COOKIE_NAME, opts);
       ctx.res.clearCookie(ADMIN_VERIFIED_COOKIE, opts);
       return { success: true };
+    }),
+  }),
+
+  /** Phase 34 Step 3: Streak System + Phase 36: First participation status. */
+  user: router({
+    getParticipationStreak: protectedProcedure.query(async ({ ctx }) => {
+      if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+      return getParticipationStreak(ctx.user.id);
+    }),
+    /** Phase 36/37: First participation + retention (approved count for re-engagement copy). */
+    getFirstParticipationStatus: protectedProcedure.query(async ({ ctx }) => {
+      if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+      const subs = await getSubmissionsByUserId(ctx.user.id);
+      const approved = subs.filter((s) => (s as { status?: string }).status === "approved");
+      return { hasApprovedSubmission: approved.length > 0, approvedCount: approved.length };
+    }),
+    /** Phase 4: My competition summary for "האזור שלי" – active count, best rank, points, closing soon, top 10. */
+    getMyCompetitionSummary: protectedProcedure.query(async ({ ctx }) => {
+      if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+      return getMyCompetitionSummary(ctx.user.id);
     }),
   }),
 
@@ -406,15 +619,82 @@ export const appRouter = router({
     getPublicStats: publicProcedure.query(({ ctx }) =>
       getTournamentPublicStats(true)
     ),
+    /** Phase 38: Smart recommendation for logged-in user (OPEN, not joined). */
+    getRecommendedTournamentForUser: protectedProcedure.query(async ({ ctx }) => {
+      if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+      return getRecommendedTournamentForUser(ctx.user.id);
+    }),
     getById: publicProcedure.input(z.object({ id: z.coerce.number() })).query(async ({ input }) => {
       const t = await getTournamentById(input.id);
       if (!t) throw new TRPCError({ code: "NOT_FOUND" });
-      return t;
+      const rules = (t as { rulesJson?: unknown }).rulesJson;
+      const rulesObj = rules != null && typeof rules === "object" && !Array.isArray(rules) ? (rules as Record<string, unknown>) : {};
+      let bannerUrl: string | null = typeof rulesObj.bannerUrl === "string" ? rulesObj.bannerUrl : null;
+      if (!bannerUrl && typeof rulesObj.cmsBannerKey === "string" && rulesObj.cmsBannerKey.trim()) {
+        try {
+          const banners = await getActiveBanners(rulesObj.cmsBannerKey.trim());
+          const banner = banners.find((b) => b.key === rulesObj.cmsBannerKey) ?? banners[0];
+          if (banner?.imageUrl) bannerUrl = banner.imageUrl;
+        } catch {
+          // non-fatal: leave bannerUrl null
+        }
+      }
+      return { ...t, bannerUrl };
     }),
+    /** Phase 3: Resolved form schema for prediction page (dynamic vs legacy form decision). */
+    getResolvedFormSchema: publicProcedure
+      .input(z.object({ tournamentId: z.number() }))
+      .query(async ({ input }) => {
+        const t = await getTournamentById(input.tournamentId);
+        if (!t) throw new TRPCError({ code: "NOT_FOUND" });
+        const { schema, warnings } = await resolveTournamentFormSchema(t as Parameters<typeof resolveTournamentFormSchema>[0]);
+        const legacyType = (() => {
+          if (schema.kind === "football_match_predictions") return schema.matchSource === "custom" ? "football_custom" : "football";
+          if (schema.kind === "lotto") return "lotto";
+          if (schema.kind === "chance") return "chance";
+          return "custom";
+        })();
+        return { formSchema: schema, legacyType, warnings };
+      }),
     getCustomFootballMatches: publicProcedure.input(z.object({ tournamentId: z.number() })).query(async ({ input }) => {
       const t = await getTournamentById(input.tournamentId);
       if (!t || (t as { type?: string }).type !== "football_custom") return [];
       return getCustomFootballMatches(input.tournamentId);
+    }),
+    /** Phase 34 Step 5: Loss Aversion / FOMO – only when joinable and user has not participated. */
+    getLossAversionMessage: protectedProcedure
+      .input(z.object({ tournamentId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+        return getLossAversionMessage(ctx.user.id, input.tournamentId);
+      }),
+    /** Phase 34 Step 6: Social Proof – public aggregate stats, optional tournamentId. */
+    getSocialProofSummary: publicProcedure
+      .input(z.object({ tournamentId: z.number().optional() }).optional())
+      .query(async ({ input }) => getSocialProofSummary(input?.tournamentId)),
+  }),
+
+  /** Phase 2A: competition types (list / get by id or code). Read-only. */
+  competitionTypes: router({
+    list: publicProcedure
+      .input(z.object({ activeOnly: z.boolean().optional() }).optional())
+      .query(async ({ input }) => {
+        try {
+          return await getCompetitionTypes({ activeOnly: input?.activeOnly });
+        } catch (e) {
+          logger.warn("competitionTypes.list failed", { error: String(e) });
+          return [];
+        }
+      }),
+    getById: publicProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+      const ct = await getCompetitionTypeById(input.id);
+      if (!ct) throw new TRPCError({ code: "NOT_FOUND", message: "Competition type not found" });
+      return ct;
+    }),
+    getByCode: publicProcedure.input(z.object({ code: z.string() })).query(async ({ input }) => {
+      const ct = await getCompetitionTypeByCode(input.code);
+      if (!ct) throw new TRPCError({ code: "NOT_FOUND", message: "Competition type not found" });
+      return ct;
     }),
   }),
 
@@ -428,6 +708,16 @@ export const appRouter = router({
   }),
 
   submissions: router({
+    /** Phase 3: Schema-based validation before submit (for dynamic form path). */
+    validateEntrySchema: protectedProcedure
+      .input(z.object({ tournamentId: z.number(), payload: z.unknown() }))
+      .query(async ({ input }) => {
+        const t = await getTournamentById(input.tournamentId);
+        if (!t) throw new TRPCError({ code: "NOT_FOUND" });
+        const row = t as { competitionTypeId?: number | null; type?: string | null };
+        const { schema } = await resolveTournamentFormSchema(row);
+        return validateEntryAgainstFormSchema(schema, input.payload);
+      }),
     submit: protectedProcedure
       .input(z.object({
         tournamentId: z.number(),
@@ -445,9 +735,10 @@ export const appRouter = router({
           numbers: z.array(z.number().int().min(1).max(37)).length(6).refine((n) => new Set(n).size === 6, "6 מספרים ייחודיים 1–37"),
           strongNumber: z.number().int().min(1).max(7),
         }).optional(),
-        idempotencyKey: z.string().optional(),
+        idempotencyKey: z.string().max(128).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
+        try {
         if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
         if (input.idempotencyKey) {
           const cached = getIdempotencyResult(input.idempotencyKey);
@@ -488,14 +779,19 @@ export const appRouter = router({
           user.role === "agent"
             ? ctx.user.id
             : ((user as { agentId?: number })?.agentId ?? null);
-        const participationCommissionOpts =
-          hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId
-            ? (() => {
-                const fee = Math.round(cost * (12.5 / 100));
-                const commissionAgent = calcAgentCommission(cost, ENV.agentCommissionPercentOfFee);
-                return { commissionAgent, commissionSite: fee - commissionAgent, agentId };
-              })()
-            : undefined;
+        let participationCommissionOpts: { commissionAgent: number; commissionSite: number; agentId: number | null } | undefined;
+        if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
+          const { getCommissionBasisPoints, getAgentShareBasisPoints } = await import("./finance");
+          const bps = getCommissionBasisPoints(tournament as { commissionPercentBasisPoints?: number | null; houseFeeRate?: number | null });
+          const commissionTotal = Math.floor((cost * bps) / 10_000);
+          if (agentId) {
+            const agentShareBps = await getAgentShareBasisPoints(agentId);
+            const commissionAgent = Math.floor((commissionTotal * agentShareBps) / 10_000);
+            participationCommissionOpts = { commissionAgent, commissionSite: commissionTotal - commissionAgent, agentId };
+          } else {
+            participationCommissionOpts = { commissionAgent: 0, commissionSite: commissionTotal, agentId: null };
+          }
+        }
         const runDeduction = async () => {
           if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
             return deductUserPoints(ctx.user!.id, cost, "participation", {
@@ -506,12 +802,12 @@ export const appRouter = router({
           }
           return true;
         };
-        const useTransactionalParticipation = hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && !USE_SQLITE;
+        const useTransactionalParticipation = hasEnoughPoints && !hasUnlimitedPoints && cost > 0;
         const runParticipationWithLock = async (predictions: unknown, strongHit?: boolean | null) => {
           if (!useTransactionalParticipation) {
             const ok = await runDeduction();
             if (!ok) throw new TRPCError({ code: "BAD_REQUEST", message: INSUFFICIENT_POINTS_MESSAGE });
-            return { newSubId: await insertSubmission({
+            const newSubId = await insertSubmission({
               userId: ctx.user!.id,
               username: ctx.user!.username || ctx.user!.name || "משתמש",
               tournamentId: input.tournamentId,
@@ -520,7 +816,21 @@ export const appRouter = router({
               status: submissionStatus,
               paymentStatus,
               strongHit: strongHit ?? undefined,
-            }), balanceAfter: await getUserPoints(ctx.user!.id) };
+            });
+            if (submissionStatus === "approved" && newSubId > 0) {
+              const { recordEntryFeeFinancialEvent } = await import("./finance/recordFinancialEvents");
+              await recordEntryFeeFinancialEvent({
+                submissionId: newSubId,
+                tournamentId: input.tournamentId,
+                userId: ctx.user!.id,
+                agentId: agentId ?? null,
+                amountPoints: cost,
+                payloadJson: participationCommissionOpts && cost > 0
+                  ? { commissionAmount: participationCommissionOpts.commissionAgent + participationCommissionOpts.commissionSite, agentCommissionAmount: participationCommissionOpts.commissionAgent }
+                  : undefined,
+              });
+            }
+            return { newSubId, balanceAfter: await getUserPoints(ctx.user!.id) };
           }
           const result = await executeParticipationWithLock({
             userId: ctx.user!.id,
@@ -534,7 +844,7 @@ export const appRouter = router({
             description: `השתתפות בתחרות: ${(tournament as { name?: string }).name ?? input.tournamentId}`,
             referenceId: input.tournamentId,
             commissionAgent: participationCommissionOpts?.commissionAgent,
-            commissionSite: participationCommissionOpts ? Math.round(cost * 0.125) - (participationCommissionOpts.commissionAgent ?? 0) : undefined,
+            commissionSite: participationCommissionOpts?.commissionSite,
             strongHit: strongHit ?? undefined,
           });
           if (!result.success) throw new TRPCError({ code: "BAD_REQUEST", message: INSUFFICIENT_POINTS_MESSAGE });
@@ -558,6 +868,9 @@ export const appRouter = router({
             throw new TRPCError({ code: "BAD_REQUEST", message: "ההרשמה להגרלה נסגרה" });
           }
           const { newSubId, balanceAfter } = await runParticipationWithLock(input.predictionsChance);
+          if (paymentStatus === "pending" && newSubId) {
+            await createPaymentTransaction({ userId: ctx.user!.id, tournamentId: input.tournamentId, submissionId: newSubId, type: "entry_fee", amount: cost, status: "pending", provider: "manual" });
+          }
           if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
             await insertTransparencyLog({
               competitionId: input.tournamentId,
@@ -573,14 +886,16 @@ export const appRouter = router({
               competitionStatusAtTime: (tournament as { status?: string }).status ?? "OPEN",
             });
           }
-          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId && participationCommissionOpts && newSubId && !(await hasCommissionForSubmission(newSubId))) {
-            await recordAgentCommission({ agentId, submissionId: newSubId, userId: ctx.user.id, entryAmount: cost, commissionAmount: participationCommissionOpts.commissionAgent });
+          const subId = typeof newSubId === "number" && newSubId > 0 ? newSubId : null;
+          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId && participationCommissionOpts && subId != null && !(await hasCommissionForSubmission(subId))) {
+            await recordAgentCommission({ agentId, submissionId: subId, userId: ctx.user.id, entryAmount: cost, commissionAmount: participationCommissionOpts.commissionAgent });
           }
           if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
             emitPointsUpdate([{ userId: ctx.user!.id, balance: balanceAfter, actionType: "participation", amount: -cost, performedByUsername: (ctx.user as { username?: string }).username ?? null, note: `השתתפות: ${(tournament as { name?: string }).name ?? input.tournamentId}` }]);
           }
           const result = { success: true, pendingApproval: !hasEnoughPoints, balanceAfter };
           if (input.idempotencyKey) setIdempotencyResult(input.idempotencyKey, result);
+          if (newSubId) trackTournamentJoin(ctx.user!.id, input.tournamentId, { entryCost: cost });
           return result;
         }
 
@@ -593,6 +908,9 @@ export const appRouter = router({
             throw new TRPCError({ code: "BAD_REQUEST", message: "יש לבחור בדיוק 6 מספרים שונים (1–37) ומספר חזק אחד (1–7)" });
           }
           const { newSubId, balanceAfter } = await runParticipationWithLock({ numbers: lotto.numbers, strongNumber: lotto.strongNumber });
+          if (paymentStatus === "pending" && newSubId) {
+            await createPaymentTransaction({ userId: ctx.user!.id, tournamentId: input.tournamentId, submissionId: newSubId, type: "entry_fee", amount: cost, status: "pending", provider: "manual" });
+          }
           if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
             await insertTransparencyLog({
               competitionId: input.tournamentId,
@@ -608,14 +926,16 @@ export const appRouter = router({
               competitionStatusAtTime: (tournament as { status?: string }).status ?? "OPEN",
             });
           }
-          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId && participationCommissionOpts && newSubId && !(await hasCommissionForSubmission(newSubId))) {
-            await recordAgentCommission({ agentId, submissionId: newSubId, userId: ctx.user.id, entryAmount: cost, commissionAmount: participationCommissionOpts.commissionAgent });
+          const subIdLotto = typeof newSubId === "number" && newSubId > 0 ? newSubId : null;
+          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId && participationCommissionOpts && subIdLotto != null && !(await hasCommissionForSubmission(subIdLotto))) {
+            await recordAgentCommission({ agentId, submissionId: subIdLotto, userId: ctx.user.id, entryAmount: cost, commissionAmount: participationCommissionOpts.commissionAgent });
           }
           if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
             emitPointsUpdate([{ userId: ctx.user!.id, balance: balanceAfter, actionType: "participation", amount: -cost, performedByUsername: (ctx.user as { username?: string }).username ?? null, note: `השתתפות: ${(tournament as { name?: string }).name ?? input.tournamentId}` }]);
           }
           const result = { success: true, pendingApproval: !hasEnoughPoints, balanceAfter };
           if (input.idempotencyKey) setIdempotencyResult(input.idempotencyKey, result);
+          if (newSubId) trackTournamentJoin(ctx.user!.id, input.tournamentId, { entryCost: cost });
           return result;
         }
 
@@ -638,6 +958,9 @@ export const appRouter = router({
             if (!matchIds.has(mid)) throw new TRPCError({ code: "BAD_REQUEST", message: "משחק לא תקין" });
           }
           const { newSubId, balanceAfter } = await runParticipationWithLock(predictions);
+          if (paymentStatus === "pending" && newSubId) {
+            await createPaymentTransaction({ userId: ctx.user!.id, tournamentId: input.tournamentId, submissionId: newSubId, type: "entry_fee", amount: cost, status: "pending", provider: "manual" });
+          }
           if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
             await insertTransparencyLog({
               competitionId: input.tournamentId,
@@ -653,14 +976,16 @@ export const appRouter = router({
               competitionStatusAtTime: (tournament as { status?: string }).status ?? "OPEN",
             });
           }
-          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId && participationCommissionOpts && newSubId && !(await hasCommissionForSubmission(newSubId))) {
-            await recordAgentCommission({ agentId, submissionId: newSubId, userId: ctx.user.id, entryAmount: cost, commissionAmount: participationCommissionOpts.commissionAgent });
+          const subIdCustom = typeof newSubId === "number" && newSubId > 0 ? newSubId : null;
+          if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId && participationCommissionOpts && subIdCustom != null && !(await hasCommissionForSubmission(subIdCustom))) {
+            await recordAgentCommission({ agentId, submissionId: subIdCustom, userId: ctx.user.id, entryAmount: cost, commissionAmount: participationCommissionOpts.commissionAgent });
           }
           if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
             emitPointsUpdate([{ userId: ctx.user!.id, balance: balanceAfter, actionType: "participation", amount: -cost, performedByUsername: (ctx.user as { username?: string }).username ?? null, note: `השתתפות: ${(tournament as { name?: string }).name ?? input.tournamentId}` }]);
           }
           const result = { success: true, pendingApproval: !hasEnoughPoints, balanceAfter };
           if (input.idempotencyKey) setIdempotencyResult(input.idempotencyKey, result);
+          if (newSubId) trackTournamentJoin(ctx.user!.id, input.tournamentId, { entryCost: cost });
           return result;
         }
         const matches = await getMatches();
@@ -673,6 +998,9 @@ export const appRouter = router({
           if (!matchIds.has(mid)) throw new TRPCError({ code: "BAD_REQUEST", message: "משחק לא תקין" });
         }
         const { newSubId, balanceAfter } = await runParticipationWithLock(predictions);
+        if (paymentStatus === "pending" && newSubId) {
+          await createPaymentTransaction({ userId: ctx.user!.id, tournamentId: input.tournamentId, submissionId: newSubId, type: "entry_fee", amount: cost, status: "pending", provider: "manual" });
+        }
         if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
           await insertTransparencyLog({
             competitionId: input.tournamentId,
@@ -688,15 +1016,21 @@ export const appRouter = router({
             competitionStatusAtTime: (tournament as { status?: string }).status ?? "OPEN",
           });
         }
-        if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId && participationCommissionOpts && newSubId && !(await hasCommissionForSubmission(newSubId))) {
-          await recordAgentCommission({ agentId, submissionId: newSubId, userId: ctx.user.id, entryAmount: cost, commissionAmount: participationCommissionOpts.commissionAgent });
+        const subIdDefault = typeof newSubId === "number" && newSubId > 0 ? newSubId : null;
+        if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId && participationCommissionOpts && subIdDefault != null && !(await hasCommissionForSubmission(subIdDefault))) {
+          await recordAgentCommission({ agentId, submissionId: subIdDefault, userId: ctx.user.id, entryAmount: cost, commissionAmount: participationCommissionOpts.commissionAgent });
         }
         if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
           emitPointsUpdate([{ userId: ctx.user!.id, balance: balanceAfter, actionType: "participation", amount: -cost, performedByUsername: (ctx.user as { username?: string }).username ?? null, note: `השתתפות: ${(tournament as { name?: string }).name ?? input.tournamentId}` }]);
         }
         const result = { success: true, pendingApproval: !hasEnoughPoints, balanceAfter };
         if (input.idempotencyKey) setIdempotencyResult(input.idempotencyKey, result);
+        if (newSubId) trackTournamentJoin(ctx.user!.id, input.tournamentId, { entryCost: cost });
         return result;
+        } catch (e) {
+          logError("submission.create", e, { userId: ctx.user?.id, tournamentId: input.tournamentId });
+          throw e;
+        }
       }),
 
     /** עריכת טופס קיים – ללא חיוב. רק בעל הטופס או מנהל. רק כשהתחרות OPEN ולא נעולה. */
@@ -797,16 +1131,19 @@ export const appRouter = router({
           newPredictions,
           ctx.user!.id,
           ctx.user!.role ?? "user",
-          diffJson
+          diffJson,
+          { ip: getAuditIp(ctx), userAgent: (ctx.req?.headers && (ctx.req.headers["user-agent"] as string)) ?? undefined }
         );
         return { success: true, noCharge: true };
       }),
 
-    /** כל הטפסים – מנהל מקבל הכל; משתמש מחובר מקבל רק את שלו. אורח לא מקבל כלום. */
+    /** כל הטפסים – מנהל מקבל הכל; משתמש מחובר מקבל רק את שלו. אורח לא מקבל כלום. כולל tournamentRemoved לתצוגת תחרות הוסרה. */
     getAll: publicProcedure.query(async ({ ctx }) => {
-      if (ctx.user?.role === "admin") return getAllSubmissions();
-      if (ctx.user) return getSubmissionsByUserId(ctx.user.id);
-      return [];
+      const raw = ctx.user?.role === "admin" ? await getAllSubmissions() : ctx.user ? await getSubmissionsByUserId(ctx.user.id) : [];
+      if (raw.length === 0) return [];
+      const tournamentIds = [...new Set(raw.map((s) => (s as { tournamentId: number }).tournamentId))] as number[];
+      const deletedMap = await getTournamentDeletedAtMap(tournamentIds);
+      return raw.map((s) => ({ ...s, tournamentRemoved: deletedMap.get((s as { tournamentId: number }).tournamentId) ?? false }));
     }),
     getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
       const s = await getSubmissionById(input.id);
@@ -817,23 +1154,41 @@ export const appRouter = router({
       if (!isOwner && !isAdmin) {
         throw new TRPCError({ code: "FORBIDDEN", message: "אין הרשאה לצפות בטופס זה" });
       }
-      return s;
+      const tournamentId = (s as { tournamentId: number }).tournamentId;
+      const deletedMap = await getTournamentDeletedAtMap([tournamentId]);
+      return { ...s, tournamentRemoved: deletedMap.get(tournamentId) ?? false };
     }),
     getByTournament: publicProcedure
       .input(z.object({ tournamentId: z.number() }))
       .query(({ input }) => getSubmissionsByTournament(input.tournamentId)),
     getChanceLeaderboard: publicProcedure
       .input(z.object({ tournamentId: z.number() }))
-      .query(({ input }) => getChanceLeaderboard(input.tournamentId)),
+      .query(({ input, ctx }) => {
+        if (!checkLeaderboardRateLimit(ctx)) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "יותר מדי בקשות דירוג – נסה שוב בעוד רגע" });
+        }
+        trackLeaderboardView(ctx.user?.id ?? null, input.tournamentId);
+        return getChanceLeaderboard(input.tournamentId);
+      }),
     getLottoLeaderboard: publicProcedure
       .input(z.object({ tournamentId: z.number() }))
-      .query(({ input }) => getLottoLeaderboard(input.tournamentId)),
+      .query(({ input, ctx }) => {
+        if (!checkLeaderboardRateLimit(ctx)) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "יותר מדי בקשות דירוג – נסה שוב בעוד רגע" });
+        }
+        trackLeaderboardView(ctx.user?.id ?? null, input.tournamentId);
+        return getLottoLeaderboard(input.tournamentId);
+      }),
     getCustomFootballLeaderboard: publicProcedure
       .input(z.object({ tournamentId: z.number() }))
       .query(({ input }) => getCustomFootballLeaderboard(input.tournamentId)),
     getMine: protectedProcedure.query(async ({ ctx }) => {
       if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
-      return getSubmissionsByUserId(ctx.user.id);
+      const raw = await getSubmissionsByUserId(ctx.user.id);
+      if (raw.length === 0) return [];
+      const tournamentIds = [...new Set(raw.map((s) => (s as { tournamentId: number }).tournamentId))] as number[];
+      const deletedMap = await getTournamentDeletedAtMap(tournamentIds);
+      return raw.map((s) => ({ ...s, tournamentRemoved: deletedMap.get((s as { tournamentId: number }).tournamentId) ?? false }));
     }),
     /** הכניסות שלי לתחרות מסוימת (להצגת "הכניסות שלי" ויכולת לשלוח כניסה נוספת) */
     getMyEntriesForTournament: protectedProcedure
@@ -841,6 +1196,28 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
         if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
         return getSubmissionsByUserAndTournament(ctx.user.id, input.tournamentId);
+      }),
+  }),
+
+  /** Phase 34: Near Win Engine + Rival System (cache 30s). */
+  leaderboard: router({
+    getNearWinMessage: protectedProcedure
+      .input(z.object({ tournamentId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+        return getNearWinMessage(ctx.user.id, input.tournamentId);
+      }),
+    getRivalStatus: protectedProcedure
+      .input(z.object({ tournamentId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+        return getRivalStatus(ctx.user.id, input.tournamentId);
+      }),
+    getPositionDrama: protectedProcedure
+      .input(z.object({ tournamentId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+        return getPositionDrama(ctx.user.id, input.tournamentId);
       }),
   }),
 
@@ -877,7 +1254,13 @@ export const appRouter = router({
         return { success: true };
       }),
     getUsers: adminProcedure.query(() => getAllUsers()),
-    getAllSubmissions: adminProcedure.query(() => getAllSubmissions()),
+    getAllSubmissions: adminProcedure.query(async () => {
+      const raw = await getAllSubmissions();
+      if (raw.length === 0) return [];
+      const tournamentIds = [...new Set(raw.map((s) => (s as { tournamentId: number }).tournamentId))] as number[];
+      const deletedMap = await getTournamentDeletedAtMap(tournamentIds);
+      return raw.map((s) => ({ ...s, tournamentRemoved: deletedMap.get((s as { tournamentId: number }).tournamentId) ?? false }));
+    }),
     /** מספר טפסים ממתינים – להתראה ולבאדג׳ */
     getPendingSubmissionsCount: adminProcedure.query(() => getPendingSubmissionsCount()),
     getFinancialReport: adminProcedure.query(() => getAdminFinancialReport()),
@@ -890,7 +1273,7 @@ export const appRouter = router({
         return getFinancialRecords({ from, to });
       }),
     getDataFinancialRecordDetail: adminProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: safe.id }))
       .query(async ({ input }) => getFinancialRecordById(input.id)),
     /** סיכום כספי: הכנסות, החזרים, רווח נקי – מאותו דאטה לצמיתות */
     getDataFinancialSummary: adminProcedure
@@ -928,17 +1311,17 @@ export const appRouter = router({
     /** שקיפות כספים – פירוט עם סינון */
     getTransparencyLog: adminProcedure
       .input(z.object({
-        from: z.string().optional(),
-        to: z.string().optional(),
-        competitionId: z.number().optional(),
-        userId: z.number().optional(),
-        agentId: z.number().optional(),
+        from: safe.dateFromTo,
+        to: safe.dateFromTo,
+        competitionId: safe.idOptional,
+        userId: safe.idOptional,
+        agentId: safe.idOptional,
         type: z.enum(["Deposit", "Prize", "Commission", "Refund", "Bonus", "Adjustment"]).optional(),
-        search: z.string().optional(),
+        search: z.string().max(200).optional(),
         sortBy: z.enum(["amount", "transactionDate"]).optional(),
         sortOrder: z.enum(["asc", "desc"]).optional(),
-        limit: z.number().int().min(1).max(2000).optional(),
-        offset: z.number().int().min(0).optional(),
+        limit: safe.limit(2000),
+        offset: safe.offset,
       }).optional())
       .query(async ({ input }) => {
         const from = input?.from ? new Date(input.from + "T00:00:00.000Z") : undefined;
@@ -957,6 +1340,19 @@ export const appRouter = router({
           offset: input?.offset,
         });
       }),
+    // ---------- Phase 21: Analytics / BI Dashboard (read-only) ----------
+    getDashboardOverview: adminProcedure.use(usePermission("reports.view")).query(() => analyticsDashboard.getDashboardOverview()),
+    getCompetitionAnalytics: adminProcedure.use(usePermission("reports.view")).query(() => analyticsDashboard.getCompetitionAnalytics()),
+    getRevenueAnalytics: adminProcedure
+      .use(usePermission("finance.view"))
+      .input(z.object({ from: z.string().optional(), to: z.string().optional() }).optional())
+      .query(({ input }) => analyticsDashboard.getRevenueAnalytics({ from: input?.from, to: input?.to })),
+    getTemplateAnalytics: adminProcedure.use(usePermission("reports.view")).query(() => analyticsDashboard.getTemplateAnalytics()),
+    getAgentAnalytics: adminProcedure.use(usePermission("reports.view")).query(() => analyticsDashboard.getAgentAnalytics()),
+    getAutomationAnalytics: adminProcedure.use(usePermission("reports.view")).query(() => analyticsDashboard.getAutomationAnalytics()),
+    getNotificationAnalytics: adminProcedure.use(usePermission("reports.view")).query(() => analyticsDashboard.getNotificationAnalytics()),
+    /** Phase 27: Read-only system status for ops/support (env, db, uploads, automation failures, unread notifications, app version). */
+    getSystemStatus: adminProcedure.use(usePermission("reports.view")).query(() => analyticsDashboard.getSystemStatus()),
     /** מחיקת כל לוג שקיפות כספים – רק סופר מנהל: סיסמה + הקלדת DELETE FOREVER. מתועד בלוג. */
     deleteTransparencyHistory: superAdminProcedure
       .input(z.object({
@@ -996,8 +1392,8 @@ export const appRouter = router({
         logger.info("Full reset executed", { by: (ctx.user as { username?: string })?.username ?? ctx.user!.id, keptAdminUsernames: result.keptAdminUsernames, deletedUsers: result.deletedUsers });
         return { success: true, keptAdminUsernames: result.keptAdminUsernames, deletedUsers: result.deletedUsers };
       }),
-    depositPoints: adminProcedure
-      .input(z.object({ userId: z.number(), amount: z.number().int().min(1) }))
+    depositPoints: adminProcedure.use(usePermission("users.manage"))
+      .input(z.object({ userId: safe.userId, amount: z.number().int().min(1).max(1_000_000) }))
       .mutation(async ({ input, ctx }) => {
         const u = await getUserById(input.userId);
         const targetHasUnlimitedPoints = !!((u as { unlimitedPoints?: boolean | number })?.unlimitedPoints || (u as { role?: string })?.role === "admin");
@@ -1032,8 +1428,8 @@ export const appRouter = router({
         });
         return { success: true };
       }),
-    withdrawPoints: adminProcedure
-      .input(z.object({ userId: z.number(), amount: z.number().int().min(1) }))
+    withdrawPoints: adminProcedure.use(usePermission("users.manage"))
+      .input(z.object({ userId: safe.userId, amount: z.number().int().min(1).max(1_000_000) }))
       .mutation(async ({ input, ctx }) => {
         const user = await getUserById(input.userId);
         const targetHasUnlimitedPoints = !!((user as { unlimitedPoints?: boolean | number })?.unlimitedPoints || (user as { role?: string })?.role === "admin");
@@ -1096,16 +1492,79 @@ export const appRouter = router({
       ),
     getBalanceSummary: adminProcedure.query(() => getAdminBalanceSummary()),
     getAgentsWithBalances: adminProcedure.query(() => getAgentsWithBalances()),
+    /** כספים – דשבורד סיכום (תקופה או טווח תאריכים) */
+    getFinanceDashboardSummary: adminProcedure
+      .use(usePermission("finance.view"))
+      .input(
+        z
+          .object({
+            period: z.enum(["day", "week", "month"]).optional(),
+            from: z.string().optional(),
+            to: z.string().optional(),
+          })
+          .optional()
+      )
+      .query(async ({ input }) => {
+        const { getAdminFinanceDashboardSummary } = await import("./finance");
+        return getAdminFinanceDashboardSummary({ period: input?.period, from: input?.from, to: input?.to });
+      }),
+    /** כספים – רשימת תחרויות עם סיכום כספי */
+    getTournamentFinanceList: adminProcedure.use(usePermission("finance.view")).query(async () => {
+      const { getTournamentFinanceList } = await import("./finance");
+      return getTournamentFinanceList();
+    }),
+    /** כספים – פרטי תחרות + יומן אירועים */
+    getTournamentFinanceDetail: adminProcedure.use(usePermission("finance.view")).input(z.object({ tournamentId: z.number().int() })).query(async ({ input }) => {
+      const { getTournamentFinanceDetail } = await import("./finance");
+      return getTournamentFinanceDetail(input.tournamentId);
+    }),
+    /** כספים – רשימת סוכנים עם סיכום כספי */
+    getAgentFinanceList: adminProcedure.use(usePermission("finance.view")).query(async () => {
+      const { getAgentFinanceList } = await import("./finance");
+      return getAgentFinanceList();
+    }),
+    /** כספים – פרטי סוכן + רשימת שחקנים */
+    getAgentFinanceDetail: adminProcedure.use(usePermission("finance.view")).input(z.object({ agentId: z.number().int() })).query(async ({ input }) => {
+      const { getAgentDashboardMetrics } = await import("./finance");
+      return getAgentDashboardMetrics(input.agentId);
+    }),
+    /** כספים – רשימת שחקנים עם פרופיל כספי (חיפוש, סוכן, תאריכים) */
+    getPlayerFinanceList: adminProcedure
+      .use(usePermission("finance.view"))
+      .input(
+        z
+          .object({
+            search: z.string().optional(),
+            agentId: z.number().int().nullable().optional(),
+            from: z.string().optional(),
+            to: z.string().optional(),
+            limit: z.number().int().min(1).max(500).optional(),
+            cursor: z.number().int().optional(),
+          })
+          .optional()
+      )
+      .query(async ({ input }) => {
+        const { getPlayerFinanceList } = await import("./finance");
+        return getPlayerFinanceList({
+          search: input?.search,
+          agentId: input?.agentId ?? undefined,
+          from: input?.from,
+          to: input?.to,
+          limit: input?.limit,
+          cursor: input?.cursor,
+        });
+      }),
     /** דוח רווח והפסד – סיכום כל השחקנים והסוכנים עם טווח תאריכים */
     getPnLSummary: adminProcedure
-      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }).optional())
-      .query(({ input }) => getAdminPnLSummary({ from: input?.from, to: input?.to, tournamentType: input?.tournamentType })),
+      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), sourceLabel: z.enum(["legacy", "universal"]).optional() }).optional())
+      .query(({ input }) => getAdminPnLSummary({ from: input?.from, to: input?.to, tournamentType: input?.tournamentType, sourceLabel: input?.sourceLabel })),
     /** דוח תנועות מלא למנהל – כולל עמלות/זכיות/הפקדות/משיכות/העברות, עם פילטרים */
     getPnLReport: adminProcedure
       .input(z.object({
         from: z.string().optional(),
         to: z.string().optional(),
         tournamentType: z.string().optional(),
+        sourceLabel: z.enum(["legacy", "universal"]).optional(),
         playerId: z.number().int().optional(),
         agentId: z.number().int().optional(),
         limit: z.number().int().min(1).max(5000).optional(),
@@ -1115,6 +1574,7 @@ export const appRouter = router({
           from: input?.from,
           to: input?.to,
           tournamentType: input?.tournamentType,
+          sourceLabel: input?.sourceLabel,
           playerId: input?.playerId,
           agentId: input?.agentId,
           limit: input?.limit ?? 2000,
@@ -1122,18 +1582,18 @@ export const appRouter = router({
       }),
     /** דוח רווח והפסד לשחקן מסוים (מנהל) */
     getPlayerPnL: adminProcedure
-      .input(z.object({ userId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional() }))
-      .query(({ input }) => getPlayerPnL(input.userId, { from: input.from, to: input.to, tournamentType: input.tournamentType, status: input.status })),
+      .input(z.object({ userId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), sourceLabel: z.enum(["legacy", "universal"]).optional(), status: z.string().optional() }))
+      .query(({ input }) => getPlayerPnL(input.userId, { from: input.from, to: input.to, tournamentType: input.tournamentType, sourceLabel: input.sourceLabel, status: input.status })),
     /** דוח רווח והפסד לסוכן מסוים (מנהל) */
     getAgentPnL: adminProcedure
-      .input(z.object({ agentId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional() }))
-      .query(({ input }) => getAgentPnL(input.agentId, { from: input.from, to: input.to, tournamentType: input.tournamentType, status: input.status })),
+      .input(z.object({ agentId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), sourceLabel: z.enum(["legacy", "universal"]).optional(), status: z.string().optional() }))
+      .query(({ input }) => getAgentPnL(input.agentId, { from: input.from, to: input.to, tournamentType: input.tournamentType, sourceLabel: input.sourceLabel, status: input.status })),
     /** ייצוא CSV – סיכום רווח/הפסד (מנהל) */
     exportPnLSummaryCSV: adminProcedure
-      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }).optional())
+      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), sourceLabel: z.enum(["legacy", "universal"]).optional() }).optional())
       .query(async ({ ctx, input }) => {
         checkExportRateLimit(ctx);
-        const data = await getAdminPnLSummary({ from: input?.from, to: input?.to, tournamentType: input?.tournamentType });
+        const data = await getAdminPnLSummary({ from: input?.from, to: input?.to, tournamentType: input?.tournamentType, sourceLabel: input?.sourceLabel });
         return { csv: pnLSummaryToCsv(data) };
       }),
     /** ייצוא CSV – דוח תנועות מלא (מנהל) */
@@ -1142,6 +1602,7 @@ export const appRouter = router({
         from: z.string().optional(),
         to: z.string().optional(),
         tournamentType: z.string().optional(),
+        sourceLabel: z.enum(["legacy", "universal"]).optional(),
         playerId: z.number().int().optional(),
         agentId: z.number().int().optional(),
         limit: z.number().int().min(1).max(5000).optional(),
@@ -1152,6 +1613,7 @@ export const appRouter = router({
           from: input?.from,
           to: input?.to,
           tournamentType: input?.tournamentType,
+          sourceLabel: input?.sourceLabel,
           playerId: input?.playerId,
           agentId: input?.agentId,
           limit: input?.limit ?? 5000,
@@ -1177,7 +1639,7 @@ export const appRouter = router({
       }),
     /** ייצוא CSV – דוח רווח/הפסד סוכן (מנהל) */
     exportAgentPnLCSV: adminProcedure
-      .input(z.object({ agentId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional(), format: exportFormatSchema }))
+      .input(z.object({ agentId: safe.agentId, from: safe.dateFromTo, to: safe.dateFromTo, tournamentType: z.string().max(50).optional(), sourceLabel: z.enum(["legacy", "universal"]).optional(), status: z.string().max(50).optional(), format: exportFormatSchema }))
       .query(async ({ ctx, input }) => {
         checkExportRateLimit(ctx);
         const format = input.format ?? "csv";
@@ -1188,6 +1650,7 @@ export const appRouter = router({
           from: input.from,
           to: input.to,
           tournamentType: input.tournamentType,
+          sourceLabel: input.sourceLabel,
           status: input.status,
         });
         const report = {
@@ -1236,7 +1699,7 @@ export const appRouter = router({
       }),
     /** ייצוא CSV – דוח רווח/הפסד שחקן (מנהל) */
     exportPlayerPnLCSV: adminProcedure
-      .input(z.object({ userId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional(), format: exportFormatSchema }))
+      .input(z.object({ userId: safe.userId, from: safe.dateFromTo, to: safe.dateFromTo, tournamentType: z.string().max(50).optional(), sourceLabel: z.enum(["legacy", "universal"]).optional(), status: z.string().max(50).optional(), format: exportFormatSchema }))
       .query(async ({ ctx, input }) => {
         checkExportRateLimit(ctx);
         const format = input.format ?? "csv";
@@ -1247,6 +1710,7 @@ export const appRouter = router({
           from: input.from,
           to: input.to,
           tournamentType: input.tournamentType,
+          sourceLabel: input.sourceLabel,
           status: input.status,
         });
         const report = {
@@ -1298,13 +1762,13 @@ export const appRouter = router({
     exportPointsLogsCSV: adminProcedure
       .input(
         z.object({
-          userId: z.number().optional(),
-          tournamentId: z.number().optional(),
-          agentId: z.number().optional(),
-          actionType: z.string().optional(),
-          limit: z.number().int().min(1).max(2000).optional(),
-          from: z.string().optional(),
-          to: z.string().optional(),
+          userId: safe.idOptional,
+          tournamentId: safe.idOptional,
+          agentId: safe.idOptional,
+          actionType: z.string().max(50).optional(),
+          limit: safe.limit(2000),
+          from: safe.dateFromTo,
+          to: safe.dateFromTo,
         })
       )
       .query(async ({ ctx, input }) => {
@@ -1356,8 +1820,8 @@ export const appRouter = router({
       });
       return { success: true };
     }),
-    distributePrizes: adminProcedure
-      .input(z.object({ tournamentId: z.number() }))
+    distributePrizes: adminProcedure.use(usePermission("competitions.settle"))
+      .input(z.object({ tournamentId: safe.tournamentId }))
       .mutation(async ({ input, ctx }) => {
         const result = await distributePrizesForTournament(input.tournamentId);
         const winnerIds = result.winnerIds ?? [];
@@ -1387,10 +1851,32 @@ export const appRouter = router({
           targetUserId: null,
           details: { tournamentId: input.tournamentId, winnerCount: result.winnerCount ?? 0, prizePerWinner: result.prizePerWinner ?? 0, ip: getAuditIp(ctx) },
         });
+        const { notifyLater } = await import("./notifications/createNotification");
+        const { NOTIFICATION_TYPES } = await import("./notifications/types");
+        notifyLater({
+          type: NOTIFICATION_TYPES.TOURNAMENT_SETTLED,
+          recipientType: "admin",
+          title: "תחרות הוסדרה",
+          body: `תחרות #${input.tournamentId} – חולקו פרסים ל־${result.winnerCount ?? 0} זוכים`,
+          payload: { tournamentId: input.tournamentId, winnerCount: result.winnerCount ?? 0, prizePerWinner: result.prizePerWinner ?? 0 },
+        });
+        const tournament = await getTournamentById(input.tournamentId);
+        const tournamentName = (tournament as { name?: string })?.name ?? `תחרות #${input.tournamentId}`;
+        const prizePerWinner = result.prizePerWinner ?? 0;
+        for (const userId of winnerIds) {
+          notifyLater({
+            type: NOTIFICATION_TYPES.TOURNAMENT_SETTLED,
+            recipientType: "user",
+            recipientId: userId,
+            title: "זכית בתחרות!",
+            body: `בתחרות "${tournamentName}" חולקו פרסים. זכית ב־${prizePerWinner} נקודות.`,
+            payload: { tournamentId: input.tournamentId, tournamentName, userId, prizePerWinner, winnerCount: result.winnerCount },
+          });
+        }
         return result;
       }),
-    approveSubmission: adminProcedure
-      .input(z.object({ id: z.number() }))
+    approveSubmission: adminProcedure.use(usePermission("submissions.approve"))
+      .input(z.object({ id: safe.id }))
       .mutation(async ({ input, ctx }) => {
         const sub = await getSubmissionById(input.id);
         if (!sub) throw new TRPCError({ code: "NOT_FOUND", message: "טופס לא נמצא" });
@@ -1399,6 +1885,8 @@ export const appRouter = router({
         }
         await updateSubmissionStatus(input.id, "approved", ctx.user!.id);
         await updateSubmissionPayment(input.id, "completed");
+        const paymentBySub = await getPaymentBySubmissionId(input.id);
+        if (paymentBySub) await updatePaymentTransactionStatus((paymentBySub as { id: number }).id, "paid", { performedBy: ctx.user!.id });
         const user = await getUserById(sub.userId);
         const tournament = await getTournamentById(sub.tournamentId);
         const effectiveAgentId =
@@ -1434,10 +1922,39 @@ export const appRouter = router({
           targetUserId: sub.userId,
           details: { submissionId: input.id, tournamentId: sub.tournamentId, ip: getAuditIp(ctx) },
         });
+        const { notifyLater } = await import("./notifications/createNotification");
+        const { NOTIFICATION_TYPES } = await import("./notifications/types");
+        notifyLater({
+          type: NOTIFICATION_TYPES.SUBMISSION_APPROVED,
+          recipientType: "admin",
+          title: "טופס אושר",
+          body: `טופס #${input.id} אושר – תחרות #${sub.tournamentId}`,
+          payload: { submissionId: input.id, userId: sub.userId, tournamentId: sub.tournamentId },
+        });
+        const tournamentName = (tournament as { name?: string })?.name ?? `תחרות #${sub.tournamentId}`;
+        notifyLater({
+          type: NOTIFICATION_TYPES.SUBMISSION_APPROVED,
+          recipientType: "user",
+          recipientId: sub.userId,
+          title: "הטופס אושר",
+          body: `הטופס שלך בתחרות "${tournamentName}" אושר.`,
+          payload: { submissionId: input.id, userId: sub.userId, tournamentId: sub.tournamentId, tournamentName },
+        });
+        const agentId = (sub as { agentId?: number | null }).agentId ?? null;
+        if (agentId != null) {
+          notifyLater({
+            type: NOTIFICATION_TYPES.AGENT_NEW_PLAYER,
+            recipientType: "agent",
+            recipientId: agentId,
+            title: "שחקן אושר בתחרות",
+            body: `שחקן ${sub.username} אושר בתחרות "${tournamentName}".`,
+            payload: { submissionId: input.id, userId: sub.userId, username: sub.username, tournamentId: sub.tournamentId, tournamentName, agentId },
+          });
+        }
         return { success: true };
       }),
-    rejectSubmission: adminProcedure
-      .input(z.object({ id: z.number() }))
+    rejectSubmission: adminProcedure.use(usePermission("submissions.reject"))
+      .input(z.object({ id: safe.id }))
       .mutation(async ({ input, ctx }) => {
         const sub = await getSubmissionById(input.id);
         if (!sub) throw new TRPCError({ code: "NOT_FOUND", message: "טופס לא נמצא" });
@@ -1452,13 +1969,115 @@ export const appRouter = router({
           details: { submissionId: input.id, tournamentId: sub.tournamentId, ip: getAuditIp(ctx) },
         });
         logger.info("Rejected submission", { submissionId: input.id });
+        const { notifyLater } = await import("./notifications/createNotification");
+        const { NOTIFICATION_TYPES } = await import("./notifications/types");
+        notifyLater({
+          type: NOTIFICATION_TYPES.SUBMISSION_REJECTED,
+          recipientType: "admin",
+          title: "טופס נדחה",
+          body: `טופס #${input.id} נדחה – תחרות #${sub.tournamentId}`,
+          payload: { submissionId: input.id, userId: sub.userId, tournamentId: sub.tournamentId },
+        });
+        const tournament = await getTournamentById(sub.tournamentId);
+        const tournamentName = (tournament as { name?: string })?.name ?? `תחרות #${sub.tournamentId}`;
+        notifyLater({
+          type: NOTIFICATION_TYPES.SUBMISSION_REJECTED,
+          recipientType: "user",
+          recipientId: sub.userId,
+          title: "הטופס נדחה",
+          body: `הטופס שלך בתחרות "${tournamentName}" נדחה.`,
+          payload: { submissionId: input.id, userId: sub.userId, tournamentId: sub.tournamentId, tournamentName },
+        });
         return { success: true };
       }),
     markPayment: adminProcedure
-      .input(z.object({ id: z.number(), status: z.enum(["pending", "completed", "failed"]) }))
+      .input(z.object({ id: safe.id, status: z.enum(["pending", "completed", "failed"]) }))
       .mutation(async ({ input }) => {
         await updateSubmissionPayment(input.id, input.status);
         return { success: true };
+      }),
+    /** Phase 28/30: List payment transactions (admin). Filters: status, type, tournamentId, userId, provider. */
+    listPaymentTransactions: adminProcedure.use(usePermission("submissions.view"))
+      .input(z.object({
+        status: z.string().max(50).optional(),
+        type: z.string().max(50).optional(),
+        tournamentId: safe.idOptional,
+        userId: safe.idOptional,
+        provider: z.string().max(50).optional(),
+        limit: safe.limit(500),
+        offset: safe.offset,
+      }).optional())
+      .query(async ({ input }) => getPaymentTransactions(input ?? undefined)),
+    /** Phase 28: Get single payment transaction by id. */
+    getPaymentTransaction: adminProcedure.use(usePermission("submissions.view"))
+      .input(z.object({ id: safe.id }))
+      .query(async ({ input }) => getPaymentTransactionById(input.id)),
+    /** Phase 30: Payment report summary – counts and amounts by status, type, provider, accountingType. */
+    getPaymentReportSummary: adminProcedure.use(usePermission("submissions.view"))
+      .query(() => getPaymentReportSummary()),
+    /** Phase 30: Payment transaction detail with linked submission, tournament, user. */
+    getPaymentTransactionDetail: adminProcedure.use(usePermission("submissions.view"))
+      .input(z.object({ id: safe.id }))
+      .query(async ({ input }) => getPaymentTransactionDetail(input.id)),
+    /** Phase 28: Update payment transaction status (paid/failed/refunded/cancelled); syncs submission.paymentStatus when paid/failed. */
+    updatePaymentTransactionStatus: adminProcedure.use(usePermission("submissions.approve"))
+      .input(z.object({
+        id: safe.id,
+        status: z.enum(["pending", "paid", "failed", "refunded", "cancelled"]),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const ok = await updatePaymentTransactionStatus(input.id, input.status, { performedBy: ctx.user!.id });
+        if (ok) {
+          logger.info("Payment transaction status updated", { paymentId: input.id, status: input.status, by: ctx.user!.id });
+          if (input.status === "paid" || input.status === "refunded") {
+            const payment = await getPaymentTransactionById(input.id);
+            const subId = payment && (payment as { submissionId: number | null }).submissionId;
+            const userId = payment && (payment as { userId: number }).userId;
+            const tournamentId = payment && (payment as { tournamentId: number }).tournamentId;
+            const tournament = tournamentId != null ? await getTournamentById(tournamentId) : null;
+            const tournamentName = tournament ? (tournament as { name?: string }).name ?? `תחרות #${tournamentId}` : "";
+            const { notifyLater } = await import("./notifications/createNotification");
+            const { NOTIFICATION_TYPES } = await import("./notifications/types");
+            if (input.status === "paid") {
+              notifyLater({
+                type: NOTIFICATION_TYPES.PAYMENT_MARKED_PAID,
+                recipientType: "admin",
+                title: "תשלום סומן כשולם",
+                body: subId != null ? `תשלום #${input.id} (טופס #${subId}) סומן כשולם – ${tournamentName}` : `תשלום #${input.id} סומן כשולם`,
+                payload: { paymentId: input.id, submissionId: subId, userId, tournamentId },
+              });
+              if (userId != null) {
+                notifyLater({
+                  type: NOTIFICATION_TYPES.PAYMENT_MARKED_PAID,
+                  recipientType: "user",
+                  recipientId: userId,
+                  title: "התשלום אושר",
+                  body: `התשלום עבור התחרות "${tournamentName}" אושר.`,
+                  payload: { paymentId: input.id, submissionId: subId, tournamentId, tournamentName },
+                });
+              }
+            } else {
+              notifyLater({
+                type: NOTIFICATION_TYPES.PAYMENT_REFUNDED,
+                recipientType: "admin",
+                title: "החזר בוצע",
+                body: subId != null ? `תשלום #${input.id} (טופס #${subId}) סומן כהוחזר – ${tournamentName}` : `תשלום #${input.id} הוחזר`,
+                payload: { paymentId: input.id, submissionId: subId, userId, tournamentId },
+              });
+              if (userId != null) {
+                notifyLater({
+                  type: NOTIFICATION_TYPES.PAYMENT_REFUNDED,
+                  recipientType: "user",
+                  recipientId: userId,
+                  title: "החזר בוצע",
+                  body: `בוצע החזר עבור התחרות "${tournamentName}".`,
+                  payload: { paymentId: input.id, submissionId: subId, tournamentId, tournamentName },
+                });
+              }
+            }
+          }
+        }
+        return { success: ok };
       }),
     updateMatchResult: adminProcedure
       .input(z.object({ matchId: z.number(), homeScore: z.number(), awayScore: z.number() }))
@@ -1470,11 +2089,20 @@ export const appRouter = router({
           if (m.homeScore != null && m.awayScore != null) results.set(m.id, { homeScore: m.homeScore, awayScore: m.awayScore });
         }
         const subs = await getAllSubmissions();
+        const tournamentCache = new Map<number, Awaited<ReturnType<typeof getTournamentById>>>();
         for (const s of subs) {
           const preds = s.predictions as unknown;
           if (!Array.isArray(preds) || !preds.every((p: unknown) => p && typeof (p as { matchId?: number }).matchId === "number")) continue;
-          const pts = calcSubmissionPoints(preds as Array<{ matchId: number; prediction: "1" | "X" | "2" }>, results);
-          await updateSubmissionPoints(s.id, pts);
+          let t = tournamentCache.get(s.tournamentId);
+          if (t === undefined) {
+            t = await getTournamentById(s.tournamentId);
+            tournamentCache.set(s.tournamentId, t);
+          }
+          const resolved = await resolveScoring(
+            t ?? { type: "football", id: s.tournamentId },
+            { type: "football", matchResults: results, predictions: preds as Array<{ matchId: number; prediction: "1" | "X" | "2" }> }
+          );
+          await updateSubmissionPoints(s.id, resolved.points);
         }
         await insertAdminAuditLog({
           performedBy: ctx.user!.id,
@@ -1501,7 +2129,7 @@ export const appRouter = router({
         await updateMatchDetails(matchId, data);
         return { success: true };
       }),
-    lockTournament: adminProcedure
+    lockTournament: adminProcedure.use(usePermission("competitions.edit"))
       .input(z.object({ tournamentId: z.number(), isLocked: z.boolean() }))
       .mutation(async ({ input, ctx }) => {
         await setTournamentLocked(input.tournamentId, input.isLocked);
@@ -1554,12 +2182,13 @@ export const appRouter = router({
         await softDeleteLeague(input.id);
         return { success: true };
       }),
-    createTournament: adminProcedure
+    createTournament: adminProcedure.use(usePermission("competitions.create"))
       .input(z.object({
         name: z.string().min(1),
-        amount: z.number().int().min(1),
+        amount: z.number().int().min(0),
         description: z.string().optional(),
         type: z.enum(["football", "football_custom", "lotto", "chance", "custom"]).optional(),
+        competitionTypeId: z.number().int().positive().optional(),
         startDate: z.string().optional(),
         endDate: z.string().optional(),
         startsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(),
@@ -1572,8 +2201,24 @@ export const appRouter = router({
         drawDate: z.string().optional(),
         drawTime: z.string().optional(),
         customIdentifier: z.string().optional(),
+        visibility: z.enum(["VISIBLE", "HIDDEN"]).nullable().optional(),
+        minParticipants: z.number().int().min(0).nullable().optional(),
+        rulesJson: z.unknown().nullable().optional(),
+        settledAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(),
+        resultsFinalizedAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(),
+        guaranteedPrizeAmount: z.number().int().min(0).nullable().optional(),
       }))
       .mutation(async ({ input }) => {
+        const legacyType = input.type ?? "football";
+        if (input.competitionTypeId != null) {
+          const ct = await getCompetitionTypeById(input.competitionTypeId);
+          if (!ct) throw new TRPCError({ code: "BAD_REQUEST", message: "סוג תחרות לא נמצא" });
+          const ctCode = (ct as { code?: string }).code ?? "";
+          const derivedLegacy = getLegacyTypeFromCompetitionType(ctCode);
+          if (!derivedLegacy || derivedLegacy !== legacyType) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "סוג התחרות שנבחר לא תואם לסוג שהוזן. בחר סוג תחרות תואם." });
+          }
+        }
         if (input.type === "lotto" && (!input.drawCode || !String(input.drawCode).trim())) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "בתחרות לוטו חובה להזין מזהה תחרות (לעדכון תוצאות בהמשך)" });
         }
@@ -1618,11 +2263,12 @@ export const appRouter = router({
             throw new TRPCError({ code: "BAD_REQUEST", message: "שעת הסגירה חייבת להיות אחרי שעת הפתיחה" });
           }
         }
-        await createTournament({
+        const tournamentId = await createTournament({
           name: input.name,
           amount: input.amount,
           description: input.description,
           type: input.type,
+          competitionTypeId: input.competitionTypeId ?? undefined,
           startDate: input.startDate,
           endDate: input.endDate,
           startsAt: input.startsAt ?? undefined,
@@ -1637,10 +2283,394 @@ export const appRouter = router({
           drawDate: input.type === "chance" ? input.drawDate?.trim() : (input.type === "lotto" ? input.drawDate?.trim() : undefined),
           drawTime: input.type === "chance" ? input.drawTime?.trim() : (input.type === "lotto" ? input.drawTime?.trim() : undefined),
           customIdentifier: input.customIdentifier?.trim() || undefined,
+          visibility: input.visibility ?? undefined,
+          minParticipants: input.minParticipants ?? undefined,
+          rulesJson: input.rulesJson ?? undefined,
+          settledAt: input.settledAt ?? undefined,
+          resultsFinalizedAt: input.resultsFinalizedAt ?? undefined,
+          guaranteedPrizeAmount: input.guaranteedPrizeAmount ?? undefined,
         });
+        const { notifyLater } = await import("./notifications/createNotification");
+        const { NOTIFICATION_TYPES } = await import("./notifications/types");
+        notifyLater({
+          type: NOTIFICATION_TYPES.COMPETITION_CREATED,
+          recipientType: "admin",
+          title: "תחרות נוצרה",
+          body: input.name ? `תחרות "${input.name}" נוצרה בהצלחה` : `תחרות #${tournamentId} נוצרה`,
+          payload: { tournamentId, name: input.name, type: input.type },
+        });
+        return { success: true, id: tournamentId };
+      }),
+    /** Phase 20: Competition templates */
+    listCompetitionTemplates: adminProcedure
+      .input(z.object({ activeOnly: z.boolean().optional() }).optional())
+      .query(({ input }) => listCompetitionTemplates({ activeOnly: input?.activeOnly })),
+    getCompetitionTemplateById: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const t = await getCompetitionTemplateById(input.id);
+        if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Template not found" });
+        return t;
+      }),
+    createCompetitionTemplate: adminProcedure.use(usePermission("competitions.create"))
+      .input(z.object({
+        name: z.string().min(1),
+        description: z.string().optional().nullable(),
+        competitionTypeId: z.number().int().positive().optional().nullable(),
+        legacyType: z.enum(["football", "football_custom", "lotto", "chance"]).optional(),
+        visibility: z.enum(["VISIBLE", "HIDDEN"]).optional().nullable(),
+        defaultEntryFee: z.number().int().min(1),
+        defaultMaxParticipants: z.number().int().min(1).optional().nullable(),
+        formSchemaJson: z.unknown().optional(),
+        scoringConfigJson: z.unknown().optional(),
+        settlementConfigJson: z.unknown().optional(),
+        rulesJson: z.unknown().optional(),
+        itemTemplateJson: z.unknown().optional(),
+        isActive: z.boolean().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createCompetitionTemplate({
+          name: input.name,
+          description: input.description ?? undefined,
+          competitionTypeId: input.competitionTypeId ?? undefined,
+          legacyType: input.legacyType ?? "football",
+          visibility: input.visibility ?? undefined,
+          defaultEntryFee: input.defaultEntryFee,
+          defaultMaxParticipants: input.defaultMaxParticipants ?? undefined,
+          formSchemaJson: input.formSchemaJson,
+          scoringConfigJson: input.scoringConfigJson,
+          settlementConfigJson: input.settlementConfigJson,
+          rulesJson: input.rulesJson,
+          itemTemplateJson: input.itemTemplateJson,
+          isActive: input.isActive ?? true,
+        });
+        return { id };
+      }),
+    updateCompetitionTemplate: adminProcedure.use(usePermission("competitions.edit"))
+      .input(z.object({
+        id: z.number(),
+        name: z.string().min(1).optional(),
+        description: z.string().optional().nullable(),
+        competitionTypeId: z.number().int().positive().optional().nullable(),
+        legacyType: z.enum(["football", "football_custom", "lotto", "chance"]).optional(),
+        visibility: z.enum(["VISIBLE", "HIDDEN"]).optional().nullable(),
+        defaultEntryFee: z.number().int().min(1).optional(),
+        defaultMaxParticipants: z.number().int().min(1).optional().nullable(),
+        formSchemaJson: z.unknown().optional(),
+        scoringConfigJson: z.unknown().optional(),
+        settlementConfigJson: z.unknown().optional(),
+        rulesJson: z.unknown().optional(),
+        itemTemplateJson: z.unknown().optional(),
+        isActive: z.boolean().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        const ok = await updateCompetitionTemplate(id, data);
+        if (!ok) throw new TRPCError({ code: "NOT_FOUND", message: "Template not found" });
         return { success: true };
       }),
-    deleteTournament: adminProcedure
+    deleteCompetitionTemplate: adminProcedure.use(usePermission("competitions.edit"))
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const ok = await deleteCompetitionTemplate(input.id);
+        if (!ok) throw new TRPCError({ code: "NOT_FOUND", message: "Template not found" });
+        return { success: true };
+      }),
+    duplicateCompetitionTemplate: adminProcedure.use(usePermission("competitions.create"))
+      .input(z.object({ id: z.number(), newName: z.string().optional() }))
+      .mutation(async ({ input }) => {
+        const newId = await duplicateCompetitionTemplate(input.id, input.newName ?? "");
+        if (newId == null) throw new TRPCError({ code: "NOT_FOUND", message: "Template not found" });
+        return { id: newId };
+      }),
+    createTemplateFromBuilder: adminProcedure.use(usePermission("competitions.create"))
+      .input(z.object({
+        templateName: z.string().min(1),
+        description: z.string().optional(),
+        competitionTypeId: z.number().int().positive(),
+        legacyType: z.enum(["football", "football_custom", "lotto", "chance"]),
+        defaultEntryFee: z.number().int().min(1),
+        defaultMaxParticipants: z.number().int().min(1).optional().nullable(),
+        visibility: z.enum(["VISIBLE", "HIDDEN"]).optional(),
+        rulesJson: z.unknown().optional(),
+        minParticipants: z.number().int().min(0).optional(),
+        prizeDistribution: z.record(z.string(), z.number()).optional().nullable(),
+        itemSets: z.array(z.object({
+          title: z.string(),
+          itemType: z.string(),
+          sourceType: z.enum(["universal", "legacy"]).optional(),
+        })).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const settlementConfigJson =
+          input.minParticipants != null || input.prizeDistribution
+            ? {
+                minParticipants: input.minParticipants ?? 1,
+                prizeDistribution: input.prizeDistribution ?? { "1": 100 },
+                tieHandling: (input.rulesJson && typeof input.rulesJson === "object" && "tieHandling" in input.rulesJson
+                  ? (input.rulesJson as { tieHandling?: string }).tieHandling
+                  : "first_wins") as string,
+              }
+            : undefined;
+        const id = await createCompetitionTemplate({
+          name: input.templateName.trim(),
+          description: input.description ?? undefined,
+          competitionTypeId: input.competitionTypeId,
+          legacyType: input.legacyType,
+          visibility: input.visibility ?? "VISIBLE",
+          defaultEntryFee: input.defaultEntryFee,
+          defaultMaxParticipants: input.defaultMaxParticipants ?? undefined,
+          formSchemaJson: (input.rulesJson && typeof input.rulesJson === "object" && "formSchemaOverride" in input.rulesJson)
+            ? (input.rulesJson as { formSchemaOverride: unknown }).formSchemaOverride
+            : undefined,
+          scoringConfigJson: (input.rulesJson && typeof input.rulesJson === "object" && "scoringOverride" in input.rulesJson)
+            ? (input.rulesJson as { scoringOverride: unknown }).scoringOverride
+            : undefined,
+          settlementConfigJson,
+          rulesJson: input.rulesJson ?? undefined,
+          itemTemplateJson: (input.itemSets?.length ? input.itemSets.map((s) => ({
+            title: s.title,
+            itemType: s.itemType || "custom",
+            sourceType: s.sourceType ?? "universal",
+          })) : undefined) ?? undefined,
+          isActive: true,
+        });
+        return { id };
+      }),
+    createTemplateFromTournament: adminProcedure.use(usePermission("competitions.create"))
+      .input(z.object({ tournamentId: z.number(), name: z.string().min(1).optional(), description: z.string().optional() }))
+      .mutation(async ({ input }) => {
+        const tournament = await getTournamentById(input.tournamentId);
+        if (!tournament) throw new TRPCError({ code: "NOT_FOUND", message: "Tournament not found" });
+        const t = tournament as {
+          competitionTypeId?: number | null;
+          type?: string | null;
+          amount?: number;
+          maxParticipants?: number | null;
+          visibility?: string | null;
+          minParticipants?: number | null;
+          prizeDistribution?: Record<string, number> | null;
+          rulesJson?: unknown;
+        };
+        const sets = await getCompetitionItemSetsByTournament(input.tournamentId);
+        const itemTemplateJson = Array.isArray(sets)
+          ? sets.map((s: { title?: string; itemType?: string; sourceType?: string }) => ({
+              title: s.title ?? "",
+              itemType: s.itemType ?? "custom",
+              sourceType: (s.sourceType === "legacy" ? "legacy" : "universal") as "universal" | "legacy",
+            }))
+          : [];
+        const settlementConfigJson =
+          t.minParticipants != null || t.prizeDistribution
+            ? {
+                minParticipants: t.minParticipants ?? 1,
+                prizeDistribution: t.prizeDistribution ?? { "1": 100 },
+                tieHandling: (t.rulesJson && typeof t.rulesJson === "object" && "tieHandling" in t.rulesJson
+                  ? (t.rulesJson as { tieHandling?: string }).tieHandling
+                  : undefined) ?? "first_wins",
+              }
+            : undefined;
+        const name = input.name?.trim() || ((tournament as { name?: string }).name ?? "") + " (תבנית)";
+        const id = await createCompetitionTemplate({
+          name,
+          description: input.description ?? null,
+          competitionTypeId: t.competitionTypeId ?? undefined,
+          legacyType: (t.type as "football" | "football_custom" | "lotto" | "chance") ?? "football",
+          visibility: t.visibility ?? undefined,
+          defaultEntryFee: t.amount ?? 10,
+          defaultMaxParticipants: t.maxParticipants ?? undefined,
+          formSchemaJson: (t.rulesJson && typeof t.rulesJson === "object" && "formSchemaOverride" in t.rulesJson)
+            ? (t.rulesJson as { formSchemaOverride: unknown }).formSchemaOverride
+            : undefined,
+          scoringConfigJson: (t.rulesJson && typeof t.rulesJson === "object" && "scoringOverride" in t.rulesJson)
+            ? (t.rulesJson as { scoringOverride: unknown }).scoringOverride
+            : undefined,
+          settlementConfigJson,
+          rulesJson: t.rulesJson ?? undefined,
+          itemTemplateJson: itemTemplateJson.length > 0 ? itemTemplateJson : undefined,
+          isActive: true,
+        });
+        return { id };
+      }),
+    getTemplateAsBuilderPrefill: adminProcedure
+      .input(z.object({ templateId: z.number() }))
+      .query(async ({ input }) => {
+        const t = await getCompetitionTemplateById(input.templateId);
+        if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Template not found" });
+        const rules = t.rulesJson && typeof t.rulesJson === "object" ? (t.rulesJson as Record<string, unknown>) : {};
+        const settlement = t.settlementConfigJson && typeof t.settlementConfigJson === "object"
+          ? (t.settlementConfigJson as Record<string, unknown>)
+          : {};
+        const itemSets = Array.isArray(t.itemTemplateJson)
+          ? (t.itemTemplateJson as Array<{ title?: string; itemType?: string; sourceType?: string }>).map((s, i) => ({
+              id: `tpl-${i}-${s.title ?? ""}`,
+              title: s.title ?? "",
+              itemType: s.itemType ?? "custom",
+              sourceType: (s.sourceType === "legacy" ? "legacy" : "universal") as "universal" | "legacy",
+            }))
+          : [];
+        return {
+          competitionTypeId: t.competitionTypeId,
+          legacyType: t.legacyType as "football" | "football_custom" | "lotto" | "chance",
+          basic: {
+            name: "",
+            amount: String(t.defaultEntryFee),
+            description: "",
+            maxParticipants: t.defaultMaxParticipants != null ? String(t.defaultMaxParticipants) : "",
+            visibility: (t.visibility as "VISIBLE" | "HIDDEN") ?? "VISIBLE",
+            startDate: "",
+            endDate: "",
+            customIdentifier: "",
+            bannerUrl: (rules.bannerUrl as string) ?? "",
+          },
+          formSchemaStep: {
+            formSchemaJsonOverride: rules.formSchemaOverride != null ? JSON.stringify(rules.formSchemaOverride, null, 2) : "",
+          },
+          scoringStep: {
+            scoringJsonOverride: rules.scoringOverride != null ? JSON.stringify(rules.scoringOverride, null, 2) : "",
+            pointsPerCorrect: typeof rules.pointsPerCorrect === "number" ? String(rules.pointsPerCorrect) : "",
+          },
+          settlementStep: {
+            minParticipants: typeof settlement.minParticipants === "number" ? String(settlement.minParticipants) : "1",
+            prizeMode: settlement.prizeDistribution && typeof settlement.prizeDistribution === "object" ? "top3" : "first",
+            prize1: "50",
+            prize2: "30",
+            prize3: "20",
+            tieHandling: (rules.tieHandling as string) ?? (settlement.tieHandling as string) ?? "first_wins",
+          },
+          itemsStep: { source: "universal" as const, sets: itemSets },
+          cmsStep: {
+            bannerKey: (rules.cmsBannerKey as string) ?? "",
+            introSectionId: (rules.cmsIntroSectionId as number) != null ? String(rules.cmsIntroSectionId) : "",
+            legalPageSlug: (rules.cmsLegalPageSlug as string) ?? "",
+          },
+          rulesJson: t.rulesJson,
+          settlementConfigJson: t.settlementConfigJson,
+        };
+      }),
+    /** New template system: category → template → create (tournament_templates table) */
+    getTournamentTemplateCategories: adminProcedure
+      .query(() => getTournamentTemplateCategories()),
+    getTournamentTemplates: adminProcedure
+      .input(z.object({ category: z.string().optional().nullable() }).optional())
+      .query(({ input }) => getTournamentTemplates(input?.category)),
+    getTournamentTemplateById: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const t = await getTournamentTemplateById(input.id);
+        if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Template not found" });
+        return t;
+      }),
+    createTournamentFromTemplate: adminProcedure.use(usePermission("competitions.create"))
+      .input(z.object({
+        templateId: z.number(),
+        name: z.string().min(1),
+        description: z.string().optional().nullable(),
+        amount: z.number().int().min(0).optional().nullable(),
+        opensAt: z.union([z.string(), z.number(), z.date()]).optional().nullable(),
+        closesAt: z.union([z.string(), z.number(), z.date()]).optional().nullable(),
+        drawDate: z.string().optional().nullable(),
+        drawTime: z.string().optional().nullable(),
+        drawCode: z.string().optional().nullable(),
+        maxParticipants: z.number().int().min(1).optional().nullable(),
+        visibility: z.enum(["VISIBLE", "HIDDEN"]).optional().nullable(),
+        rulesJson: z.unknown().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const template = await getTournamentTemplateById(input.templateId);
+        if (!template) throw new TRPCError({ code: "NOT_FOUND", message: "Template not found" });
+        const config = template.configJson as Record<string, unknown>;
+        const tournamentType = (config.tournamentType as string) ?? "football";
+        if (tournamentType === "lotto" && (!input.drawCode?.trim() || !input.drawDate?.trim() || !input.drawTime?.trim())) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "לוטו דורש drawCode, drawDate, drawTime" });
+        }
+        if (tournamentType === "chance" && (!input.drawDate?.trim() || !input.drawTime?.trim())) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "צ'אנס דורש drawDate, drawTime" });
+        }
+        if ((tournamentType === "football" || tournamentType === "football_custom") && (input.opensAt == null || input.closesAt == null)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "כדורגל/מונדיאל דורש opensAt ו-closesAt" });
+        }
+        const tournamentId = await createTournamentFromTemplate(input.templateId, {
+          name: input.name,
+          description: input.description ?? undefined,
+          amount: input.amount ?? undefined,
+          opensAt: input.opensAt ?? undefined,
+          closesAt: input.closesAt ?? undefined,
+          drawDate: input.drawDate ?? undefined,
+          drawTime: input.drawTime ?? undefined,
+          drawCode: input.drawCode ?? undefined,
+          maxParticipants: input.maxParticipants ?? undefined,
+          visibility: input.visibility ?? undefined,
+          rulesJson: input.rulesJson,
+        });
+        return { id: tournamentId };
+      }),
+    /** Phase 20: Create from competition_templates (wizard/legacy) */
+    createTournamentFromCompetitionTemplate: adminProcedure.use(usePermission("competitions.create"))
+      .input(z.object({
+        templateId: z.number(),
+        name: z.string().min(1),
+        description: z.string().optional(),
+        opensAt: z.union([z.string(), z.number(), z.date()]).optional(),
+        closesAt: z.union([z.string(), z.number(), z.date()]).optional(),
+        drawCode: z.string().optional(),
+        drawDate: z.string().optional(),
+        drawTime: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const template = await getCompetitionTemplateById(input.templateId);
+        if (!template) throw new TRPCError({ code: "NOT_FOUND", message: "Template not found" });
+        const legacyType = template.legacyType as "football" | "football_custom" | "lotto" | "chance";
+        if (legacyType === "lotto" && (!input.drawCode?.trim() || !input.drawDate?.trim() || !input.drawTime?.trim())) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "לוטו דורש drawCode, drawDate, drawTime" });
+        }
+        if (legacyType === "chance" && (!input.drawDate?.trim() || !input.drawTime?.trim())) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "צ'אנס דורש drawDate, drawTime" });
+        }
+        if ((legacyType === "football" || legacyType === "football_custom") && (input.opensAt == null || input.closesAt == null)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "כדורגל/מונדיאל דורש opensAt ו-closesAt" });
+        }
+        const settlement = template.settlementConfigJson && typeof template.settlementConfigJson === "object"
+          ? (template.settlementConfigJson as Record<string, unknown>)
+          : {};
+        const payload = {
+          name: input.name.trim(),
+          amount: template.defaultEntryFee,
+          description: input.description ?? undefined,
+          type: legacyType,
+          competitionTypeId: template.competitionTypeId ?? undefined,
+          maxParticipants: template.defaultMaxParticipants ?? undefined,
+          visibility: (template.visibility as "VISIBLE" | "HIDDEN") ?? undefined,
+          minParticipants: typeof settlement.minParticipants === "number" ? settlement.minParticipants : undefined,
+          prizeDistribution: settlement.prizeDistribution && typeof settlement.prizeDistribution === "object"
+            ? (settlement.prizeDistribution as Record<string, number>)
+            : undefined,
+          rulesJson: template.rulesJson ?? undefined,
+          opensAt: input.opensAt ?? undefined,
+          closesAt: input.closesAt ?? undefined,
+          drawCode: input.drawCode?.trim() || undefined,
+          drawDate: input.drawDate?.trim(),
+          drawTime: input.drawTime?.trim(),
+        };
+        if (legacyType === "lotto" && payload.drawDate && payload.drawTime) {
+          (payload as Record<string, unknown>).closesAt = drawDateAndTimeToTimestamp(payload.drawDate, payload.drawTime);
+        }
+        const tournamentId = await createTournament(payload);
+        const itemSets = Array.isArray(template.itemTemplateJson)
+          ? (template.itemTemplateJson as Array<{ title?: string; itemType?: string; sourceType?: string }>)
+          : [];
+        for (const set of itemSets) {
+          if (!set.title?.trim()) continue;
+          await createCompetitionItemSet({
+            tournamentId,
+            title: set.title.trim(),
+            itemType: set.itemType?.trim() || "custom",
+            sourceType: set.sourceType === "legacy" ? "legacy" : "universal",
+          });
+        }
+        return { id: tournamentId };
+      }),
+    deleteTournament: adminProcedure.use(usePermission("competitions.delete"))
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const refund = await deleteTournament(input.id);
@@ -1667,9 +2697,258 @@ export const appRouter = router({
         }
         return { success: true, ...refund };
       }),
+    /** Repair: refund participants of competitions that were closed/cancelled without valid completion. Idempotent. */
+    repairCancelledCompetitionsRefunds: adminProcedure.use(usePermission("competitions.delete"))
+      .mutation(async ({ ctx }) => {
+        const result = await repairUnrefundedCancelledCompetitions();
+        await insertAdminAuditLog({
+          performedBy: ctx.user!.id,
+          action: "Repair Cancelled Competitions Refunds",
+          targetUserId: null,
+          details: {
+            processedTournamentIds: result.processedTournamentIds,
+            totalRefundedCount: result.totalRefundedCount,
+            totalRefundedAmount: result.totalRefundedAmount,
+            details: result.details,
+            ip: getAuditIp(ctx),
+          },
+        });
+        logger.info("Admin ran repair cancelled competitions refunds", {
+          by: ctx.user!.username ?? ctx.user!.id,
+          tournaments: result.processedTournamentIds.length,
+          totalRefundedCount: result.totalRefundedCount,
+          totalRefundedAmount: result.totalRefundedAmount,
+        });
+        return result;
+      }),
+    /** Refund a single cancelled tournament (only if not validly completed). Idempotent. */
+    refundCancelledTournament: adminProcedure.use(usePermission("competitions.delete"))
+      .input(z.object({ tournamentId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (await isTournamentCompleted(input.tournamentId)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "תחרות זו הסתיימה או חולקו פרסים – לא ניתן להחזיר" });
+        }
+        const refund = await refundTournamentParticipants(input.tournamentId);
+        if (refund.refundedCount > 0 && refund.totalRefunded > 0) {
+          const tournament = await getTournamentById(input.tournamentId);
+          const name = tournament ? (tournament as { name?: string }).name ?? String(input.tournamentId) : String(input.tournamentId);
+          await insertFinancialRecord({
+            competitionId: input.tournamentId,
+            competitionName: name,
+            recordType: "refund",
+            type: tournament ? (tournament as { type?: string }).type ?? "football" : "football",
+            totalCollected: refund.totalRefunded,
+            siteFee: 0,
+            totalPrizes: 0,
+            netProfit: -refund.totalRefunded,
+            participantsCount: refund.refundedCount,
+            winnersCount: 0,
+            closedAt: new Date(),
+          });
+        }
+        await insertAdminAuditLog({
+          performedBy: ctx.user!.id,
+          action: "Refund Cancelled Tournament",
+          targetUserId: null,
+          details: { tournamentId: input.tournamentId, refundedCount: refund.refundedCount, totalRefunded: refund.totalRefunded, ip: getAuditIp(ctx) },
+        });
+        if (refund.refundedUserIds?.length && refund.amountPerUser) {
+          const performedByUser = await getUserById(ctx.user!.id);
+          const payloads = await Promise.all(
+            refund.refundedUserIds.map(async (userId) => ({
+              userId,
+              balance: await getUserPoints(userId),
+              actionType: "refund" as const,
+              amount: refund.amountPerUser ?? 0,
+              performedByUsername: (performedByUser as { username?: string })?.username ?? null,
+              note: "החזר בשל ביטול תחרות",
+            }))
+          );
+          emitPointsUpdate(payloads);
+        }
+        return { success: true, ...refund };
+      }),
     getCustomFootballMatches: adminProcedure
       .input(z.object({ tournamentId: z.number() }))
       .query(({ input }) => getCustomFootballMatches(input.tournamentId)),
+    /** Phase 2C: Resolved form/scoring/settlement schemas for a tournament (admin debug). */
+    getTournamentResolvedSchemas: adminProcedure
+      .input(z.object({ tournamentId: z.number() }))
+      .query(async ({ input }) => {
+        const tournament = await getTournamentById(input.tournamentId);
+        if (!tournament) throw new TRPCError({ code: "NOT_FOUND", message: "Tournament not found" });
+        return resolveTournamentSchemas(tournament as Parameters<typeof resolveTournamentSchemas>[0]);
+      }),
+    /** Phase 5: Compare legacy vs schema settlement for a tournament (admin debug). */
+    getSettlementComparison: adminProcedure
+      .input(z.object({ tournamentId: z.number() }))
+      .query(({ input }) => getSettlementComparison(input.tournamentId)),
+    /** Phase 18: Next scheduled automation actions and recent job history for a tournament (read-only). */
+    getTournamentScheduledActions: adminProcedure
+      .input(z.object({ tournamentId: z.number() }))
+      .query(async ({ input }) => {
+        const tournament = await getTournamentById(input.tournamentId);
+        if (!tournament) throw new TRPCError({ code: "NOT_FOUND", message: "Tournament not found" });
+        const { getNextScheduledActions } = await import("./automation/getNextScheduledActions");
+        const { getLifecyclePhase, getLifecyclePhaseLabel, getNextPossibleTransitions, getPendingLifecycleActions } = await import("./automation/lifecycleStateMachine");
+        const nextScheduledActions = getNextScheduledActions(tournament as Parameters<typeof getNextScheduledActions>[0]);
+        const recentJobs = await getAutomationJobsForTournament(input.tournamentId, 20);
+        const tRow = tournament as { id: number; status?: string | null; type?: string | null; closesAt?: Date | number | null; resultsFinalizedAt?: Date | number | null; settledAt?: Date | number | null; dataCleanedAt?: Date | number | null; drawDate?: string | null; drawTime?: string | null };
+        const phase = getLifecyclePhase(tRow);
+        const lastJob = recentJobs[0] ?? null;
+        const retryState = lastJob && (lastJob as { status?: string }).status === "failed"
+          ? { retryCount: (lastJob as { retryCount?: number }).retryCount ?? 0, nextRetryAt: (lastJob as { nextRetryAt?: Date | null }).nextRetryAt }
+          : null;
+        return {
+          nextScheduledActions,
+          recentJobs,
+          lifecyclePhase: phase,
+          lifecyclePhaseLabel: getLifecyclePhaseLabel(phase),
+          nextPossibleTransitions: getNextPossibleTransitions(phase),
+          pendingLifecycleActions: getPendingLifecycleActions(tRow),
+          retryState,
+        };
+      }),
+    /** Phase 4: Compare legacy vs schema score for a submission (admin debug). */
+    getScoreComparison: adminProcedure
+      .input(z.object({ tournamentId: z.number(), submissionId: z.number() }))
+      .query(async ({ input }) => {
+        const tournament = await getTournamentById(input.tournamentId);
+        if (!tournament) throw new TRPCError({ code: "NOT_FOUND", message: "Tournament not found" });
+        const submission = await getSubmissionById(input.submissionId);
+        if (!submission || submission.tournamentId !== input.tournamentId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Submission not found or wrong tournament" });
+        }
+        const t = tournament as { competitionTypeId?: number | null; type?: string | null; id: number };
+        const tType = (tournament as { type?: string }).type ?? "football";
+        const pred = submission.predictions as unknown;
+
+        let legacyPoints: number;
+        let legacyStrongHit: boolean | undefined;
+        let schemaPoints: number | null = null;
+        let schemaBreakdown: Record<string, unknown> | null = null;
+        let schemaWarnings: string[] = [];
+        let configMode: string | null = null;
+
+        if (tType === "football" || tType === "football_custom") {
+          const matches = tType === "football" ? await getMatches() : await getCustomFootballMatches(input.tournamentId);
+          const results = new Map<number, { homeScore: number; awayScore: number }>();
+          for (const m of matches) {
+            const hm = m as { homeScore?: number | null; awayScore?: number | null };
+            if (hm.homeScore != null && hm.awayScore != null) results.set(m.id, { homeScore: hm.homeScore, awayScore: hm.awayScore });
+          }
+          const preds = Array.isArray(pred) ? (pred as Array<{ matchId: number; prediction: "1" | "X" | "2" }>) : [];
+          const ctx = { type: "football" as const, matchResults: results, predictions: preds };
+          const legacy = getLegacyScoreForContext(ctx);
+          legacyPoints = legacy.points;
+          try {
+            const { config } = await resolveTournamentScoringConfig(t);
+            configMode = config.mode;
+            if (config.mode === "match_result") {
+              const res = scoreBySchema(config, ctx);
+              schemaPoints = res.totalPoints;
+              schemaBreakdown = res.breakdown ?? null;
+              schemaWarnings = res.warnings ?? [];
+            }
+          } catch (e) {
+            schemaWarnings.push("Schema scoring failed: " + String(e));
+          }
+        } else if (tType === "lotto") {
+          const draw = await getLottoDrawResult(input.tournamentId);
+          if (!draw || !pred || typeof pred !== "object" || !("numbers" in pred) || !("strongNumber" in pred)) {
+            return {
+              legacyPoints: 0,
+              schemaPoints: null,
+              match: true,
+              message: "No draw result or invalid prediction",
+              schemaBreakdown: null,
+              schemaWarnings: ["Missing lotto draw or invalid submission"],
+              configMode: null,
+            };
+          }
+          const ctx = {
+            type: "lotto" as const,
+            draw: { num1: draw.num1, num2: draw.num2, num3: draw.num3, num4: draw.num4, num5: draw.num5, num6: draw.num6, strongNumber: draw.strongNumber },
+            predictions: { numbers: (pred as { numbers: number[] }).numbers, strongNumber: (pred as { strongNumber: number }).strongNumber },
+          };
+          const legacy = getLegacyScoreForContext(ctx);
+          legacyPoints = legacy.points;
+          legacyStrongHit = legacy.strongHit;
+          try {
+            const { config } = await resolveTournamentScoringConfig(t);
+            configMode = config.mode;
+            if (config.mode === "lotto_match") {
+              const res = scoreBySchema(config, ctx);
+              schemaPoints = res.totalPoints;
+              schemaBreakdown = res.breakdown ?? null;
+              schemaWarnings = res.warnings ?? [];
+            }
+          } catch (e) {
+            schemaWarnings.push("Schema scoring failed: " + String(e));
+          }
+        } else if (tType === "chance") {
+          const draw = await getChanceDrawResult(input.tournamentId);
+          if (!draw || !pred || typeof pred !== "object" || !("heart" in pred)) {
+            return {
+              legacyPoints: 0,
+              schemaPoints: null,
+              match: true,
+              message: "No draw result or invalid prediction",
+              schemaBreakdown: null,
+              schemaWarnings: ["Missing chance draw or invalid submission"],
+              configMode: null,
+            };
+          }
+          const chancePred = pred as unknown as { heart?: string; club?: string; diamond?: string; spade?: string };
+          const ctx = {
+            type: "chance" as const,
+            draw: { heartCard: draw.heartCard, clubCard: draw.clubCard, diamondCard: draw.diamondCard, spadeCard: draw.spadeCard },
+            predictions: {
+              heart: chancePred.heart ?? "",
+              club: chancePred.club ?? "",
+              diamond: chancePred.diamond ?? "",
+              spade: chancePred.spade ?? "",
+            },
+          };
+          const legacy = getLegacyScoreForContext(ctx);
+          legacyPoints = legacy.points;
+          try {
+            const { config } = await resolveTournamentScoringConfig(t);
+            configMode = config.mode;
+            if (config.mode === "chance_suits") {
+              const res = scoreBySchema(config, ctx);
+              schemaPoints = res.totalPoints;
+              schemaBreakdown = res.breakdown ?? null;
+              schemaWarnings = res.warnings ?? [];
+            }
+          } catch (e) {
+            schemaWarnings.push("Schema scoring failed: " + String(e));
+          }
+        } else {
+          return {
+            legacyPoints: submission.points ?? 0,
+            schemaPoints: null,
+            match: true,
+            message: "Unsupported tournament type for comparison",
+            schemaBreakdown: null,
+            schemaWarnings: [],
+            configMode: null,
+          };
+        }
+
+        const storedPoints = submission.points ?? 0;
+        const match = schemaPoints != null ? legacyPoints === schemaPoints : true;
+        return {
+          storedPoints,
+          legacyPoints,
+          schemaPoints,
+          legacyStrongHit,
+          match,
+          schemaBreakdown,
+          schemaWarnings,
+          configMode,
+        };
+      }),
     addCustomFootballMatch: adminProcedure
       .input(z.object({
         tournamentId: z.number(),
@@ -1712,13 +2991,58 @@ export const appRouter = router({
     getCustomFootballLeaderboard: adminProcedure
       .input(z.object({ tournamentId: z.number() }))
       .query(({ input }) => getCustomFootballLeaderboard(input.tournamentId)),
-    getSiteSettings: adminProcedure.query(() => getSiteSettings()),
-    setSiteSetting: adminProcedure
+    getSiteSettings: adminProcedure.use(usePermission("settings.manage")).query(() => getSiteSettings()),
+    setSiteSetting: adminProcedure.use(usePermission("settings.manage"))
       .input(z.object({ key: z.string().min(1), value: z.string() }))
       .mutation(async ({ input }) => {
         await setSiteSetting(input.key, input.value);
         return { success: true };
       }),
+    setSiteSettingsBatch: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.record(z.string().min(1), z.string()))
+      .mutation(async ({ input }) => {
+        await setSiteSettingsBatch(input);
+        return { success: true };
+      }),
+
+    // Phase 11: CMS (cms.view / cms.edit)
+    listContentPages: adminProcedure.use(usePermission("cms.view")).query(() => listContentPages()),
+    getContentPageById: adminProcedure.use(usePermission("cms.view")).input(z.object({ id: z.number() })).query(({ input }) => getContentPageById(input.id)),
+    createContentPage: adminProcedure.use(usePermission("cms.edit")).input(z.object({ slug: z.string().min(1), title: z.string().min(1), status: z.enum(["draft", "published"]).optional(), seoTitle: z.string().nullable().optional(), seoDescription: z.string().nullable().optional() })).mutation(async ({ input }) => ({ id: await createContentPage(input) })),
+    updateContentPage: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number(), slug: z.string().min(1).optional(), title: z.string().min(1).optional(), status: z.enum(["draft", "published"]).optional(), seoTitle: z.string().nullable().optional(), seoDescription: z.string().nullable().optional() })).mutation(async ({ input }) => { await updateContentPage(input.id, input); return { success: true }; }),
+    deleteContentPage: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number() })).mutation(async ({ input }) => { await deleteContentPage(input.id); return { success: true }; }),
+    listContentSections: adminProcedure.use(usePermission("cms.view")).input(z.object({ pageId: z.number().nullable().optional() }).optional()).query(({ input }) => listContentSections(input?.pageId ?? null)),
+    getContentSectionById: adminProcedure.use(usePermission("cms.view")).input(z.object({ id: z.number() })).query(({ input }) => getContentSectionById(input.id)),
+    createContentSection: adminProcedure.use(usePermission("cms.edit")).input(z.object({ pageId: z.number().nullable().optional(), key: z.string().min(1), type: z.string().min(1), title: z.string().nullable().optional(), subtitle: z.string().nullable().optional(), body: z.string().nullable().optional(), imageUrl: z.string().nullable().optional(), buttonText: z.string().nullable().optional(), buttonUrl: z.string().nullable().optional(), sortOrder: z.number().optional(), isActive: z.boolean().optional() })).mutation(async ({ input }) => ({ id: await createContentSection(input) })),
+    updateContentSection: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number(), pageId: z.number().nullable().optional(), key: z.string().optional(), type: z.string().optional(), title: z.string().nullable().optional(), subtitle: z.string().nullable().optional(), body: z.string().nullable().optional(), imageUrl: z.string().nullable().optional(), buttonText: z.string().nullable().optional(), buttonUrl: z.string().nullable().optional(), sortOrder: z.number().optional(), isActive: z.boolean().optional() })).mutation(async ({ input }) => { const { id, ...data } = input; await updateContentSection(id, data); return { success: true }; }),
+    deleteContentSection: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number() })).mutation(async ({ input }) => { await deleteContentSection(input.id); return { success: true }; }),
+    listSiteBanners: adminProcedure.use(usePermission("cms.view")).query(() => listSiteBanners()),
+    getSiteBannerById: adminProcedure.use(usePermission("cms.view")).input(z.object({ id: z.number() })).query(({ input }) => getSiteBannerById(input.id)),
+    createSiteBanner: adminProcedure.use(usePermission("cms.edit")).input(z.object({ key: z.string().min(1), title: z.string().nullable().optional(), subtitle: z.string().nullable().optional(), imageUrl: z.string().nullable().optional(), mobileImageUrl: z.string().nullable().optional(), buttonText: z.string().nullable().optional(), buttonUrl: z.string().nullable().optional(), isActive: z.boolean().optional(), sortOrder: z.number().optional(), startsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(), endsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional() })).mutation(async ({ input }) => {
+      const toDate = (v: string | number | Date | null | undefined): Date | null => v == null ? null : v instanceof Date ? v : typeof v === "number" ? new Date(v) : new Date(v);
+      return { id: await createSiteBanner({ ...input, startsAt: toDate(input.startsAt), endsAt: toDate(input.endsAt) }) };
+    }),
+    updateSiteBanner: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number(), key: z.string().optional(), title: z.string().nullable().optional(), subtitle: z.string().nullable().optional(), imageUrl: z.string().nullable().optional(), mobileImageUrl: z.string().nullable().optional(), buttonText: z.string().nullable().optional(), buttonUrl: z.string().nullable().optional(), isActive: z.boolean().optional(), sortOrder: z.number().optional(), startsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(), endsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional() })).mutation(async ({ input }) => {
+      const toDate = (v: string | number | Date | null | undefined): Date | null => v == null ? null : v instanceof Date ? v : typeof v === "number" ? new Date(v) : new Date(v);
+      const { id, ...rest } = input; await updateSiteBanner(id, { ...rest, startsAt: rest.startsAt !== undefined ? toDate(rest.startsAt) : undefined, endsAt: rest.endsAt !== undefined ? toDate(rest.endsAt) : undefined }); return { success: true };
+    }),
+    deleteSiteBanner: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number() })).mutation(async ({ input }) => { await deleteSiteBanner(input.id); return { success: true }; }),
+    listSiteAnnouncements: adminProcedure.use(usePermission("cms.view")).query(() => listSiteAnnouncements()),
+    getSiteAnnouncementById: adminProcedure.use(usePermission("cms.view")).input(z.object({ id: z.number() })).query(({ input }) => getSiteAnnouncementById(input.id)),
+    createSiteAnnouncement: adminProcedure.use(usePermission("cms.edit")).input(z.object({ title: z.string().min(1), body: z.string().nullable().optional(), variant: z.enum(["info", "warning", "success", "neutral"]).optional(), isActive: z.boolean().optional(), startsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(), endsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional() })).mutation(async ({ input }) => {
+      const toDate = (v: string | number | Date | null | undefined): Date | null => v == null ? null : v instanceof Date ? v : typeof v === "number" ? new Date(v) : new Date(v);
+      return { id: await createSiteAnnouncement({ ...input, startsAt: toDate(input.startsAt), endsAt: toDate(input.endsAt) }) };
+    }),
+    updateSiteAnnouncement: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number(), title: z.string().optional(), body: z.string().nullable().optional(), variant: z.enum(["info", "warning", "success", "neutral"]).optional(), isActive: z.boolean().optional(), startsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(), endsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional() })).mutation(async ({ input }) => {
+      const toDate = (v: string | number | Date | null | undefined): Date | null => v == null ? null : v instanceof Date ? v : typeof v === "number" ? new Date(v) : new Date(v);
+      const { id, ...rest } = input; await updateSiteAnnouncement(id, { ...rest, startsAt: rest.startsAt !== undefined ? toDate(rest.startsAt) : undefined, endsAt: rest.endsAt !== undefined ? toDate(rest.endsAt) : undefined }); return { success: true };
+    }),
+    deleteSiteAnnouncement: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number() })).mutation(async ({ input }) => { await deleteSiteAnnouncement(input.id); return { success: true }; }),
+
+    listMediaAssets: adminProcedure.use(usePermission("cms.view")).input(z.object({ category: z.string().nullable().optional() }).optional()).query(({ input }) => listMediaAssets(input?.category ?? null)),
+    uploadMediaAsset: adminProcedure.use(usePermission("cms.edit")).input(z.object({ fileBase64: z.string().min(1), originalName: z.string().min(1), mimeType: z.string().min(1), altText: z.string().nullable().optional(), category: z.string().nullable().optional() })).mutation(async ({ input }) => createMediaAsset(input)),
+    deleteMediaAsset: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number() })).mutation(async ({ input }) => { await deleteMediaAsset(input.id); return { success: true }; }),
+    updateMediaAsset: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number(), altText: z.string().nullable().optional(), category: z.string().nullable().optional() })).mutation(async ({ input }) => { const { id, ...data } = input; await updateMediaAsset(id, data); return { success: true }; }),
 
     getChanceDrawResult: adminProcedure
       .input(z.object({ tournamentId: z.number().optional(), drawCode: z.string().optional() }).refine((d) => d.tournamentId != null || (d.drawCode != null && d.drawCode.trim() !== ""), { message: "נדרש מזהה תחרות או בחירת תחרות" }))
@@ -1944,8 +3268,11 @@ export const appRouter = router({
             for (const s of subs) {
               const preds = s.predictions as unknown;
               if (Array.isArray(preds) && preds.every((p: unknown) => p && typeof (p as { matchId?: number }).matchId === "number")) {
-                const pts = calcSubmissionPoints(preds as Array<{ matchId: number; prediction: "1" | "X" | "2" }>, results);
-                await updateSubmissionPoints(s.id, pts);
+                const resolved = await resolveScoring(
+                  tournament,
+                  { type: "football", matchResults: results, predictions: preds as Array<{ matchId: number; prediction: "1" | "X" | "2" }> }
+                );
+                await updateSubmissionPoints(s.id, resolved.points);
               }
             }
           }
@@ -2038,7 +3365,236 @@ export const appRouter = router({
     getAdminAuditLogs: superAdminProcedure
       .input(z.object({ limit: z.number().int().min(1).max(500).optional() }).optional())
       .query(({ input }) => getAdminAuditLogs(input?.limit ?? 100)),
-    createAgent: adminProcedure
+    /** Phase 19: Notifications center – list, get, mark read */
+    listNotifications: adminProcedure
+      .input(z.object({
+        recipientType: z.enum(["admin", "user", "agent", "system"]).optional(),
+        type: z.string().optional(),
+        status: z.string().optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        offset: z.number().int().min(0).optional(),
+      }).optional())
+      .query(({ input }) => listNotifications({
+        recipientType: input?.recipientType,
+        type: input?.type,
+        status: input?.status,
+        limit: input?.limit ?? 50,
+        offset: input?.offset ?? 0,
+      })),
+    getNotificationById: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const n = await getNotificationById(input.id);
+        if (!n) throw new TRPCError({ code: "NOT_FOUND", message: "Notification not found" });
+        return n;
+      }),
+    markNotificationRead: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const ok = await markNotificationRead(input.id);
+        return { success: ok };
+      }),
+    // Phase 6 RBAC: roles & permissions (admin only; assign/remove require roles.manage)
+    getRoles: adminProcedure.use(usePermission("roles.manage")).query(() => getAllRoles()),
+    getPermissions: adminProcedure.use(usePermission("roles.manage")).query(() => getAllPermissions()),
+    getUserRoles: adminProcedure
+      .use(usePermission("roles.manage"))
+      .input(z.object({ userId: z.number() }))
+      .query(({ input }) => getUserRoles(input.userId)),
+    getRolePermissions: adminProcedure
+      .use(usePermission("roles.manage"))
+      .input(z.object({ roleId: z.number() }))
+      .query(({ input }) => getRolePermissions(input.roleId)),
+    /** Phase 7: Resolved competition items (legacy or universal) for a tournament – for admin/debug. */
+    getResolvedTournamentItems: adminProcedure
+      .input(z.object({ tournamentId: z.number() }))
+      .query(({ input }) => resolveTournamentItems(input.tournamentId)),
+    /** Phase 7: List item sets stored in DB for a tournament (universal only). */
+    getCompetitionItemSets: adminProcedure
+      .input(z.object({ tournamentId: z.number() }))
+      .query(({ input }) => getCompetitionItemSetsByTournament(input.tournamentId)),
+    /** Phase 7: List items in a set (universal only). */
+    getCompetitionItemsBySet: adminProcedure
+      .input(z.object({ itemSetId: z.number() }))
+      .query(({ input }) => getCompetitionItemsBySetId(input.itemSetId)),
+    /** Phase 8: Create competition item set (universal DB). */
+    createCompetitionItemSet: adminProcedure.use(usePermission("competitions.edit"))
+      .input(z.object({
+        tournamentId: z.number(),
+        title: z.string().min(1),
+        description: z.string().optional().nullable(),
+        itemType: z.string().min(1),
+        sourceType: z.enum(["legacy", "universal"]).optional(),
+        stage: z.string().optional().nullable(),
+        round: z.string().optional().nullable(),
+        groupKey: z.string().optional().nullable(),
+        sortOrder: z.number().optional(),
+        metadataJson: z.string().optional().nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        const meta = input.metadataJson != null && input.metadataJson.trim() !== "" ? validateMetadataJson(input.metadataJson) : { valid: true as const, data: null };
+        if (!meta.valid) throw new TRPCError({ code: "BAD_REQUEST", message: "metadataJson: " + meta.error });
+        return createCompetitionItemSet({
+          tournamentId: input.tournamentId,
+          title: input.title,
+          description: input.description ?? null,
+          itemType: input.itemType,
+          sourceType: input.sourceType ?? "universal",
+          stage: input.stage ?? null,
+          round: input.round ?? null,
+          groupKey: input.groupKey ?? null,
+          sortOrder: input.sortOrder ?? 0,
+          metadataJson: meta.data,
+        });
+      }),
+    /** Phase 8: Update competition item set. */
+    updateCompetitionItemSet: adminProcedure.use(usePermission("competitions.edit"))
+      .input(z.object({
+        id: z.number(),
+        title: z.string().min(1).optional(),
+        description: z.string().optional().nullable(),
+        itemType: z.string().min(1).optional(),
+        stage: z.string().optional().nullable(),
+        round: z.string().optional().nullable(),
+        groupKey: z.string().optional().nullable(),
+        sortOrder: z.number().optional(),
+        metadataJson: z.string().optional().nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        const meta = input.metadataJson !== undefined && input.metadataJson != null && input.metadataJson.trim() !== "" ? validateMetadataJson(input.metadataJson) : input.metadataJson === null || input.metadataJson === "" ? { valid: true as const, data: null } : undefined;
+        if (meta && !meta.valid) throw new TRPCError({ code: "BAD_REQUEST", message: "metadataJson: " + meta.error });
+        await updateCompetitionItemSet({
+          id: input.id,
+          title: input.title,
+          description: input.description,
+          itemType: input.itemType,
+          stage: input.stage,
+          round: input.round,
+          groupKey: input.groupKey,
+          sortOrder: input.sortOrder,
+          metadataJson: meta?.data,
+        });
+        return { success: true };
+      }),
+    /** Phase 8: Delete competition item set. */
+    deleteCompetitionItemSet: adminProcedure.use(usePermission("competitions.edit"))
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteCompetitionItemSet(input.id);
+        return { success: true };
+      }),
+    /** Phase 8: Create competition item. */
+    createCompetitionItem: adminProcedure.use(usePermission("competitions.edit"))
+      .input(z.object({
+        itemSetId: z.number(),
+        externalKey: z.string().optional().nullable(),
+        title: z.string().min(1),
+        subtitle: z.string().optional().nullable(),
+        itemKind: z.string().min(1),
+        startsAt: z.union([z.number(), z.string()]).optional().nullable(),
+        closesAt: z.union([z.number(), z.string()]).optional().nullable(),
+        sortOrder: z.number().optional(),
+        optionSchemaJson: z.string().optional().nullable(),
+        resultSchemaJson: z.string().optional().nullable(),
+        status: z.string().optional(),
+        metadataJson: z.string().optional().nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        const opt = input.optionSchemaJson != null && input.optionSchemaJson.trim() !== "" ? validateOptionSchema(input.optionSchemaJson) : { valid: true as const, data: null };
+        const res = input.resultSchemaJson != null && input.resultSchemaJson.trim() !== "" ? validateResultSchema(input.resultSchemaJson) : { valid: true as const, data: null };
+        const meta = input.metadataJson != null && input.metadataJson.trim() !== "" ? validateMetadataJson(input.metadataJson) : { valid: true as const, data: null };
+        if (!opt.valid) throw new TRPCError({ code: "BAD_REQUEST", message: "optionSchemaJson: " + opt.error });
+        if (!res.valid) throw new TRPCError({ code: "BAD_REQUEST", message: "resultSchemaJson: " + res.error });
+        if (!meta.valid) throw new TRPCError({ code: "BAD_REQUEST", message: "metadataJson: " + meta.error });
+        const startsAt = input.startsAt != null ? (typeof input.startsAt === "string" ? new Date(input.startsAt).getTime() : input.startsAt) : null;
+        const closesAt = input.closesAt != null ? (typeof input.closesAt === "string" ? new Date(input.closesAt).getTime() : input.closesAt) : null;
+        return createCompetitionItem({
+          itemSetId: input.itemSetId,
+          externalKey: input.externalKey ?? null,
+          title: input.title,
+          subtitle: input.subtitle ?? null,
+          itemKind: input.itemKind,
+          startsAt: Number.isNaN(startsAt) ? null : startsAt,
+          closesAt: Number.isNaN(closesAt) ? null : closesAt,
+          sortOrder: input.sortOrder ?? 0,
+          optionSchemaJson: opt.data,
+          resultSchemaJson: res.data,
+          status: input.status ?? "open",
+          metadataJson: meta.data,
+        });
+      }),
+    /** Phase 8: Update competition item. */
+    updateCompetitionItem: adminProcedure.use(usePermission("competitions.edit"))
+      .input(z.object({
+        id: z.number(),
+        externalKey: z.string().optional().nullable(),
+        title: z.string().min(1).optional(),
+        subtitle: z.string().optional().nullable(),
+        itemKind: z.string().min(1).optional(),
+        startsAt: z.union([z.number(), z.string()]).optional().nullable(),
+        closesAt: z.union([z.number(), z.string()]).optional().nullable(),
+        sortOrder: z.number().optional(),
+        optionSchemaJson: z.string().optional().nullable(),
+        resultSchemaJson: z.string().optional().nullable(),
+        status: z.string().optional(),
+        metadataJson: z.string().optional().nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        const opt = input.optionSchemaJson !== undefined ? (input.optionSchemaJson != null && input.optionSchemaJson.trim() !== "" ? validateOptionSchema(input.optionSchemaJson) : { valid: true as const, data: null }) : undefined;
+        const res = input.resultSchemaJson !== undefined ? (input.resultSchemaJson != null && input.resultSchemaJson.trim() !== "" ? validateResultSchema(input.resultSchemaJson) : { valid: true as const, data: null }) : undefined;
+        const meta = input.metadataJson !== undefined ? (input.metadataJson != null && input.metadataJson.trim() !== "" ? validateMetadataJson(input.metadataJson) : { valid: true as const, data: null }) : undefined;
+        if (opt && !opt.valid) throw new TRPCError({ code: "BAD_REQUEST", message: "optionSchemaJson: " + opt.error });
+        if (res && !res.valid) throw new TRPCError({ code: "BAD_REQUEST", message: "resultSchemaJson: " + res.error });
+        if (meta && !meta.valid) throw new TRPCError({ code: "BAD_REQUEST", message: "metadataJson: " + meta.error });
+        const startsAt = input.startsAt !== undefined && input.startsAt != null ? (typeof input.startsAt === "string" ? new Date(input.startsAt).getTime() : input.startsAt) : undefined;
+        const closesAt = input.closesAt !== undefined && input.closesAt != null ? (typeof input.closesAt === "string" ? new Date(input.closesAt).getTime() : input.closesAt) : undefined;
+        await updateCompetitionItem({
+          id: input.id,
+          externalKey: input.externalKey,
+          title: input.title,
+          subtitle: input.subtitle,
+          itemKind: input.itemKind,
+          startsAt: startsAt !== undefined ? (Number.isNaN(startsAt) ? null : startsAt) : undefined,
+          closesAt: closesAt !== undefined ? (Number.isNaN(closesAt) ? null : closesAt) : undefined,
+          sortOrder: input.sortOrder,
+          optionSchemaJson: opt?.data,
+          resultSchemaJson: res?.data,
+          status: input.status,
+          metadataJson: meta?.data,
+        });
+        return { success: true };
+      }),
+    /** Phase 8: Delete competition item. */
+    deleteCompetitionItem: adminProcedure.use(usePermission("competitions.edit"))
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteCompetitionItem(input.id);
+        return { success: true };
+      }),
+    /** Phase 8: Reorder items in a set (sortOrder = index in array). */
+    reorderCompetitionItems: adminProcedure.use(usePermission("competitions.edit"))
+      .input(z.object({ itemSetId: z.number(), order: z.array(z.number()) }))
+      .mutation(async ({ input }) => {
+        await reorderCompetitionItems(input.itemSetId, input.order);
+        return { success: true };
+      }),
+    assignRole: adminProcedure.use(usePermission("roles.manage"))
+      .input(z.object({ userId: z.number().int().positive(), roleId: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        await assignRoleToUser(input.userId, input.roleId);
+        const { securityAudit } = await import("./_core/logger");
+        securityAudit("role_assign", { userId: ctx.user!.id, username: (ctx.user as { username?: string }).username, targetUserId: input.userId, roleId: input.roleId, ip: getAuditIp(ctx) });
+        return { success: true };
+      }),
+    removeRole: adminProcedure.use(usePermission("roles.manage"))
+      .input(z.object({ userId: z.number().int().positive(), roleId: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        await removeRoleFromUser(input.userId, input.roleId);
+        const { securityAudit } = await import("./_core/logger");
+        securityAudit("role_remove", { userId: ctx.user!.id, username: (ctx.user as { username?: string }).username, targetUserId: input.userId, roleId: input.roleId, ip: getAuditIp(ctx) });
+        return { success: true };
+      }),
+    createAgent: adminProcedure.use(usePermission("agents.manage"))
       .input(z.object({
         username: z.string().min(3),
         phone: z.string().min(9, "מספר טלפון חובה (לפחות 9 ספרות)"),
@@ -2083,7 +3639,7 @@ export const appRouter = router({
         return getUsersList({ role: input?.role, includeDeleted: input?.includeDeleted });
       }),
     /** חסימה / ביטול חסימה למשתמש – לא חל על מנהלים */
-    setUserBlocked: adminProcedure
+    setUserBlocked: adminProcedure.use(usePermission("users.manage"))
       .input(z.object({ userId: z.number(), isBlocked: z.boolean() }))
       .mutation(async ({ ctx, input }) => {
         await setUserBlocked(input.userId, input.isBlocked);
@@ -2180,6 +3736,88 @@ export const appRouter = router({
         }
         return reports;
       }),
+    /** דוח סוכן מפורט – מקור: financial_events, עם סינון תאריכים */
+    getAgentReportDetailed: adminProcedure
+      .input(z.object({ agentId: z.number().int().positive(), from: z.string().optional(), to: z.string().optional() }).strict())
+      .query(async ({ input }) => {
+        const report = await getAgentReportDetailed(input.agentId, { from: input.from, to: input.to });
+        return report;
+      }),
+    /** ייצוא CSV – דוח סוכן מפורט (מנהל) */
+    exportAgentReportDetailedCSV: adminProcedure
+      .input(z.object({ agentId: z.number().int().positive(), from: z.string().optional(), to: z.string().optional() }).strict())
+      .query(async ({ ctx, input }) => {
+        checkExportRateLimit(ctx);
+        const report = await getAgentReportDetailed(input.agentId, { from: input.from, to: input.to });
+        if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "סוכן לא נמצא" });
+        return { csv: agentReportDetailedToCsv(report) };
+      }),
+    /** ייצוא Excel – דוח סוכן מפורט (מנהל) */
+    exportAgentReportDetailedXLSX: adminProcedure
+      .input(z.object({ agentId: z.number().int().positive(), from: z.string().optional(), to: z.string().optional() }).strict())
+      .query(async ({ ctx, input }) => {
+        checkExportRateLimit(ctx);
+        const report = await getAgentReportDetailed(input.agentId, { from: input.from, to: input.to });
+        if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "סוכן לא נמצא" });
+        const buffer = await agentReportDetailedToXlsx(report);
+        const base64 = buffer.toString("base64");
+        const filename = `דוח_סוכן_${input.agentId}_${input.from ?? "מ-תחילה"}_${input.to ?? "עד-עכשיו"}.xlsx`;
+        return { base64, filename };
+      }),
+    /** דוח שחקן מפורט – מקור: financial_events, עם סינון תאריכים */
+    getPlayerReportDetailed: adminProcedure
+      .input(z.object({ userId: z.number().int().positive(), from: z.string().optional(), to: z.string().optional() }).strict())
+      .query(async ({ input }) => {
+        const report = await getPlayerReportDetailed(input.userId, { from: input.from, to: input.to });
+        return report;
+      }),
+    /** ייצוא CSV – דוח שחקן מפורט (מנהל) */
+    exportPlayerReportDetailedCSV: adminProcedure
+      .input(z.object({ userId: z.number().int().positive(), from: z.string().optional(), to: z.string().optional() }).strict())
+      .query(async ({ ctx, input }) => {
+        checkExportRateLimit(ctx);
+        const report = await getPlayerReportDetailed(input.userId, { from: input.from, to: input.to });
+        if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "שחקן לא נמצא" });
+        return { csv: playerReportDetailedToCsv(report) };
+      }),
+    /** ייצוא Excel – דוח שחקן מפורט (מנהל) */
+    exportPlayerReportDetailedXLSX: adminProcedure
+      .input(z.object({ userId: z.number().int().positive(), from: z.string().optional(), to: z.string().optional() }).strict())
+      .query(async ({ ctx, input }) => {
+        checkExportRateLimit(ctx);
+        const report = await getPlayerReportDetailed(input.userId, { from: input.from, to: input.to });
+        if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "שחקן לא נמצא" });
+        const buffer = await playerReportDetailedToXlsx(report);
+        const base64 = buffer.toString("base64");
+        const filename = `דוח_שחקן_${input.userId}_${input.from ?? "מ-תחילה"}_${input.to ?? "עד-עכשיו"}.xlsx`;
+        return { base64, filename };
+      }),
+    /** דוח כספי גלובלי – תאריכים, סיכום, לפי תחרות/סוכן/שחקן */
+    getGlobalFinanceReport: adminProcedure
+      .use(usePermission("finance.view"))
+      .input(z.object({ from: z.string().optional(), to: z.string().optional() }).strict())
+      .query(async ({ input }) => {
+        return getGlobalFinanceReport({ from: input.from, to: input.to });
+      }),
+    /** ייצוא CSV – דוח כספי גלובלי */
+    exportGlobalFinanceReportCSV: adminProcedure
+      .input(z.object({ from: z.string().optional(), to: z.string().optional() }).strict())
+      .query(async ({ ctx, input }) => {
+        checkExportRateLimit(ctx);
+        const report = await getGlobalFinanceReport({ from: input.from, to: input.to });
+        return { csv: globalFinanceReportToCsv(report) };
+      }),
+    /** ייצוא Excel – דוח כספי גלובלי */
+    exportGlobalFinanceReportXLSX: adminProcedure
+      .input(z.object({ from: z.string().optional(), to: z.string().optional() }).strict())
+      .query(async ({ ctx, input }) => {
+        checkExportRateLimit(ctx);
+        const report = await getGlobalFinanceReport({ from: input.from, to: input.to });
+        const buffer = await globalFinanceReportToXlsx(report);
+        const base64 = buffer.toString("base64");
+        const filename = `דוח_כספי_גלובלי_${input.from ?? "מ-תחילה"}_${input.to ?? "עד-עכשיו"}.xlsx`;
+        return { base64, filename };
+      }),
   }),
 
   agent: router({
@@ -2212,6 +3850,25 @@ export const appRouter = router({
         if ((ctx.user as { role?: string })?.role !== "agent") throw new TRPCError({ code: "FORBIDDEN", message: "גישה לסוכנים בלבד" });
         return getAgentCommissionsByAgentIdWithDateRange(ctx.user!.id, { from: input?.from, to: input?.to, limit: input?.limit });
       }),
+    /** דוח סוכן מפורט – מקור: financial_events (סוכן רואה רק את עצמו) */
+    getAgentReportDetailed: protectedProcedure
+      .input(z.object({ from: z.string().optional(), to: z.string().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        if ((ctx.user as { role?: string })?.role !== "agent") throw new TRPCError({ code: "FORBIDDEN", message: "גישה לסוכנים בלבד" });
+        const report = await getAgentReportDetailed(ctx.user!.id, { from: input?.from, to: input?.to });
+        if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "דוח לא זמין" });
+        return report;
+      }),
+    /** ייצוא CSV – דוח סוכן מפורט (סוכן) */
+    exportAgentReportDetailedCSV: protectedProcedure
+      .input(z.object({ from: z.string().optional(), to: z.string().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        if ((ctx.user as { role?: string })?.role !== "agent") throw new TRPCError({ code: "FORBIDDEN", message: "גישה לסוכנים בלבד" });
+        checkExportRateLimit(ctx);
+        const report = await getAgentReportDetailed(ctx.user!.id, { from: input?.from, to: input?.to });
+        if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "דוח לא זמין" });
+        return { csv: agentReportDetailedToCsv(report) };
+      }),
     /** ייצוא CSV – דוח עמלות (מוגבל למנהלים בלבד) */
     exportCommissionReportCSV: adminProcedure
       .input(z.object({ from: z.string().optional(), to: z.string().optional(), limit: z.number().int().min(1).max(500).optional() }).optional())
@@ -2234,12 +3891,12 @@ export const appRouter = router({
       }),
     /** ייצוא CSV – דוח רווח/הפסד סוכן (מוגבל למנהלים בלבד) */
     exportAgentPnLCSV: adminProcedure
-      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional() }).optional())
+      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), sourceLabel: z.enum(["legacy", "universal"]).optional() }).optional())
       .query(async ({ ctx, input }) => {
         checkExportRateLimit(ctx);
         const [summary, rows] = await Promise.all([
-          getAgentPnL(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType }),
-          getAgentPnLReportRows(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType }),
+          getAgentPnL(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType, sourceLabel: input?.sourceLabel }),
+          getAgentPnLReportRows(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType, sourceLabel: input?.sourceLabel }),
         ]);
         return {
           csv: agentPnLToCsv(rows.map((row) => ({
@@ -2260,6 +3917,7 @@ export const appRouter = router({
         from: z.string().optional(),
         to: z.string().optional(),
         tournamentType: z.string().optional(),
+        sourceLabel: z.enum(["legacy", "universal"]).optional(),
         playerId: z.number().int().optional(),
         limit: z.number().int().min(1).max(5000).optional(),
       }).optional())
@@ -2269,6 +3927,7 @@ export const appRouter = router({
           from: input?.from,
           to: input?.to,
           tournamentType: input?.tournamentType,
+          sourceLabel: input?.sourceLabel,
           playerId: input?.playerId,
           limit: input?.limit ?? 2000,
         });
@@ -2279,6 +3938,7 @@ export const appRouter = router({
         from: z.string().optional(),
         to: z.string().optional(),
         tournamentType: z.string().optional(),
+        sourceLabel: z.enum(["legacy", "universal"]).optional(),
         playerId: z.number().int().optional(),
         limit: z.number().int().min(1).max(5000).optional(),
       }).optional())
@@ -2288,6 +3948,7 @@ export const appRouter = router({
           from: input?.from,
           to: input?.to,
           tournamentType: input?.tournamentType,
+          sourceLabel: input?.sourceLabel,
           playerId: input?.playerId,
           limit: input?.limit ?? 5000,
         });
@@ -2358,27 +4019,27 @@ export const appRouter = router({
       }),
     /** דוח רווח והפסד לסוכן המחובר – עמלות מול הפקדות לשחקנים */
     getAgentPnL: protectedProcedure
-      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional() }).optional())
+      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), sourceLabel: z.enum(["legacy", "universal"]).optional(), status: z.string().optional() }).optional())
       .query(async ({ ctx, input }) => {
         if ((ctx.user as { role?: string })?.role !== "agent") throw new TRPCError({ code: "FORBIDDEN", message: "גישה לסוכנים בלבד" });
-        return getAgentPnL(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType, status: input?.status });
+        return getAgentPnL(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType, sourceLabel: input?.sourceLabel, status: input?.status });
       }),
     /** דוח רווח והפסד לכל שחקן של הסוכן – לטבלה */
     getAgentPlayersPnL: protectedProcedure
-      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional() }).optional())
+      .input(z.object({ from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), sourceLabel: z.enum(["legacy", "universal"]).optional(), status: z.string().optional() }).optional())
       .query(async ({ ctx, input }) => {
         if ((ctx.user as { role?: string })?.role !== "agent") throw new TRPCError({ code: "FORBIDDEN", message: "גישה לסוכנים בלבד" });
-        return getAgentPlayersPnL(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType, status: input?.status });
+        return getAgentPlayersPnL(ctx.user!.id, { from: input?.from, to: input?.to, tournamentType: input?.tournamentType, sourceLabel: input?.sourceLabel, status: input?.status });
       }),
     /** דוח מפורט רווח/הפסד לשחקן של הסוכן (רק שחקנים שלו) */
     getPlayerPnLDetail: protectedProcedure
-      .input(z.object({ playerId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), status: z.string().optional() }))
+      .input(z.object({ playerId: z.number().int(), from: z.string().optional(), to: z.string().optional(), tournamentType: z.string().optional(), sourceLabel: z.enum(["legacy", "universal"]).optional(), status: z.string().optional() }))
       .query(async ({ ctx, input }) => {
         if ((ctx.user as { role?: string })?.role !== "agent") throw new TRPCError({ code: "FORBIDDEN", message: "גישה לסוכנים בלבד" });
         const player = await getUserById(input.playerId);
         if (!player) throw new TRPCError({ code: "NOT_FOUND", message: "שחקן לא נמצא" });
         if ((player as { agentId?: number | null }).agentId !== ctx.user!.id) throw new TRPCError({ code: "FORBIDDEN", message: "השחקן לא משויך לסוכן זה" });
-        return getPlayerPnL(input.playerId, { from: input.from, to: input.to, tournamentType: input.tournamentType, status: input.status });
+        return getPlayerPnL(input.playerId, { from: input.from, to: input.to, tournamentType: input.tournamentType, sourceLabel: input.sourceLabel, status: input.status });
       }),
   }),
 });

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -5,7 +6,6 @@ import { useLocation } from "wouter";
 import { Loader2, Users, Coins, Copy, Wallet, ArrowDownToLine, ArrowUpFromLine, History, Calendar, TrendingUp, FileText, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -30,9 +30,15 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 export default function AgentDashboard() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user || user.role !== "agent") setLocation("/");
+    // setLocation omitted from deps to avoid re-run on router updates (infinite re-render)
+  }, [authLoading, user]);
   const [depositPlayer, setDepositPlayer] = useState<{ id: number; name: string } | null>(null);
   const [withdrawPlayer, setWithdrawPlayer] = useState<{ id: number; name: string; points: number } | null>(null);
   const [amount, setAmount] = useState("");
@@ -48,6 +54,8 @@ export default function AgentDashboard() {
   const [pnlFilterOpen, setPnlFilterOpen] = useState(false);
   const [balanceFilterOpen, setBalanceFilterOpen] = useState(false);
   const [commissionFilterOpen, setCommissionFilterOpen] = useState(false);
+  const [reportDetailFrom, setReportDetailFrom] = useState("");
+  const [reportDetailTo, setReportDetailTo] = useState("");
   const utils = trpc.useUtils();
   const TOURNAMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
     { value: "", label: "כל הסוגים" },
@@ -91,6 +99,25 @@ export default function AgentDashboard() {
     { playerId: pnlDetailPlayerId!, from: pnlFrom || undefined, to: pnlTo || undefined, tournamentType: pnlTournamentType || undefined },
     { enabled: !!user && user.role === "agent" && pnlDetailPlayerId != null }
   );
+  const { data: agentReportDetailed, isLoading: agentReportDetailedLoading } = trpc.agent.getAgentReportDetailed.useQuery(
+    { from: reportDetailFrom || undefined, to: reportDetailTo || undefined },
+    { enabled: !!user && user.role === "agent" }
+  );
+  const downloadReportDetailCsv = async () => {
+    try {
+      const { csv } = await utils.agent.exportAgentReportDetailedCSV.fetch({ from: reportDetailFrom || undefined, to: reportDetailTo || undefined });
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `דוח_סוכן_עמלות_${reportDetailFrom || "מ-תחילה"}_${reportDetailTo || "עד-עכשיו"}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("הורדת הקובץ החלה");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "שגיאה בייצוא");
+    }
+  };
 
   const withdrawMut = trpc.agent.withdrawFromPlayer.useMutation({
     onSuccess: () => {
@@ -111,8 +138,14 @@ export default function AgentDashboard() {
     onError: (e) => toast.error(e.message),
   });
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-12 h-12 animate-spin text-amber-500" />
+      </div>
+    );
+  }
   if (!user || user.role !== "agent") {
-    setLocation("/");
     return null;
   }
 
@@ -294,6 +327,82 @@ export default function AgentDashboard() {
                   </div>
                 ) : (
                   <p className="text-slate-500 text-center py-6">אין שחקנים או אין נתונים בתקופה</p>
+                )}
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem value="reportDetail" className="border border-slate-600/50 rounded-xl bg-slate-800/60 overflow-hidden">
+              <AccordionTrigger className="px-4 py-3 text-white hover:no-underline hover:bg-slate-700/50 [&>svg]:text-slate-400">
+                <span className="flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-amber-400" />
+                  דוח עמלות ורווח/הפסד (נתונים אמיתיים)
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="px-4 pb-4 pt-0">
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <Input type="date" value={reportDetailFrom} onChange={(e) => setReportDetailFrom(e.target.value)} className="bg-slate-900 border-slate-600 text-white w-36 text-sm" />
+                  <Input type="date" value={reportDetailTo} onChange={(e) => setReportDetailTo(e.target.value)} className="bg-slate-900 border-slate-600 text-white w-36 text-sm" />
+                  <Button variant="outline" size="sm" className="border-amber-500/50 text-amber-400 text-xs" onClick={downloadReportDetailCsv} disabled={!agentReportDetailed}>
+                    <ArrowDownToLine className="w-3 h-3 ml-1" /> ייצוא CSV
+                  </Button>
+                </div>
+                {agentReportDetailedLoading ? (
+                  <p className="text-slate-500 text-center py-4">טוען...</p>
+                ) : agentReportDetailed ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-2 mb-4 p-3 rounded-lg bg-slate-900/80 text-xs">
+                      <div><p className="text-slate-500">סה״כ כניסות</p><p className="text-white font-bold">₪{agentReportDetailed.summary.totalEntriesCollected.toLocaleString("he-IL")}</p></div>
+                      <div><p className="text-slate-500">זכיות ששולמו</p><p className="text-amber-400 font-bold">₪{agentReportDetailed.summary.totalWinningsPaid.toLocaleString("he-IL")}</p></div>
+                      <div><p className="text-slate-500">החזרים</p><p className="text-slate-300">₪{agentReportDetailed.summary.totalRefunds.toLocaleString("he-IL")}</p></div>
+                      <div><p className="text-slate-500">רווח/הפסד נטו</p><p className={agentReportDetailed.summary.netProfitLoss >= 0 ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>₪{agentReportDetailed.summary.netProfitLoss.toLocaleString("he-IL")}</p></div>
+                      <div><p className="text-slate-500">סה״כ עמלה</p><p className="text-emerald-400 font-bold">₪{agentReportDetailed.summary.totalCommission.toLocaleString("he-IL")}</p></div>
+                      <div><p className="text-slate-500">חלק סוכן</p><p className="text-emerald-400 font-bold">₪{agentReportDetailed.summary.agentCommissionShare.toLocaleString("he-IL")}</p></div>
+                      <div><p className="text-slate-500">חלק פלטפורמה</p><p className="text-slate-300">₪{agentReportDetailed.summary.platformCommissionShare.toLocaleString("he-IL")}</p></div>
+                      <div><p className="text-slate-500">שחקנים</p><p className="text-white font-bold">{agentReportDetailed.summary.numberOfPlayers}</p></div>
+                      <div><p className="text-slate-500">השתתפויות</p><p className="text-white font-bold">{agentReportDetailed.summary.numberOfSubmissions}</p></div>
+                    </div>
+                    {agentReportDetailed.players.length > 0 ? (
+                      <div className="overflow-x-auto -mx-1 min-w-0">
+                        <p className="text-slate-400 text-xs mb-2">גלול ימינה. שם מלא ושם משתמש קבועים.</p>
+                        <table className="w-full text-xs text-right min-w-[520px] border-collapse">
+                          <thead>
+                            <tr className="border-b border-slate-600 bg-slate-800/90 text-slate-400">
+                              <th className="py-1.5 px-2 text-right whitespace-nowrap bg-slate-800/95 sticky right-0 z-20 border-l border-slate-600/50">שם</th>
+                              <th className="py-1.5 px-2 whitespace-nowrap">משתמש</th>
+                              <th className="py-1.5 px-2 whitespace-nowrap">השתתפויות</th>
+                              <th className="py-1.5 px-2 whitespace-nowrap">כניסה</th>
+                              <th className="py-1.5 px-2 whitespace-nowrap">זכיות</th>
+                              <th className="py-1.5 px-2 whitespace-nowrap">החזרים</th>
+                              <th className="py-1.5 px-2 whitespace-nowrap">נטו</th>
+                              <th className="py-1.5 px-2 whitespace-nowrap">עמלה</th>
+                              <th className="py-1.5 px-2 whitespace-nowrap">חלק סוכן</th>
+                              <th className="py-1.5 px-2 whitespace-nowrap">סטטוס</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {agentReportDetailed.players.map((p) => (
+                              <tr key={p.userId} className="border-b border-slate-700/50">
+                                <td className="py-1.5 px-2 text-white font-medium whitespace-nowrap bg-slate-800/95 sticky right-0 z-10 border-l border-slate-600/50">{p.fullName ?? p.username ?? "—"}</td>
+                                <td className="py-1.5 px-2 text-slate-300 whitespace-nowrap">{p.username ?? "—"}</td>
+                                <td className="py-1.5 px-2">{p.participations}</td>
+                                <td className="py-1.5 px-2">₪{p.totalEntryFees.toLocaleString("he-IL")}</td>
+                                <td className="py-1.5 px-2 text-amber-400">₪{p.totalWinnings.toLocaleString("he-IL")}</td>
+                                <td className="py-1.5 px-2">₪{p.totalRefunds.toLocaleString("he-IL")}</td>
+                                <td className={`py-1.5 px-2 ${p.netProfitLoss >= 0 ? "text-emerald-400" : "text-amber-400"}`}>₪{p.netProfitLoss.toLocaleString("he-IL")}</td>
+                                <td className="py-1.5 px-2 text-emerald-400">₪{p.totalCommissionGenerated.toLocaleString("he-IL")}</td>
+                                <td className="py-1.5 px-2 text-emerald-400">₪{p.agentShareFromPlayer.toLocaleString("he-IL")}</td>
+                                <td className="py-1.5 px-2">{p.status === "profit" ? "רווח" : p.status === "loss" ? "הפסד" : "מאוזן"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-slate-500 text-center py-4">אין שחקנים עם פעילות בתקופה</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-slate-500 text-center py-4">לא ניתן לטעון את הדוח</p>
                 )}
               </AccordionContent>
             </AccordionItem>
@@ -679,6 +788,91 @@ export default function AgentDashboard() {
               </div>
             ) : (
               <p className="text-slate-500 text-center py-6">אין שחקנים או אין נתונים בתקופה</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-800/60 border-slate-600/50 mb-6">
+          <CardHeader>
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <FileText className="w-5 h-5 text-amber-400" />
+              דוח עמלות ורווח/הפסד (נתונים אמיתיים)
+            </h2>
+            <p className="text-slate-400 text-sm">סיכום ושחקנים לפי אירועים פיננסיים. בחר טווח תאריכים (אופציונלי).</p>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 items-stretch sm:items-end mb-4">
+              <div>
+                <label className="text-slate-400 text-xs block mb-1">מתאריך</label>
+                <Input type="date" value={reportDetailFrom} onChange={(e) => setReportDetailFrom(e.target.value)} className="bg-slate-900 border-slate-600 text-white w-40" />
+              </div>
+              <div>
+                <label className="text-slate-400 text-xs block mb-1">עד תאריך</label>
+                <Input type="date" value={reportDetailTo} onChange={(e) => setReportDetailTo(e.target.value)} className="bg-slate-900 border-slate-600 text-white w-40" />
+              </div>
+              <Button variant="outline" size="sm" className="border-amber-500/50 text-amber-400 h-9" onClick={downloadReportDetailCsv} disabled={!agentReportDetailed}>
+                <ArrowDownToLine className="w-4 h-4 ml-1" />
+                ייצוא CSV
+              </Button>
+            </div>
+            {agentReportDetailedLoading ? (
+              <p className="text-slate-500 text-center py-4">טוען...</p>
+            ) : agentReportDetailed ? (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6 p-3 rounded-lg bg-slate-900/80 text-sm">
+                  <div><p className="text-slate-500 text-xs">סה״כ כניסות/גבייה</p><p className="text-white font-bold">₪{agentReportDetailed.summary.totalEntriesCollected.toLocaleString("he-IL")}</p></div>
+                  <div><p className="text-slate-500 text-xs">סה״כ זכיות ששולמו</p><p className="text-amber-400 font-bold">₪{agentReportDetailed.summary.totalWinningsPaid.toLocaleString("he-IL")}</p></div>
+                  <div><p className="text-slate-500 text-xs">סה״כ החזרים</p><p className="text-slate-300 font-bold">₪{agentReportDetailed.summary.totalRefunds.toLocaleString("he-IL")}</p></div>
+                  <div><p className="text-slate-500 text-xs">רווח/הפסד נטו</p><p className={agentReportDetailed.summary.netProfitLoss >= 0 ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>₪{agentReportDetailed.summary.netProfitLoss.toLocaleString("he-IL")}</p></div>
+                  <div><p className="text-slate-500 text-xs">סה״כ עמלה</p><p className="text-emerald-400 font-bold">₪{agentReportDetailed.summary.totalCommission.toLocaleString("he-IL")}</p></div>
+                  <div><p className="text-slate-500 text-xs">חלק סוכן</p><p className="text-emerald-400 font-bold">₪{agentReportDetailed.summary.agentCommissionShare.toLocaleString("he-IL")}</p></div>
+                  <div><p className="text-slate-500 text-xs">חלק פלטפורמה</p><p className="text-slate-300 font-bold">₪{agentReportDetailed.summary.platformCommissionShare.toLocaleString("he-IL")}</p></div>
+                  <div><p className="text-slate-500 text-xs">מספר שחקנים</p><p className="text-white font-bold">{agentReportDetailed.summary.numberOfPlayers}</p></div>
+                  <div><p className="text-slate-500 text-xs">מספר השתתפויות</p><p className="text-white font-bold">{agentReportDetailed.summary.numberOfSubmissions}</p></div>
+                </div>
+                {agentReportDetailed.players.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-right">
+                      <thead>
+                        <tr className="border-b border-slate-600/50 text-slate-400">
+                          <th className="py-2 px-2">שם מלא</th>
+                          <th className="py-2 px-2">שם משתמש</th>
+                          <th className="py-2 px-2">השתתפויות</th>
+                          <th className="py-2 px-2">דמי כניסה</th>
+                          <th className="py-2 px-2">זכיות</th>
+                          <th className="py-2 px-2">החזרים</th>
+                          <th className="py-2 px-2">רווח/הפסד נטו</th>
+                          <th className="py-2 px-2">עמלה</th>
+                          <th className="py-2 px-2">חלק סוכן</th>
+                          <th className="py-2 px-2">חלק פלטפורמה</th>
+                          <th className="py-2 px-2">סטטוס</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {agentReportDetailed.players.map((p) => (
+                          <tr key={p.userId} className="border-b border-slate-700/50">
+                            <td className="py-2 px-2 text-white">{p.fullName ?? "—"}</td>
+                            <td className="py-2 px-2 text-slate-300">{p.username ?? "—"}</td>
+                            <td className="py-2 px-2">{p.participations}</td>
+                            <td className="py-2 px-2">₪{p.totalEntryFees.toLocaleString("he-IL")}</td>
+                            <td className="py-2 px-2 text-amber-400">₪{p.totalWinnings.toLocaleString("he-IL")}</td>
+                            <td className="py-2 px-2 text-slate-300">₪{p.totalRefunds.toLocaleString("he-IL")}</td>
+                            <td className={`py-2 px-2 font-medium ${p.netProfitLoss >= 0 ? "text-emerald-400" : "text-amber-400"}`}>₪{p.netProfitLoss.toLocaleString("he-IL")}</td>
+                            <td className="py-2 px-2 text-emerald-400">₪{p.totalCommissionGenerated.toLocaleString("he-IL")}</td>
+                            <td className="py-2 px-2 text-emerald-400">₪{p.agentShareFromPlayer.toLocaleString("he-IL")}</td>
+                            <td className="py-2 px-2 text-slate-300">₪{p.platformShareFromPlayer.toLocaleString("he-IL")}</td>
+                            <td className="py-2 px-2">{p.status === "profit" ? "רווח" : p.status === "loss" ? "הפסד" : "מאוזן"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-slate-500 text-center py-6">אין שחקנים עם פעילות בתקופה</p>
+                )}
+              </>
+            ) : (
+              <p className="text-slate-500 text-center py-6">לא ניתן לטעון את הדוח</p>
             )}
           </CardContent>
         </Card>

@@ -25,10 +25,29 @@ import {
 import { toast } from "sonner";
 import { Loader2, Send, LogIn, Trophy } from "lucide-react";
 import { getTournamentStyles } from "@/lib/tournamentStyles";
+import { DynamicPredictionForm } from "@/components/DynamicPredictionForm";
+import { LossAversionBanner } from "@/components/LossAversionBanner";
+import { SocialProofStrip } from "@/components/SocialProofStrip";
+import type { MatchItem } from "@/components/DynamicPredictionForm";
+
+/** Phase 3: Supported schema kinds and legacy types for dynamic form. */
+const SUPPORTED_SCHEMA_KINDS = ["football_match_predictions", "lotto", "chance"] as const;
+const SUPPORTED_LEGACY_TYPES = ["football", "football_custom", "lotto", "chance"] as const;
+
+function useDynamicFormPath(
+  resolved: { formSchema: { kind: string }; legacyType: string } | undefined,
+  tournamentType: string | undefined
+): boolean {
+  if (!resolved || !tournamentType) return false;
+  const kindOk = SUPPORTED_SCHEMA_KINDS.includes(resolved.formSchema.kind as (typeof SUPPORTED_SCHEMA_KINDS)[number]);
+  const typeOk = SUPPORTED_LEGACY_TYPES.includes(resolved.legacyType as (typeof SUPPORTED_LEGACY_TYPES)[number]);
+  return kindOk && typeOk;
+}
 
 const PREDICTIONS_STORAGE_KEY = (tid: number) => `worldcup_predictions_${tid}`;
 const RETURN_PATH_KEY = "worldcup_return_path";
 
+/** 1X2 prediction: Home win (1) / Draw (X) / Away win (2). Correct = 3 points, wrong = 0. */
 function Toggle12X({
   value,
   onChange,
@@ -44,37 +63,43 @@ function Toggle12X({
         type="button"
         onClick={() => !disabled && onChange("1")}
         disabled={disabled}
-        className={`min-w-[44px] py-2 px-4 font-bold text-sm transition-all duration-200 rounded-lg ${
+        className={`flex flex-col min-w-[52px] py-2 px-3 font-bold text-sm transition-all duration-200 rounded-lg ${
           value === "1"
             ? "bg-emerald-600 text-white shadow-md scale-105"
             : "text-emerald-400/80 hover:bg-emerald-500/20 hover:text-emerald-400"
         }`}
+        title="ניצחון בית"
       >
-        1
+        <span>1</span>
+        <span className="text-[10px] font-normal opacity-90">ניצחון בית</span>
       </button>
       <button
         type="button"
         onClick={() => !disabled && onChange("X")}
         disabled={disabled}
-        className={`min-w-[44px] py-2 px-4 font-bold text-sm transition-all duration-200 rounded-lg ${
+        className={`flex flex-col min-w-[52px] py-2 px-3 font-bold text-sm transition-all duration-200 rounded-lg ${
           value === "X"
             ? "bg-amber-500 text-slate-900 shadow-md scale-105"
             : "text-amber-400/80 hover:bg-amber-500/20 hover:text-amber-400"
         }`}
+        title="תיקו"
       >
-        X
+        <span>X</span>
+        <span className="text-[10px] font-normal opacity-90">תיקו</span>
       </button>
       <button
         type="button"
         onClick={() => !disabled && onChange("2")}
         disabled={disabled}
-        className={`min-w-[44px] py-2 px-4 font-bold text-sm transition-all duration-200 rounded-lg ${
+        className={`flex flex-col min-w-[52px] py-2 px-3 font-bold text-sm transition-all duration-200 rounded-lg ${
           value === "2"
             ? "bg-blue-600 text-white shadow-md scale-105"
             : "text-blue-400/80 hover:bg-blue-500/20 hover:text-blue-400"
         }`}
+        title="ניצחון חוץ"
       >
-        2
+        <span>2</span>
+        <span className="text-[10px] font-normal opacity-90">ניצחון חוץ</span>
       </button>
     </div>
   );
@@ -116,6 +141,25 @@ export default function PredictionForm() {
     { enabled: validId > 0, retry: false }
   );
   const tournamentType = tournament ? (tournament as { type?: string }).type : undefined;
+  const { data: resolvedFormSchema, isLoading: schemaLoading, isFetched: schemaFetched } = trpc.tournaments.getResolvedFormSchema.useQuery(
+    { tournamentId: validId },
+    { enabled: validId > 0 && !!tournament, retry: false }
+  );
+  const useDynamicForm = useDynamicFormPath(resolvedFormSchema, tournamentType);
+  const waitForSchema =
+    !!tournament &&
+    ["football", "football_custom", "lotto", "chance"].includes(tournamentType ?? "") &&
+    !schemaFetched &&
+    schemaLoading;
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !tournament) return;
+    const isDevOrAdmin = process.env.NODE_ENV === "development" || user?.role === "admin";
+    if (isDevOrAdmin && schemaFetched) {
+      const path = useDynamicForm && resolvedFormSchema ? "dynamic" : "legacy";
+      console.info("[Phase 3] Prediction form path:", path);
+    }
+  }, [tournament, schemaFetched, useDynamicForm, resolvedFormSchema, user?.role]);
   const isChance = tournamentType === "chance";
   const isLotto = tournamentType === "lotto";
   const isFootballCustom = tournamentType === "football_custom";
@@ -199,6 +243,7 @@ export default function PredictionForm() {
   const [hasPreloadedExisting, setHasPreloadedExisting] = useState(false);
   const [showAddEntryConfirm, setShowAddEntryConfirm] = useState(false);
   const confirmedAddEntryRef = useRef(false);
+  const [stickySubmitVisible, setStickySubmitVisible] = useState(false);
 
   useEffect(() => {
     setHasPreloadedExisting(false);
@@ -281,6 +326,14 @@ export default function PredictionForm() {
   }, [matchesList, validId, isAuthenticated, mySubmissions, myEntriesForTournament, hasPreloadedExisting, isChance, isLotto]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onScroll = () => setStickySubmitVisible(window.scrollY > 350);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
     if (!isChance || !validId) return;
     const entries = isAuthenticated && myEntriesForTournament?.length ? myEntriesForTournament : [];
     const latest = entries[0];
@@ -323,7 +376,7 @@ export default function PredictionForm() {
       </div>
     );
   }
-  if (tournamentLoading || !tournamentFetched) {
+  if (tournamentLoading || !tournamentFetched || waitForSchema) {
     return (
       <div className="min-h-screen flex items-center justify-center gap-3">
         <Loader2 className="w-12 h-12 animate-spin text-amber-500" />
@@ -337,6 +390,30 @@ export default function PredictionForm() {
         <p className="text-slate-400">טורניר לא נמצא</p>
         <Button variant="outline" onClick={() => setLocation("/tournaments")} className="rounded-xl">חזרה לתחרויות</Button>
       </div>
+    );
+  }
+
+  const hasMatchesForFootball =
+    resolvedFormSchema?.legacyType !== "football" &&
+    resolvedFormSchema?.legacyType !== "football_custom" ||
+    !isLoadingMatches;
+  if (useDynamicForm && resolvedFormSchema && hasMatchesForFootball) {
+    const matchesForDynamic: MatchItem[] = matchesList.map((m) => ({
+      id: m.id,
+      homeTeam: m.homeTeam,
+      awayTeam: m.awayTeam,
+      matchNumber: "matchNumber" in m ? (m as { matchNumber?: number }).matchNumber : undefined,
+      matchDate: "matchDate" in m ? (m as { matchDate?: string }).matchDate : undefined,
+      matchTime: "matchTime" in m ? (m as { matchTime?: string }).matchTime : undefined,
+    }));
+    return (
+      <DynamicPredictionForm
+        tournament={tournament}
+        formSchema={resolvedFormSchema.formSchema}
+        legacyType={resolvedFormSchema.legacyType}
+        matchesList={matchesForDynamic}
+        showRendererBadge={user?.role === "admin"}
+      />
     );
   }
 
@@ -431,9 +508,9 @@ export default function PredictionForm() {
         if ((result as { pendingApproval?: boolean }).pendingApproval) {
           toast.success("הטופס נשלח וממתין לאישור מנהל.");
         } else {
-          toast.success(hasEntries ? "כניסה נוספת נשלחה בהצלחה!" : "הטופס נשלח בהצלחה!");
+          toast.success(hasEntries ? "כניסה נוספת נשלחה בהצלחה!" : "הטופס נשלח בהצלחה! צפה בדירוג.");
         }
-        setLocation("/");
+        setLocation(`/?submitted=1&tournamentId=${validId}`);
       } catch (e: unknown) {
         const err = e as { message?: string };
         toast.error(err instanceof Error ? err.message : "שגיאה");
@@ -459,8 +536,10 @@ export default function PredictionForm() {
         sessionStorage.removeItem(PREDICTIONS_STORAGE_KEY(validId));
         await utils.submissions.getAll.invalidate();
         await utils.submissions.getMine.invalidate();
+        await utils.submissions.getByTournament.invalidate({ tournamentId: validId });
         await utils.submissions.getMyEntriesForTournament.invalidate({ tournamentId: validId });
         await utils.auth.me.invalidate();
+        await utils.tournaments.getPublicStats.invalidate();
         const balanceAfterChance = (result as { balanceAfter?: number }).balanceAfter;
         if (typeof balanceAfterChance === "number") {
           const prev = utils.auth.me.getData();
@@ -469,9 +548,9 @@ export default function PredictionForm() {
         if ((result as { pendingApproval?: boolean }).pendingApproval) {
           toast.success("הטופס נשלח וממתין לאישור מנהל.");
         } else {
-          toast.success(hasEntries ? "כניסה נוספת נשלחה בהצלחה!" : "הטופס נשלח בהצלחה!");
+          toast.success(hasEntries ? "כניסה נוספת נשלחה בהצלחה!" : "הטופס נשלח בהצלחה! צפה בדירוג.");
         }
-        setLocation("/");
+        setLocation(`/?submitted=1&tournamentId=${validId}`);
       } catch (e: unknown) {
         const err = e as { message?: string };
         toast.error(err instanceof Error ? err.message : "שגיאה");
@@ -498,6 +577,7 @@ export default function PredictionForm() {
       await utils.submissions.getByTournament.invalidate({ tournamentId: validId });
       await utils.submissions.getMyEntriesForTournament.invalidate({ tournamentId: validId });
       await utils.auth.me.invalidate();
+      await utils.tournaments.getPublicStats.invalidate();
       const balanceAfterDefault = (result as { balanceAfter?: number }).balanceAfter;
       if (typeof balanceAfterDefault === "number") {
         const prev = utils.auth.me.getData();
@@ -506,9 +586,9 @@ export default function PredictionForm() {
       if ((result as { pendingApproval?: boolean }).pendingApproval) {
         toast.success("הטופס נשלח וממתין לאישור מנהל.");
       } else {
-        toast.success(hasEntries ? "כניסה נוספת נשלחה בהצלחה!" : "הטופס נשלח בהצלחה! נוספת לטבלת הדירוג.");
+        toast.success(hasEntries ? "כניסה נוספת נשלחה בהצלחה!" : "הטופס נשלח בהצלחה! צפה בדירוג.");
       }
-      setLocation("/");
+      setLocation(`/?submitted=1&tournamentId=${validId}`);
     } catch (e: unknown) {
       const err = e as { data?: { code?: string }; message?: string };
       if (err?.data?.code === "UNAUTHORIZED" || err?.message?.includes("להתחבר")) {
@@ -545,6 +625,7 @@ export default function PredictionForm() {
   return (
     <div className="min-h-screen py-4 sm:py-8 overflow-x-hidden max-w-full">
       <div className="container mx-auto px-3 sm:px-4 min-w-0">
+        <SocialProofStrip tournamentId={validId} className="mb-4" />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 sm:mb-6">
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-white flex items-center gap-2 break-words min-w-0 max-w-full">
             <Trophy className={`w-7 h-7 sm:w-8 sm:h-8 shrink-0 ${styles.icon}`} />
@@ -562,6 +643,39 @@ export default function PredictionForm() {
             חזרה לתחרויות
           </Button>
         </div>
+
+        {/* Phase 32: tournament hero – entry, prize, urgency, why join */}
+        <div className="mb-6 rounded-2xl border border-slate-600/60 bg-gradient-to-b from-slate-800/80 to-slate-800/50 overflow-hidden card-tournament-live">
+          <div className="p-4 sm:p-5 flex flex-wrap items-center gap-4 gap-y-3">
+            <span className="text-amber-400 font-bold">כניסה: {entryCost > 0 ? `${entryCost} נקודות` : "חינם"}</span>
+            <span className="text-emerald-400 font-black text-lg">₪{(tournament as { prizePool?: number }).prizePool?.toLocaleString("he-IL") ?? "—"} פרס</span>
+            {!tournament.isLocked && (isChance && chanceCountdownDisplay) && (
+              <span className={`font-mono font-bold text-lg tabular-nums ${countdownMs > 0 && countdownMs <= 3600000 ? "countdown-urgent is-less-than-hour" : "text-amber-400"}`}>
+                ⏳ {chanceCountdownDisplay}
+              </span>
+            )}
+            {!tournament.isLocked && isLotto && lottoCountdownDisplay != null && (
+              <span className={`font-mono font-bold text-lg tabular-nums ${countdownMs > 0 && countdownMs <= 3600000 ? "countdown-urgent is-less-than-hour" : "text-amber-400"}`}>
+                ⏳ {lottoCountdownDisplay}
+              </span>
+            )}
+          </div>
+          <p className="px-4 pb-4 pt-0 text-slate-400 text-sm border-t border-slate-700/50 mt-0 pt-3">
+            הזדמנות לזכות בפרס – מלא טופס והצטרף תוך דקה. אחרי אישור הטופס תיכנס לדירוג התחרות. {entryCost > 0 && isAuthenticated && !user?.unlimitedPoints && user?.role !== "admin" ? "ההשתתפות תחויב מנקודותיך." : ""}
+          </p>
+        </div>
+
+        {isAuthenticated && validId > 0 && !tournament.isLocked && <LossAversionBanner tournamentId={validId} className="mb-4" />}
+
+        {(tournament as { bannerUrl?: string | null }).bannerUrl && (
+          <div className="mb-6 rounded-xl overflow-hidden border border-slate-600 bg-slate-800/60">
+            <img
+              src={(tournament as { bannerUrl: string }).bannerUrl}
+              alt=""
+              className="w-full h-32 sm:h-40 object-cover"
+            />
+          </div>
+        )}
 
         {tournament.isLocked && (
           <div className="bg-amber-500/20 border border-amber-500/50 rounded-xl p-4 mb-6 text-amber-200 flex items-center gap-2 break-words min-w-0">
@@ -587,7 +701,7 @@ export default function PredictionForm() {
             ) : chanceCountdownDisplay != null ? (
               <>
                 <p className="text-slate-400 text-sm mb-1">⏳ זמן נותר עד סגירת התחרות</p>
-                <p className="text-2xl font-mono font-bold text-white tabular-nums">{chanceCountdownDisplay}</p>
+                <p className={`text-2xl font-mono font-bold tabular-nums ${countdownMs > 0 && countdownMs <= 3600000 ? "countdown-urgent is-less-than-hour" : "text-white"}`}>{chanceCountdownDisplay}</p>
                 {countdownMs > 0 && countdownMs <= 10 * 60 * 1000 && (
                   <p className="text-amber-400 text-sm mt-2">🔥 נסגרת בקרוב!</p>
                 )}
@@ -603,7 +717,7 @@ export default function PredictionForm() {
             ) : lottoCountdownDisplay != null ? (
               <>
                 <p className="text-slate-400 text-sm mb-1">⏳ זמן נותר עד סגירת ההגרלה</p>
-                <p className="text-2xl font-mono font-bold text-white tabular-nums">{lottoCountdownDisplay}</p>
+                <p className={`text-2xl font-mono font-bold tabular-nums ${countdownMs > 0 && countdownMs <= 3600000 ? "countdown-urgent is-less-than-hour" : "text-white"}`}>{lottoCountdownDisplay}</p>
                 {countdownMs > 0 && countdownMs <= 10 * 60 * 1000 && (
                   <p className="text-amber-400 text-sm mt-2">🔥 נסגרת בקרוב!</p>
                 )}
@@ -614,8 +728,8 @@ export default function PredictionForm() {
 
         {isChance ? (
           <div className="max-w-xl mx-auto space-y-4">
-            <p className="text-slate-400 text-center mb-6">
-              בחר קלף אחד מכל צורה. הקלפים הזמינים: 7, 8, 9, 10, J, Q, K, A
+            <p className="text-slate-400 text-center mb-6 leading-relaxed">
+              בחר קלף אחד מכל צורה. הקלפים הזמינים: 7, 8, 9, 10, J, Q, K, A. לאחר מילוי – לחצו &quot;שלח והשתתף&quot;.
             </p>
             {SUITS.map(({ key, label, color }) => (
               <Card key={key} className="card-sport bg-slate-800/60 border-slate-600/50">
@@ -640,8 +754,8 @@ export default function PredictionForm() {
           </div>
         ) : isLotto ? (
           <div className="max-w-2xl mx-auto space-y-6">
-            <p className="text-slate-400 text-center">
-              בחר בדיוק 6 מספרים (1–37). אין כפילויות. לאחר מכן בחר מספר חזק אחד (1–7).
+            <p className="text-slate-400 text-center mb-2">
+              בחר בדיוק 6 מספרים (1–37). אין כפילויות. לאחר מכן בחר מספר חזק אחד (1–7). בסיום – &quot;שלח והשתתף&quot;.
             </p>
             <div>
               <p className="text-amber-400 font-medium mb-2">שלב 1 – 6 מספרים ({lottoNumbers.length}/6)</p>
@@ -698,7 +812,21 @@ export default function PredictionForm() {
         isLoadingMatches ? (
           <Loader2 className="w-12 h-12 animate-spin text-amber-500 mx-auto block" />
         ) : (
-          <div className="space-y-3 max-h-[65vh] overflow-y-auto overflow-x-hidden pr-2 min-w-0">
+          <div className="space-y-4 min-w-0">
+            <p className="text-slate-400 text-center mb-2">בחרו 1 / X / 2 לכל משחק. בסיום לחצו &quot;שלח והשתתף&quot;.</p>
+            {/* Phase 32: progress – reduce cognitive load for large competitions */}
+            <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-800/60 border border-slate-600/50 px-4 py-2">
+              <span className="text-slate-400 text-sm font-medium">
+                {Object.keys(predictions).filter((k) => matchesList.some((m) => m.id === parseInt(k, 10))).length} מתוך {matchesList.length} ניחושים
+              </span>
+              <div className="flex-1 max-w-[140px] h-2 rounded-full bg-slate-700 overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                  style={{ width: `${matchesList.length ? (Object.keys(predictions).filter((k) => matchesList.some((m) => m.id === parseInt(k, 10))).length / matchesList.length) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+            <div className="space-y-3 max-h-[65vh] overflow-y-auto overflow-x-hidden pr-2 min-w-0">
             {matchesList.map((m, idx) => (
               <Card
                 key={m.id}
@@ -726,11 +854,12 @@ export default function PredictionForm() {
                 </CardContent>
               </Card>
             ))}
+            </div>
           </div>
         )
         )}
 
-        <div className="mt-6 sm:mt-8 flex justify-center">
+        <div className="mt-6 sm:mt-8 flex justify-center pb-safe-nav sm:pb-0" id="predict-submit-area">
           <Button
             size="lg"
             disabled={!allFilled || tournament.isLocked || (isChance && chanceDrawClosedForUI) || (isLotto && lottoDrawClosedForUI) || submitMutation.isPending || updateMutation.isPending}
@@ -742,10 +871,34 @@ export default function PredictionForm() {
             ) : (
               <Send className="w-5 h-5 ml-2" />
             )}
-            {isEditMode ? "עדכן טופס (ללא חיוב)" : hasEntries ? "הוסף כניסה" : "שלח טופס"}
+            {isEditMode ? "עדכן טופס (ללא חיוב)" : hasEntries ? "הוסף כניסה" : "שלח והשתתף"}
           </Button>
         </div>
       </div>
+
+      {/* Phase 32: sticky submit on mobile – keeps CTA visible above bottom nav */}
+      {stickySubmitVisible && (
+        <div
+          className="md:hidden fixed left-0 right-0 z-30 p-3 bg-slate-900/95 border-t border-slate-700/60 backdrop-blur-md"
+          style={{ bottom: "calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px))" }}
+        >
+          <div className="container mx-auto max-w-md">
+            <Button
+              size="lg"
+              disabled={!allFilled || tournament.isLocked || (isChance && chanceDrawClosedForUI) || (isLotto && lottoDrawClosedForUI) || submitMutation.isPending || updateMutation.isPending}
+              onClick={handleSubmit}
+              className={`w-full rounded-xl shadow-lg btn-sport text-base px-6 min-h-[48px] touch-target ${styles.button}`}
+            >
+              {submitMutation.isPending || updateMutation.isPending ? (
+                <Loader2 className="w-5 h-5 animate-spin ml-2" />
+              ) : (
+                <Send className="w-5 h-5 ml-2" />
+              )}
+              {isEditMode ? "עדכן טופס" : hasEntries ? "הוסף כניסה" : "שלח והשתתף"}
+            </Button>
+          </div>
+        </div>
+      )}
 
       <Dialog open={showLoginModal} onOpenChange={setShowLoginModal}>
         <DialogContent className="bg-slate-900 border-slate-700 text-white rounded-2xl" showCloseButton={true}>

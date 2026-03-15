@@ -60,9 +60,9 @@ function toContextUser(row: { id: number; openId: string | null; username: strin
 }
 
 describe("SECURITY SIMULATION – משתמשים ופעילות", () => {
-  let playerIds: number[] = [];
-  let agentIds: number[] = [];
-  let adminIds: number[] = [];
+  const playerIds: number[] = [];
+  const agentIds: number[] = [];
+  const adminIds: number[] = [];
   let tournamentId: number = 0;
   let tournamentName: string = "";
   let simTimestamp: number = 0;

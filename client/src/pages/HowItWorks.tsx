@@ -53,7 +53,7 @@ const steps = [
       "בתחרויות כדורגל – תנחשו את תוצאות המשחקים.",
       "בתחרויות לוטו או צ'אנס – תבחרו מספרים לפי חוקי התחרות.",
     ],
-    footer: "לאחר שליחת הטופס המערכת מאשרת את ההשתתפות ומכניסה אתכם לתחרות. ניתן לשלוח מספר טפסים לאותה תחרות.",
+    footer: "לאחר שליחת הטופס המערכת מאשרת את ההשתתפות ומכניסה אתכם לדירוג התחרות. ניתן לשלוח מספר טפסים לאותה תחרות. מה קורה אחרי אישור? אתם מופיעים בדירוג; כשהתחרות נסגרת ומחושבות התוצאות – הזוכים מקבלים את הפרס לחשבון הנקודות.",
   },
   {
     icon: Lock,
@@ -106,12 +106,23 @@ export default function HowItWorks() {
           </Button>
         </div>
 
-        <Card className="card-sport bg-slate-800/60 border-slate-600/50 mb-8">
+        <Card className="card-sport bg-slate-800/60 border-slate-600/50 mb-6">
           <CardContent className="pt-6">
             <p className="text-slate-300 leading-relaxed">
               באתר תוכלו להשתתף בתחרויות שונות, לנחש תוצאות ולהתחרות מול שחקנים נוספים.
               כל המערכת פועלת בצורה אוטומטית ושקופה.
             </p>
+          </CardContent>
+        </Card>
+
+        <Card className="card-sport bg-amber-500/10 border-amber-500/30 mb-8">
+          <CardHeader className="pb-2">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">בקצרה – 3 שלבים</h2>
+          </CardHeader>
+          <CardContent className="space-y-2 text-slate-300 text-sm sm:text-base">
+            <p><strong className="text-amber-200">1. בחר תחרות</strong> מהרשימה ולחץ עליה.</p>
+            <p><strong className="text-amber-200">2. מלא טופס ושלוח</strong> – הניחושים או הבחירות לפי סוג התחרות.</p>
+            <p><strong className="text-amber-200">3. אחרי אישור</strong> – ההשתתפות נספרת ואתם נכנסים לדירוג. הזוכים מקבלים פרסים לחשבון.</p>
           </CardContent>
         </Card>
 
@@ -158,21 +169,20 @@ export default function HowItWorks() {
               <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400">
                 <Eye className="w-6 h-6" />
               </div>
-              <h2 className="text-xl font-bold text-white">שקיפות המערכת</h2>
+              <h2 className="text-xl font-bold text-white">למה לסמוך על האתר? – שקיפות ואמינות</h2>
             </div>
           </CardHeader>
           <CardContent className="space-y-2">
             <p className="text-slate-300 leading-relaxed">
-              המערכת פועלת בצורה שקופה לחלוטין. כל הנתונים נשמרים ומוצגים בצורה מסודרת:
+              משתתפים אמיתיים, תחרות אמיתית, כללים ברורים. המערכת פועלת בצורה שקופה:
             </p>
             <ul className="list-disc list-inside space-y-1 text-slate-300 pr-2">
-              <li>תוצאות התחרויות</li>
-              <li>טפסים שנשלחו</li>
-              <li>דירוג שחקנים</li>
-              <li>זכיות</li>
+              <li>תוצאות התחרויות והדירוג מתעדכנים לפי הכללים</li>
+              <li>טפסים שנשלחו ואושרו – גלויים לכם</li>
+              <li>חלוקת פרסים לזוכים – אוטומטית ושקופה</li>
             </ul>
             <p className="text-slate-400 text-sm pt-2">
-              כך שכל שחקן יכול לראות בדיוק איך התחרות התנהלה.
+              בדף השקיפות תוכלו לראות סיכום כספי ותחרויות. תקנון ופרטיות זמינים בתחתית האתר.
             </p>
           </CardContent>
         </Card>

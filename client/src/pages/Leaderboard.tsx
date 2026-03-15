@@ -9,6 +9,11 @@ import { Badge } from "@/components/ui/badge";
 import { Trophy, Check, Clock, X, Eye, Sparkles, ChevronDown } from "lucide-react";
 import { SubmissionPredictionsModal } from "@/components/SubmissionPredictionsModal";
 import { getTournamentStyles } from "@/lib/tournamentStyles";
+import { NearWinBanner } from "@/components/NearWinBanner";
+import { RivalStatusBanner } from "@/components/RivalStatusBanner";
+import { StreakBanner } from "@/components/StreakBanner";
+import { PositionDramaBanner } from "@/components/PositionDramaBanner";
+import { LossAversionBanner } from "@/components/LossAversionBanner";
 
 function RankBadge({ rank, isApproved }: { rank: number; isApproved: boolean }) {
   if (!isApproved) return <span className="text-slate-500">—</span>;
@@ -454,8 +459,8 @@ function SingleTournamentLeaderboardCard({
 }
 
 export default function Leaderboard() {
-  const [location] = useLocation();
-  useAuth();
+  const [location, setLocation] = useLocation();
+  const { isAuthenticated } = useAuth();
 
   const [viewSubmissionId, setViewSubmissionId] = useState<number | null>(null);
 
@@ -464,6 +469,8 @@ export default function Leaderboard() {
     return idx >= 0 ? location.slice(idx + 1) : "";
   }, [location]);
   const tournamentTypeParam = useMemo(() => parseTournamentTypeParam(new URLSearchParams(search).get("tournamentType")), [search]);
+  const justSubmitted = useMemo(() => new URLSearchParams(search).get("justSubmitted") === "1", [search]);
+  const [hideJustSubmittedBanner, setHideJustSubmittedBanner] = useState(false);
 
   const TAB_IDS = ["WORLD_CUP", "FOOTBALL", "CHANCE", "LOTTO"] as const;
   const [activeTab, setActiveTab] = useState<(typeof TAB_IDS)[number]>(tournamentTypeParam ?? "WORLD_CUP");
@@ -533,9 +540,47 @@ export default function Leaderboard() {
     );
   };
 
+  const leaderboardTournamentId = activeTournaments[0]?.id ?? null;
+  const { data: recommendation } = trpc.tournaments.getRecommendedTournamentForUser.useQuery(undefined, {
+    enabled: isAuthenticated,
+    staleTime: 45_000,
+  });
+
   return (
     <div className="min-h-screen py-4 sm:py-6 md:py-8 overflow-x-hidden max-w-full">
       <div className="container mx-auto px-3 sm:px-4 min-w-0">
+        {isAuthenticated && (
+          <div className="mb-4 space-y-2">
+            {leaderboardTournamentId != null && (
+              <>
+                <NearWinBanner tournamentId={leaderboardTournamentId} />
+                <RivalStatusBanner tournamentId={leaderboardTournamentId} />
+                <PositionDramaBanner tournamentId={leaderboardTournamentId} />
+                <LossAversionBanner tournamentId={leaderboardTournamentId} />
+              </>
+            )}
+            <StreakBanner />
+            {/* Phase 37/38: Re-engagement – one CTA to join another competition (recommended when available) */}
+            <div className="rounded-xl border border-sky-500/40 bg-sky-500/10 px-4 py-2.5 flex flex-wrap items-center justify-center gap-2">
+              <span className="text-sky-200 text-sm font-medium">{recommendation?.message ?? "המשך את המומנטום –"}</span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-sky-500/50 text-sky-200 hover:bg-sky-500/20 min-h-[40px] touch-target"
+                onClick={() => setLocation(recommendation ? `/predict/${recommendation.tournamentId}` : "/tournaments")}
+              >
+                <Trophy className="w-4 h-4 ml-1 shrink-0" />
+                הצטרף לתחרות נוספת
+              </Button>
+            </div>
+          </div>
+        )}
+        {justSubmitted && !hideJustSubmittedBanner && (
+          <div className="mb-6 rounded-xl bg-emerald-600/20 border border-emerald-500/50 text-emerald-200 px-4 py-3 flex items-center justify-between gap-2">
+            <span className="font-medium">ההשתתפות נספרה – אתה בדירוג!</span>
+            <button type="button" onClick={() => setHideJustSubmittedBanner(true)} className="text-emerald-300 hover:text-white text-sm underline" aria-label="סגור">סגור</button>
+          </div>
+        )}
         <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-4 mb-6 md:mb-8">
           <div>
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-2 flex items-center gap-2 animate-fade-in">

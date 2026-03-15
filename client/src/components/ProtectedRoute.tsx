@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
 import { Loader2 } from "lucide-react";
@@ -11,6 +12,16 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
   const { isAuthenticated, loading, user } = useAuth();
   const [, setLocation] = useLocation();
 
+  useEffect(() => {
+    if (loading) return;
+    if (!isAuthenticated) {
+      setLocation("/login");
+      return;
+    }
+    if (requiredRole && user?.role !== requiredRole) setLocation("/");
+    // setLocation omitted from deps to avoid re-run on router updates (infinite re-render)
+  }, [loading, isAuthenticated, user?.role, requiredRole]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -20,12 +31,10 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
   }
 
   if (!isAuthenticated) {
-    setLocation("/login");
     return null;
   }
 
   if (requiredRole && user?.role !== requiredRole) {
-    setLocation("/");
     return null;
   }
 

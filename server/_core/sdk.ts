@@ -263,7 +263,7 @@ class SDKServer {
     const sessionCookie = cookies.get(COOKIE_NAME);
     
     // Try to verify as Manus session first
-    let session = await this.verifySession(sessionCookie);
+    const session = await this.verifySession(sessionCookie);
 
     if (!session) {
       // If not a Manus session, try to verify as custom JWT token

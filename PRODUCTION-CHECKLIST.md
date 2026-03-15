@@ -39,8 +39,8 @@ sudo npm install -g pm2
 ```bash
 cd /var/www/worldcup2026   # או נתיב הפרויקט
 git pull
-cp .env.production.example .env
-nano .env                   # להגדיר JWT_SECRET וערכים נוספים
+cp .env.production.example .env.production
+nano .env.production        # להגדיר JWT_SECRET וערכים נוספים (חובה)
 npm install
 npm run build
 pm2 start ecosystem.config.cjs --env production
@@ -53,7 +53,7 @@ pm2 startup                 # להפעלה אוטומטית אחרי אתחול
 ```bash
 sudo apt update
 sudo apt install -y nginx
-sudo cp /var/www/worldcup2026/nginx-worldcup2026.conf /etc/nginx/sites-available/worldcup2026
+sudo cp /var/www/worldcup2026/deployment/nginx-worldcup2026.conf /etc/nginx/sites-available/worldcup2026
 # לערוך: sudo nano /etc/nginx/sites-available/worldcup2026 – להחליף YOUR_DOMAIN_OR_IP
 sudo ln -sf /etc/nginx/sites-available/worldcup2026 /etc/nginx/sites-enabled/
 sudo nginx -t
@@ -93,8 +93,10 @@ worldcup2026/
 ├── ecosystem.config.cjs     # PM2
 ├── nginx-worldcup2026.conf # Nginx
 ├── deploy.sh               # סקריפט פריסה
-├── .env                    # משתני סביבה (לא ב-git – ליצור מהדוגמה)
-├── .env.production.example # תבנית
+├── .env.production         # משתני סביבה (לא ב-git – ליצור מ-.env.production.example)
+├── .env.production.example # תבנית (נמצא ב-git)
+├── deployment/
+│   └── nginx-worldcup2026.conf
 └── package.json
 ```
 

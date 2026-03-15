@@ -241,6 +241,335 @@ export function commissionReportToCsv(rows: CommissionRow[], totalCommission: nu
   return BOM + lines.join("\r\n");
 }
 
+/** דוח סוכן מפורט – סיכום + טבלת שחקנים (מקור: financial_events) */
+export function agentReportDetailedToCsv(report: {
+  summary: {
+    totalEntriesCollected: number;
+    totalWinningsPaid: number;
+    totalRefunds: number;
+    netProfitLoss: number;
+    totalCommission: number;
+    agentCommissionShare: number;
+    platformCommissionShare: number;
+    numberOfPlayers: number;
+    numberOfSubmissions: number;
+  };
+  players: Array<{
+    userId: number;
+    fullName: string | null;
+    username: string | null;
+    participations: number;
+    totalEntryFees: number;
+    totalWinnings: number;
+    totalRefunds: number;
+    netProfitLoss: number;
+    totalCommissionGenerated: number;
+    agentShareFromPlayer: number;
+    platformShareFromPlayer: number;
+    status: string;
+  }>;
+  agentUsername: string | null;
+  agentName: string | null;
+}): string {
+  const lines: string[] = [];
+  lines.push(rowToCsvLine(["דוח עמלות ורווח/הפסד סוכן"]));
+  lines.push(rowToCsvLine(["סוכן", report.agentName ?? report.agentUsername ?? ""]));
+  lines.push("");
+  lines.push(rowToCsvLine(["סיכום"]));
+  lines.push(rowToCsvLine(["סך הכנסות מהשתתפויות", report.summary.totalEntriesCollected]));
+  lines.push(rowToCsvLine(["סך פרסים ששולמו", report.summary.totalWinningsPaid]));
+  lines.push(rowToCsvLine(["סך החזרים", report.summary.totalRefunds]));
+  lines.push(rowToCsvLine(["רווח/הפסד נטו", report.summary.netProfitLoss]));
+  lines.push(rowToCsvLine(["סה\"כ עמלה", report.summary.totalCommission]));
+  lines.push(rowToCsvLine(["חלק סוכן", report.summary.agentCommissionShare]));
+  lines.push(rowToCsvLine(["חלק פלטפורמה", report.summary.platformCommissionShare]));
+  lines.push(rowToCsvLine(["מספר שחקנים", report.summary.numberOfPlayers]));
+  lines.push(rowToCsvLine(["מספר השתתפויות", report.summary.numberOfSubmissions]));
+  lines.push("");
+  lines.push(
+    rowToCsvLine([
+      "שם מלא",
+      "שם משתמש",
+      "השתתפויות",
+      "סך דמי כניסה",
+      "סך זכיות",
+      "סך החזרים",
+      "רווח/הפסד נטו",
+      "עמלה שנוצרה",
+      "חלק סוכן",
+      "חלק פלטפורמה",
+      "סטטוס",
+    ])
+  );
+  for (const p of report.players) {
+    const statusHe = p.status === "profit" ? "רווח" : p.status === "loss" ? "הפסד" : "מאוזן";
+    lines.push(
+      rowToCsvLine([
+        p.fullName ?? "",
+        p.username ?? "",
+        p.participations,
+        p.totalEntryFees,
+        p.totalWinnings,
+        p.totalRefunds,
+        p.netProfitLoss,
+        p.totalCommissionGenerated,
+        p.agentShareFromPlayer,
+        p.platformShareFromPlayer,
+        statusHe,
+      ])
+    );
+  }
+  return BOM + lines.join("\r\n");
+}
+
+/** דוח שחקן מפורט – סיכום + טבלת השתתפויות (מקור: financial_events) */
+export function playerReportDetailedToCsv(report: {
+  summary: {
+    totalParticipations: number;
+    totalEntryFees: number;
+    totalWinningsPaid: number;
+    totalRefunds: number;
+    netProfitLoss: number;
+    totalCommissionGenerated: number;
+    agentShare: number;
+    platformShare: number;
+  };
+  rows: Array<{
+    tournamentName: string;
+    tournamentType: string;
+    date: Date | null;
+    entryFee: number;
+    winnings: number;
+    refund: number;
+    netResult: number;
+    totalCommission: number;
+    agentShare: number;
+    platformShare: number;
+    status: string;
+  }>;
+  username: string | null;
+  fullName: string | null;
+}): string {
+  const lines: string[] = [];
+  lines.push(rowToCsvLine(["דוח שחקן מפורט – עמלות ורווח/הפסד"]));
+  lines.push(rowToCsvLine(["שחקן", report.fullName ?? report.username ?? ""]));
+  lines.push("");
+  lines.push(rowToCsvLine(["סיכום"]));
+  lines.push(rowToCsvLine(["מספר השתתפויות", report.summary.totalParticipations]));
+  lines.push(rowToCsvLine(["סך דמי כניסה", report.summary.totalEntryFees]));
+  lines.push(rowToCsvLine(["סך זכיות ששולמו", report.summary.totalWinningsPaid]));
+  lines.push(rowToCsvLine(["סך החזרים", report.summary.totalRefunds]));
+  lines.push(rowToCsvLine(["רווח/הפסד נטו", report.summary.netProfitLoss]));
+  lines.push(rowToCsvLine(["סה\"כ עמלה שנוצרה", report.summary.totalCommissionGenerated]));
+  lines.push(rowToCsvLine(["חלק סוכן", report.summary.agentShare]));
+  lines.push(rowToCsvLine(["חלק פלטפורמה", report.summary.platformShare]));
+  lines.push("");
+  lines.push(
+    rowToCsvLine([
+      "תחרות",
+      "סוג תחרות",
+      "תאריך",
+      "דמי כניסה",
+      "זכיות",
+      "החזר",
+      "תוצאה נטו",
+      "עמלה",
+      "חלק סוכן",
+      "חלק פלטפורמה",
+      "סטטוס",
+    ])
+  );
+  for (const r of report.rows) {
+    const dateStr = r.date ? new Date(r.date).toLocaleDateString("he-IL") : "";
+    const statusHe = r.status === "profit" ? "רווח" : r.status === "loss" ? "הפסד" : "מאוזן";
+    lines.push(
+      rowToCsvLine([
+        r.tournamentName,
+        r.tournamentType,
+        dateStr,
+        r.entryFee,
+        r.winnings,
+        r.refund,
+        r.netResult,
+        r.totalCommission,
+        r.agentShare,
+        r.platformShare,
+        statusHe,
+      ])
+    );
+  }
+  return BOM + lines.join("\r\n");
+}
+
+/** דוח כספי גלובלי – סיכום + לפי תחרות / סוכן / שחקן */
+export function globalFinanceReportToCsv(report: {
+  summary: {
+    totalParticipations: number;
+    totalEntryFeesCollected: number;
+    totalWinningsPaid: number;
+    totalRefunds: number;
+    netPlatformProfitLoss: number;
+    totalCommissionGenerated: number;
+    totalAgentCommission: number;
+    totalPlatformCommission: number;
+    numberOfTournaments: number;
+    numberOfActivePlayers: number;
+    numberOfActiveAgents: number;
+  };
+  byTournament: Array<{
+    tournamentName: string;
+    tournamentType: string;
+    participations: number;
+    entryFees: number;
+    winningsPaid: number;
+    refunds: number;
+    netResult: number;
+    totalCommission: number;
+    agentCommission: number;
+    platformCommission: number;
+  }>;
+  byAgent: Array<{
+    agentName: string | null;
+    agentUsername: string | null;
+    numberOfPlayers: number;
+    participations: number;
+    entryFees: number;
+    winningsPaid: number;
+    refunds: number;
+    totalCommissionGenerated: number;
+    agentCommission: number;
+    platformShare: number;
+  }>;
+  byPlayer: Array<{
+    username: string | null;
+    fullName: string | null;
+    participations: number;
+    entryFees: number;
+    winningsPaid: number;
+    refunds: number;
+    netProfitLoss: number;
+    totalCommissionGenerated: number;
+    agentShare: number;
+    platformShare: number;
+  }>;
+  from: string | null;
+  to: string | null;
+}): string {
+  const lines: string[] = [];
+  lines.push(rowToCsvLine(["דוח כספי גלובלי"]));
+  lines.push(rowToCsvLine(["תקופה", report.from ? `${report.from} - ${report.to ?? ""}` : "כל התקופה"]));
+  lines.push("");
+  lines.push(rowToCsvLine(["סיכום"]));
+  lines.push(rowToCsvLine(["סה\"כ השתתפויות", report.summary.totalParticipations]));
+  lines.push(rowToCsvLine(["סך דמי כניסה שגבינו", report.summary.totalEntryFeesCollected]));
+  lines.push(rowToCsvLine(["סך זכיות ששולמו", report.summary.totalWinningsPaid]));
+  lines.push(rowToCsvLine(["סך החזרים", report.summary.totalRefunds]));
+  lines.push(rowToCsvLine(["רווח/הפסד נטו פלטפורמה", report.summary.netPlatformProfitLoss]));
+  lines.push(rowToCsvLine(["סה\"כ עמלה שנוצרה", report.summary.totalCommissionGenerated]));
+  lines.push(rowToCsvLine(["סה\"כ עמלת סוכנים", report.summary.totalAgentCommission]));
+  lines.push(rowToCsvLine(["סה\"כ עמלת פלטפורמה", report.summary.totalPlatformCommission]));
+  lines.push(rowToCsvLine(["מספר תחרויות", report.summary.numberOfTournaments]));
+  lines.push(rowToCsvLine(["מספר שחקנים פעילים", report.summary.numberOfActivePlayers]));
+  lines.push(rowToCsvLine(["מספר סוכנים פעילים", report.summary.numberOfActiveAgents]));
+  lines.push("");
+  lines.push(rowToCsvLine(["לפי תחרות"]));
+  lines.push(
+    rowToCsvLine([
+      "תחרות",
+      "סוג",
+      "השתתפויות",
+      "דמי כניסה",
+      "זכיות ששולמו",
+      "החזרים",
+      "תוצאה נטו",
+      "עמלה",
+      "עמלת סוכן",
+      "עמלת פלטפורמה",
+    ])
+  );
+  for (const r of report.byTournament) {
+    lines.push(
+      rowToCsvLine([
+        r.tournamentName,
+        r.tournamentType,
+        r.participations,
+        r.entryFees,
+        r.winningsPaid,
+        r.refunds,
+        r.netResult,
+        r.totalCommission,
+        r.agentCommission,
+        r.platformCommission,
+      ])
+    );
+  }
+  lines.push("");
+  lines.push(rowToCsvLine(["לפי סוכן"]));
+  lines.push(
+    rowToCsvLine([
+      "סוכן",
+      "שם משתמש",
+      "מספר שחקנים",
+      "השתתפויות",
+      "דמי כניסה",
+      "זכיות ששולמו",
+      "החזרים",
+      "עמלה שנוצרה",
+      "עמלת סוכן",
+      "חלק פלטפורמה",
+    ])
+  );
+  for (const r of report.byAgent) {
+    lines.push(
+      rowToCsvLine([
+        r.agentName ?? "",
+        r.agentUsername ?? "",
+        r.numberOfPlayers,
+        r.participations,
+        r.entryFees,
+        r.winningsPaid,
+        r.refunds,
+        r.totalCommissionGenerated,
+        r.agentCommission,
+        r.platformShare,
+      ])
+    );
+  }
+  lines.push("");
+  lines.push(rowToCsvLine(["לפי שחקן"]));
+  lines.push(
+    rowToCsvLine([
+      "שם מלא",
+      "שם משתמש",
+      "השתתפויות",
+      "דמי כניסה",
+      "זכיות ששולמו",
+      "החזרים",
+      "רווח/הפסד נטו",
+      "עמלה שנוצרה",
+      "חלק סוכן",
+      "חלק פלטפורמה",
+    ])
+  );
+  for (const r of report.byPlayer) {
+    lines.push(
+      rowToCsvLine([
+        r.fullName ?? "",
+        r.username ?? "",
+        r.participations,
+        r.entryFees,
+        r.winningsPaid,
+        r.refunds,
+        r.netProfitLoss,
+        r.totalCommissionGenerated,
+        r.agentShare,
+        r.platformShare,
+      ])
+    );
+  }
+  return BOM + lines.join("\r\n");
+}
+
 /** שורות לוג תנועות נקודות (למנהל) – עם שמות משתמש וסוכן */
 export type PointsLogRow = {
   id: number;

@@ -1,5 +1,9 @@
 # פריסה ל-Production (Ubuntu / Docker)
 
+**Minimal GitHub deploy (English):** `git pull` → `cp .env.production.example .env.production` → edit `.env.production` (set `JWT_SECRET`) → `npm install` → `npm run build` → `pm2 start ecosystem.config.cjs --env production` (or `./deploy.sh`). See [PRODUCTION-CHECKLIST.md](./PRODUCTION-CHECKLIST.md).
+
+---
+
 ## איך מוסיפים שרת חדש (תוך דקות)
 
 1. **שרת** – VPS עם Ubuntu 24.04 (למשל DigitalOcean, Hetzner, AWS). התחבר ב-SSH:
@@ -56,7 +60,7 @@
 להרצה על Ubuntu 24.04 LTS x64 עם Node, PM2 ו-Nginx:
 
 1. **העתק את קובץ הסביבה:**  
-   `cp .env.production.example .env` וערוך `.env` (חובה: `JWT_SECRET`).
+   `cp .env.production.example .env.production` וערוך `.env.production` (חובה: `JWT_SECRET`).
 
 2. **הרץ את סקריפט הפריסה:**  
    `chmod +x deploy.sh && ./deploy.sh`

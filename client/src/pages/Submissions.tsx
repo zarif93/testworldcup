@@ -49,6 +49,7 @@ export default function Submissions() {
   }, [activeCategory, categoryTournamentIds, selectedTournamentId]);
 
   const getTourName = (tid: number) => stats.find((t) => t.id === tid)?.name ?? `טורניר ${tid}`;
+  const isRemoved = (s: { tournamentRemoved?: boolean }) => !!(s as { tournamentRemoved?: boolean }).tournamentRemoved;
 
   const filtered = useMemo(() => {
     return (submissions ?? []).filter((s) => {
@@ -112,7 +113,8 @@ export default function Submissions() {
                 <div className="space-y-3 md:hidden">
                   {mySubmissions.map((s) => {
                     const tour = stats.find((t) => t.id === s.tournamentId);
-                    const canEdit = tour && !tour.isLocked;
+                    const removed = isRemoved(s);
+                    const canEdit = !removed && tour && !tour.isLocked;
                     return (
                       <div
                         key={s.id}
@@ -120,9 +122,12 @@ export default function Submissions() {
                         className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-4 shadow-lg active:scale-[0.99] transition-transform cursor-pointer min-w-0 max-w-full overflow-x-hidden"
                       >
                         <div className="flex justify-between items-start gap-2 mb-2 min-w-0">
-                          <span className="text-white font-medium text-base flex-1 min-w-0 break-words" title={getTourName(s.tournamentId)}>{getTourName(s.tournamentId)}</span>
+                          <span className="text-white font-medium text-base flex-1 min-w-0 break-words" title={removed ? "תחרות לא זמינה" : getTourName(s.tournamentId)}>
+                            {removed ? "תחרות לא זמינה" : getTourName(s.tournamentId)}
+                          </span>
                           <span className="text-emerald-400 font-bold text-lg tabular-nums shrink-0">{s.points}</span>
                         </div>
+                        {removed && <p className="text-slate-500 text-xs mb-1">התחרות הוסרה</p>}
                         <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 text-sm">
                           {s.status === "approved" ? (
                             <Badge className="bg-emerald-600"><Check className="w-3 h-3 mr-1" />מאושר</Badge>
@@ -144,6 +149,7 @@ export default function Submissions() {
                               </Button>
                             </>
                           )}
+                          {removed && !canEdit && <span className="text-slate-500 text-sm self-center">תחרות לא זמינה</span>}
                           <Button size="sm" variant="ghost" className="text-slate-400 hover:text-emerald-400 min-h-[44px]" onClick={() => setViewSubmissionId(s.id)}>
                             <Eye className="w-4 h-4 ml-1" /> צפה
                           </Button>
@@ -167,14 +173,15 @@ export default function Submissions() {
                   <tbody>
                     {mySubmissions.map((s) => {
                       const tour = stats.find((t) => t.id === s.tournamentId);
-                      const canEdit = tour && !tour.isLocked;
+                      const removed = isRemoved(s);
+                      const canEdit = !removed && tour && !tour.isLocked;
                       return (
                         <tr
                           key={s.id}
                           className="border-b border-slate-700/50 hover:bg-slate-700/30 cursor-pointer"
                           onClick={() => setViewSubmissionId(s.id)}
                         >
-                          <td className="py-2 px-3 text-white font-medium min-w-0 max-w-0 break-words" title={getTourName(s.tournamentId)}>{getTourName(s.tournamentId)}</td>
+                          <td className="py-2 px-3 text-white font-medium min-w-0 max-w-0 break-words" title={removed ? "תחרות לא זמינה" : getTourName(s.tournamentId)}>{removed ? "תחרות לא זמינה" : getTourName(s.tournamentId)}</td>
                           <td className="py-2 px-3 text-emerald-400 font-bold">{s.points}</td>
                           <td className="py-2 px-3">
                             {s.status === "approved" ? (
@@ -207,6 +214,7 @@ export default function Submissions() {
                                 </Button>
                               </>
                             )}
+                            {removed && !canEdit && <span className="text-slate-500 text-xs mr-2">תחרות לא זמינה</span>}
                             <button
                               type="button"
                               onClick={() => setViewSubmissionId(s.id)}
@@ -298,7 +306,8 @@ export default function Submissions() {
                         <div className="space-y-3 md:hidden">
                           {filtered.map((s) => {
                             const tour = stats.find((t) => t.id === s.tournamentId);
-                            const canEdit = user && (s as { userId?: number }).userId === user.id && tour && !tour.isLocked;
+                            const removed = isRemoved(s);
+                            const canEdit = !removed && user && (s as { userId?: number }).userId === user.id && tour && !tour.isLocked;
                             return (
                               <div
                                 key={s.id}
@@ -309,7 +318,7 @@ export default function Submissions() {
                                   <span className="text-white font-medium text-base flex-1 min-w-0 break-words" title={s.username}>{s.username}</span>
                                   <span className="text-emerald-400 font-bold text-lg tabular-nums shrink-0">{s.points}</span>
                                 </div>
-                                <p className="text-slate-400 text-sm mb-2 min-w-0 break-words" title={getTourName(s.tournamentId)}>{getTourName(s.tournamentId)}</p>
+                                <p className="text-slate-400 text-sm mb-2 min-w-0 break-words" title={removed ? "תחרות לא זמינה" : getTourName(s.tournamentId)}>{removed ? "תחרות לא זמינה" : getTourName(s.tournamentId)}</p>
                                 <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 text-sm">
                                   {s.status === "approved" ? (
                                     <Badge className="bg-emerald-600"><Check className="w-3 h-3 mr-1" />מאושר</Badge>
@@ -327,6 +336,7 @@ export default function Submissions() {
                                       <Button size="sm" variant="outline" className="text-amber-400 border-amber-500/50 hover:bg-amber-500/20 min-h-[44px]" onClick={() => setLocation(`/predict/${s.tournamentId}?duplicateFrom=${s.id}`)}>שכפל</Button>
                                     </>
                                   )}
+                                  {removed && !canEdit && <span className="text-slate-500 text-sm self-center">תחרות לא זמינה</span>}
                                   <Button size="sm" variant="ghost" className="text-slate-400 hover:text-emerald-400 min-h-[44px]" onClick={() => setViewSubmissionId(s.id)}><Eye className="w-4 h-4 ml-1" /> צפה</Button>
                                 </div>
                               </div>
@@ -349,7 +359,9 @@ export default function Submissions() {
                           <tbody>
                             {filtered.map((s) => {
                               const tour = stats.find((t) => t.id === s.tournamentId);
+                              const removed = isRemoved(s);
                               const canEdit =
+                                !removed &&
                                 user &&
                                 (s as { userId?: number }).userId === user.id &&
                                 tour &&
@@ -361,7 +373,7 @@ export default function Submissions() {
                                   onClick={() => setViewSubmissionId(s.id)}
                                 >
                                   <td className="py-2 px-3 text-white font-medium min-w-0 max-w-0 break-words" title={s.username}>{s.username}</td>
-                                  <td className="py-2 px-3 text-slate-400 text-sm min-w-0 max-w-0 break-words" title={getTourName(s.tournamentId)}>{getTourName(s.tournamentId)}</td>
+                                  <td className="py-2 px-3 text-slate-400 text-sm min-w-0 max-w-0 break-words" title={removed ? "תחרות לא זמינה" : getTourName(s.tournamentId)}>{removed ? "תחרות לא זמינה" : getTourName(s.tournamentId)}</td>
                                   <td className="py-2 px-3 text-emerald-400 font-bold">{s.points}</td>
                                   <td className="py-2 px-3">
                                     {s.status === "approved" ? (
@@ -394,6 +406,7 @@ export default function Submissions() {
                                         </Button>
                                       </>
                                     )}
+                                    {removed && !canEdit && <span className="text-slate-500 text-xs mr-2">תחרות לא זמינה</span>}
                                     <button
                                       type="button"
                                       onClick={() => setViewSubmissionId(s.id)}
