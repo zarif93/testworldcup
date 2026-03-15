@@ -86,6 +86,7 @@ import {
   deleteUser,
   getUsersList,
   setUserBlocked,
+  updateUserProfile,
   updateUserAgentId,
   createAgent as dbCreateAgent,
   getAgents,
@@ -159,11 +160,13 @@ import {
   listContentPages,
   getContentPageBySlug,
   getPublicPageWithSections,
+  getPublishedCmsSlugs,
   getContentPageById,
   createContentPage,
   updateContentPage,
   deleteContentPage,
   listContentSections,
+  getActiveHomepageSections,
   getContentSectionById,
   createContentSection,
   updateContentSection,
@@ -364,7 +367,16 @@ const usePermission = (code: string) => requirePermission(code) as PermissionMid
 const cmsPublicRouter = router({
   getActiveBanners: publicProcedure
     .input(z.object({ key: z.string().optional() }).optional())
-    .query(({ input }) => getActiveBanners(input?.key)),
+    .query(({ input }) => {
+      const key = (typeof input?.key === "string" ? input.key.trim() : undefined) || undefined;
+      const result = getActiveBanners(key);
+      result.then((banners) => {
+        if (process.env.NODE_ENV !== "production") {
+          console.log("[cms.getActiveBanners] key=%s banners=%d keys=%s", key ?? "(all)", banners.length, banners.map((b) => b.key).join(", "));
+        }
+      });
+      return result;
+    }),
   getActiveAnnouncements: publicProcedure.query(() => getActiveAnnouncements()),
   getPageBySlug: publicProcedure
     .input(z.object({ slug: z.string().min(1) }))
@@ -372,6 +384,14 @@ const cmsPublicRouter = router({
   getPublicPageWithSections: publicProcedure
     .input(z.object({ slug: z.string().min(1) }))
     .query(({ input }) => getPublicPageWithSections(input.slug)),
+  /** Active global blocks for homepage (pageId null), optionally by key. Respects isActive and metadataJson startsAt/endsAt. */
+  getActiveHomepageSections: publicProcedure
+    .input(z.object({ key: z.string().optional() }).optional())
+    .query(({ input }) => getActiveHomepageSections(input?.key?.trim() || undefined)),
+  /** Slugs that exist and are published (for footer/nav). Default: about, contact, faq, terms, privacy. */
+  getPublishedCmsSlugs: publicProcedure
+    .input(z.object({ slugs: z.array(z.string()).max(20).optional() }).optional())
+    .query(({ input }) => getPublishedCmsSlugs(input?.slugs ?? ["about", "contact", "faq", "terms", "privacy"])),
 });
 
 /** Phase 12: Public site settings – global config for frontend (contact, CTA, brand, etc.) */
@@ -2726,13 +2746,36 @@ export const appRouter = router({
     // Phase 11: CMS (cms.view / cms.edit)
     listContentPages: adminProcedure.use(usePermission("cms.view")).query(() => listContentPages()),
     getContentPageById: adminProcedure.use(usePermission("cms.view")).input(z.object({ id: z.number() })).query(({ input }) => getContentPageById(input.id)),
-    createContentPage: adminProcedure.use(usePermission("cms.edit")).input(z.object({ slug: z.string().min(1), title: z.string().min(1), status: z.enum(["draft", "published"]).optional(), seoTitle: z.string().nullable().optional(), seoDescription: z.string().nullable().optional() })).mutation(async ({ input }) => ({ id: await createContentPage(input) })),
-    updateContentPage: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number(), slug: z.string().min(1).optional(), title: z.string().min(1).optional(), status: z.enum(["draft", "published"]).optional(), seoTitle: z.string().nullable().optional(), seoDescription: z.string().nullable().optional() })).mutation(async ({ input }) => { await updateContentPage(input.id, input); return { success: true }; }),
+    createContentPage: adminProcedure.use(usePermission("cms.edit")).input(z.object({
+      slug: z.string().min(1).max(200).regex(/^[a-z0-9\-]+$/, "כתובת הדף: רק אותיות אנגלית קטנות, מספרים ומקף"),
+      title: z.string().min(1).max(500),
+      status: z.enum(["draft", "published"]).optional(),
+      shortDescription: z.string().nullable().optional(),
+      body: z.string().nullable().optional(),
+      coverImageUrl: z.string().nullable().optional(),
+      seoTitle: z.string().nullable().optional(),
+      seoDescription: z.string().nullable().optional(),
+    })).mutation(async ({ input }) => ({ id: await createContentPage(input) })),
+    updateContentPage: adminProcedure.use(usePermission("cms.edit")).input(z.object({
+      id: z.number(),
+      slug: z.string().min(1).max(200).regex(/^[a-z0-9\-]+$/).optional(),
+      title: z.string().min(1).max(500).optional(),
+      status: z.enum(["draft", "published"]).optional(),
+      shortDescription: z.string().nullable().optional(),
+      body: z.string().nullable().optional(),
+      coverImageUrl: z.string().nullable().optional(),
+      seoTitle: z.string().nullable().optional(),
+      seoDescription: z.string().nullable().optional(),
+    })).mutation(async ({ input }) => { await updateContentPage(input.id, input); return { success: true }; }),
     deleteContentPage: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number() })).mutation(async ({ input }) => { await deleteContentPage(input.id); return { success: true }; }),
     listContentSections: adminProcedure.use(usePermission("cms.view")).input(z.object({ pageId: z.number().nullable().optional() }).optional()).query(({ input }) => listContentSections(input?.pageId ?? null)),
     getContentSectionById: adminProcedure.use(usePermission("cms.view")).input(z.object({ id: z.number() })).query(({ input }) => getContentSectionById(input.id)),
-    createContentSection: adminProcedure.use(usePermission("cms.edit")).input(z.object({ pageId: z.number().nullable().optional(), key: z.string().min(1), type: z.string().min(1), title: z.string().nullable().optional(), subtitle: z.string().nullable().optional(), body: z.string().nullable().optional(), imageUrl: z.string().nullable().optional(), buttonText: z.string().nullable().optional(), buttonUrl: z.string().nullable().optional(), sortOrder: z.number().optional(), isActive: z.boolean().optional() })).mutation(async ({ input }) => ({ id: await createContentSection(input) })),
-    updateContentSection: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number(), pageId: z.number().nullable().optional(), key: z.string().optional(), type: z.string().optional(), title: z.string().nullable().optional(), subtitle: z.string().nullable().optional(), body: z.string().nullable().optional(), imageUrl: z.string().nullable().optional(), buttonText: z.string().nullable().optional(), buttonUrl: z.string().nullable().optional(), sortOrder: z.number().optional(), isActive: z.boolean().optional() })).mutation(async ({ input }) => { const { id, ...data } = input; await updateContentSection(id, data); return { success: true }; }),
+    createContentSection: adminProcedure.use(usePermission("cms.edit")).input(z.object({ pageId: z.number().nullable().optional(), key: z.string().min(1), type: z.string().min(1), title: z.string().nullable().optional(), subtitle: z.string().nullable().optional(), body: z.string().nullable().optional(), imageUrl: z.string().nullable().optional(), buttonText: z.string().nullable().optional(), buttonUrl: z.string().nullable().optional(), sortOrder: z.number().optional(), isActive: z.boolean().optional(), metadataJson: z.object({ startsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(), endsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional() }).nullable().optional() })).mutation(async ({ input }) => {
+      const { metadataJson, ...rest } = input;
+      const meta = metadataJson && (metadataJson.startsAt != null || metadataJson.endsAt != null) ? { startsAt: metadataJson.startsAt ?? null, endsAt: metadataJson.endsAt ?? null } : undefined;
+      return { id: await createContentSection({ ...rest, metadataJson: meta }) };
+    }),
+    updateContentSection: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number(), pageId: z.number().nullable().optional(), key: z.string().optional(), type: z.string().optional(), title: z.string().nullable().optional(), subtitle: z.string().nullable().optional(), body: z.string().nullable().optional(), imageUrl: z.string().nullable().optional(), buttonText: z.string().nullable().optional(), buttonUrl: z.string().nullable().optional(), sortOrder: z.number().optional(), isActive: z.boolean().optional(), metadataJson: z.object({ startsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(), endsAt: z.union([z.string(), z.number(), z.date()]).nullable().optional() }).nullable().optional() })).mutation(async ({ input }) => { const { id, metadataJson, ...data } = input; const meta = metadataJson !== undefined ? (metadataJson && (metadataJson.startsAt != null || metadataJson.endsAt != null) ? { startsAt: metadataJson.startsAt ?? null, endsAt: metadataJson.endsAt ?? null } : null) : undefined; await updateContentSection(id, { ...data, ...(meta !== undefined && { metadataJson: meta }) }); return { success: true }; }),
     deleteContentSection: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number() })).mutation(async ({ input }) => { await deleteContentSection(input.id); return { success: true }; }),
     listSiteBanners: adminProcedure.use(usePermission("cms.view")).query(() => listSiteBanners()),
     getSiteBannerById: adminProcedure.use(usePermission("cms.view")).input(z.object({ id: z.number() })).query(({ input }) => getSiteBannerById(input.id)),
@@ -3366,6 +3409,38 @@ export const appRouter = router({
           action: input.isBlocked ? "Block User" : "Unblock User",
           targetUserId: input.userId,
           details: { isBlocked: input.isBlocked, ip: getAuditIp(ctx) },
+        });
+        return { success: true };
+      }),
+    /** עדכון פרטי משתמש (שם, טלפון, שם משתמש, אימייל) – מנהל בלבד. */
+    updateUserProfile: adminProcedure.use(usePermission("users.manage"))
+      .input(z.object({
+        userId: z.number().int(),
+        name: z.union([z.string().max(200), z.literal(""), z.null()]).optional(),
+        phone: z.union([z.string().max(24), z.literal(""), z.null()]).optional(),
+        username: z.union([z.string().min(2).max(64), z.literal(""), z.null()]).optional(),
+        email: z.union([z.string().email("כתובת אימייל לא תקינה").max(320), z.literal(""), z.null()]).optional(),
+      })      .refine(
+        (data) => {
+          const p = data.phone;
+          if (p === undefined || p === null || String(p).trim() === "") return true;
+          const digits = String(p).replace(/\D/g, "");
+          return digits.length >= 9 && digits.length <= 15;
+        },
+        { message: "טלפון חייב להכיל 9–15 ספרות", path: ["phone"] }
+      ))
+      .mutation(async ({ ctx, input }) => {
+        const payload: { name?: string | null; phone?: string | null; username?: string | null; email?: string | null } = {};
+        if (input.name !== undefined) payload.name = (input.name == null || input.name === "") ? null : String(input.name).trim() || null;
+        if (input.phone !== undefined) payload.phone = (input.phone == null || input.phone === "") ? null : String(input.phone).trim() || null;
+        if (input.username !== undefined) payload.username = (input.username == null || input.username === "") ? null : String(input.username).trim() || null;
+        if (input.email !== undefined) payload.email = (input.email == null || input.email === "") ? null : String(input.email).trim() || null;
+        await updateUserProfile(input.userId, payload);
+        await insertAdminAuditLog({
+          performedBy: ctx.user!.id,
+          action: "Update User Profile",
+          targetUserId: input.userId,
+          details: { fields: Object.keys(payload), ip: getAuditIp(ctx) },
         });
         return { success: true };
       }),

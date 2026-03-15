@@ -189,12 +189,42 @@ export default function AdminPanel() {
   const _players = playersData?.players ?? [];
   const totalUsers = playersData?.totalUsers ?? 0;
   const [usersListRoleFilter, setUsersListRoleFilter] = useState<"all" | "user" | "agent" | "admin">("all");
+  const [usersSearchQuery, setUsersSearchQuery] = useState("");
+  const [editingUser, setEditingUser] = useState<{
+    id: number;
+    username: string | null;
+    name: string | null;
+    phone: string | null;
+    email?: string | null;
+  } | null>(null);
+  const [editUserForm, setEditUserForm] = useState({ name: "", phone: "", username: "", email: "" });
   const { data: usersListData, refetch: refetchUsersList } = trpc.admin.getUsersList.useQuery(
     { role: usersListRoleFilter === "all" ? undefined : usersListRoleFilter },
     { enabled: (!!status?.verified || !status?.codeRequired) && section === "players" }
   );
   const usersList = usersListData ?? [];
+  const filteredUsersList = useMemo(() => {
+    const q = usersSearchQuery.trim().toLowerCase();
+    if (!q) return usersList;
+    return usersList.filter((u) => {
+      const name = (u.name ?? "").toLowerCase();
+      const username = (u.username ?? "").toLowerCase();
+      const phone = (u.phone ?? "").replace(/\D/g, "");
+      const qDigits = q.replace(/\D/g, "");
+      return name.includes(q) || username.includes(q) || (u.phone ?? "").toLowerCase().includes(q) || (qDigits.length >= 2 && phone.includes(qDigits));
+    });
+  }, [usersList, usersSearchQuery]);
   const setUserBlockedMut = trpc.admin.setUserBlocked.useMutation();
+  const updateUserProfileMut = trpc.admin.updateUserProfile.useMutation({
+    onSuccess: () => {
+      refetchUsersList();
+      utils.admin.getUsersList.invalidate();
+      utils.admin.getPlayers.invalidate();
+      setEditingUser(null);
+      toast.success("פרטי המשתמש עודכנו");
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const { data: pointsLogs, refetch: refetchPointsLogs } = trpc.admin.getPointsLogs.useQuery(
     {
       userId: pointsSelectedUserId === "" ? undefined : pointsSelectedUserId,
@@ -2208,7 +2238,17 @@ export default function AdminPanel() {
                     <option value="agent">סוכנים</option>
                     <option value="admin">מנהלים</option>
                   </select>
-                  <span className="text-slate-500 text-sm mr-4">לפני ייצוא דוח שחקן – ייפתח חלון לבחירת טווח תאריכים.</span>
+                  <div className="flex items-center gap-2 mr-4">
+                    <Search className="w-4 h-4 text-slate-500 shrink-0" />
+                    <Input
+                      type="text"
+                      placeholder="חיפוש לפי שם, שם משתמש או טלפון..."
+                      value={usersSearchQuery}
+                      onChange={(e) => setUsersSearchQuery(e.target.value)}
+                      className="bg-slate-900 border-slate-600 text-white placeholder:text-slate-500 max-w-xs text-right"
+                    />
+                  </div>
+                  <span className="text-slate-500 text-sm">לפני ייצוא דוח שחקן – ייפתח חלון לבחירת טווח תאריכים.</span>
                 </div>
               </CardHeader>
               <CardContent>
@@ -2240,7 +2280,7 @@ export default function AdminPanel() {
                       </tr>
                     </thead>
                     <tbody>
-                      {usersList.map((u, idx) => (
+                      {filteredUsersList.map((u, idx) => (
                         <tr key={u.id} className={`border-b border-slate-700/50 ${idx % 2 === 1 ? "bg-slate-800/30" : ""}`}>
                           <td className="py-1.5 sm:py-2 px-2 sm:px-3 text-white font-medium whitespace-nowrap bg-slate-800/95 sm:bg-transparent sticky right-0 z-10 border-l border-slate-600/50 min-w-[4.5rem]">{u.username || "—"}</td>
                           <td className="py-1.5 sm:py-2 px-2 sm:px-3 whitespace-nowrap bg-slate-800/95 sm:bg-transparent sticky right-[4.5rem] z-10 border-l border-slate-600/50">
@@ -2276,6 +2316,24 @@ export default function AdminPanel() {
                           </td>
                           <td className="py-1.5 sm:py-2 px-2 sm:px-3">
                             <div className="flex flex-nowrap items-center gap-1 overflow-x-auto min-w-0">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs border-amber-500/60 text-amber-400 hover:bg-amber-500/20"
+                                onClick={() => {
+                                  setEditingUser({ id: u.id, username: u.username, name: u.name, phone: u.phone, email: (u as { email?: string | null }).email ?? null });
+                                  setEditUserForm({
+                                    name: u.name ?? "",
+                                    phone: u.phone ?? "",
+                                    username: u.username ?? "",
+                                    email: (u as { email?: string | null }).email ?? "",
+                                  });
+                                }}
+                                title="עריכת פרטים"
+                              >
+                                <Pencil className="w-4 h-4 ml-1" />
+                                עריכה
+                              </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -2449,8 +2507,10 @@ export default function AdminPanel() {
                     </tbody>
                   </table>
                 </div>
-                {(!usersList || usersList.length === 0) && (
-                  <p className="text-slate-500 text-center py-6">אין משתמשים ברשימה</p>
+                {filteredUsersList.length === 0 && (
+                  <p className="text-slate-500 text-center py-6">
+                    {usersList.length === 0 ? "אין משתמשים ברשימה" : "אין תוצאות התואמות את החיפוש. נסה ביטוי אחר."}
+                  </p>
                 )}
               </CardContent>
             </Card>
@@ -2535,6 +2595,113 @@ export default function AdminPanel() {
                     }}
                   >
                     {resetUserPasswordMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "עדכן סיסמה"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog
+              open={editingUser !== null}
+              onOpenChange={(open) => {
+                if (!open) setEditingUser(null);
+              }}
+            >
+              <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="text-white text-right">עריכת פרטי משתמש</DialogTitle>
+                  <DialogDescription className="text-slate-400 text-right">
+                    עדכון שם, טלפון, שם משתמש ואימייל. שינוי שם משתמש ישפיע על כניסה למערכת.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-3 py-2">
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1 text-right">שם מלא</label>
+                    <Input
+                      className="bg-slate-800 text-white border-slate-600 text-right"
+                      placeholder="שם"
+                      value={editUserForm.name}
+                      onChange={(e) => setEditUserForm((f) => ({ ...f, name: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1 text-right">טלפון</label>
+                    <Input
+                      type="tel"
+                      className="bg-slate-800 text-white border-slate-600 text-right"
+                      placeholder="למשל 0501234567"
+                      value={editUserForm.phone}
+                      onChange={(e) => setEditUserForm((f) => ({ ...f, phone: e.target.value }))}
+                    />
+                    <p className="text-slate-500 text-xs mt-0.5 text-right">9–15 ספרות. ניתן לתקן מספר שנרשם בטעות.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1 text-right">שם משתמש</label>
+                    <Input
+                      className="bg-slate-800 text-white border-slate-600 text-right"
+                      placeholder="שם להתחברות"
+                      value={editUserForm.username}
+                      onChange={(e) => setEditUserForm((f) => ({ ...f, username: e.target.value }))}
+                    />
+                    <p className="text-slate-500 text-xs mt-0.5 text-right">ייחודי במערכת. משמש לכניסה.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1 text-right">אימייל</label>
+                    <Input
+                      type="email"
+                      className="bg-slate-800 text-white border-slate-600 text-right"
+                      placeholder="example@mail.com"
+                      value={editUserForm.email}
+                      onChange={(e) => setEditUserForm((f) => ({ ...f, email: e.target.value }))}
+                    />
+                  </div>
+                </div>
+                <DialogFooter className="gap-2 sm:gap-0 flex-row-reverse">
+                  <Button
+                    variant="outline"
+                    className="border-slate-600 text-slate-300"
+                    onClick={() => setEditingUser(null)}
+                  >
+                    ביטול
+                  </Button>
+                  <Button
+                    className="bg-amber-600 hover:bg-amber-700"
+                    disabled={
+                      updateUserProfileMut.isPending ||
+                      (editUserForm.username.trim().length > 0 && editUserForm.username.trim().length < 2)
+                    }
+                    onClick={async () => {
+                      if (!editingUser) return;
+                      const name = editUserForm.name.trim() || undefined;
+                      const phone = editUserForm.phone.trim() || undefined;
+                      const username = editUserForm.username.trim() || undefined;
+                      const email = editUserForm.email.trim() || undefined;
+                      if (username !== undefined && username.length > 0 && username.length < 2) {
+                        toast.error("שם משתמש חייב להכיל לפחות 2 תווים");
+                        return;
+                      }
+                      const digits = (editUserForm.phone || "").replace(/\D/g, "");
+                      if (phone && (digits.length < 9 || digits.length > 15)) {
+                        toast.error("טלפון חייב להכיל 9–15 ספרות");
+                        return;
+                      }
+                      if (editUserForm.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editUserForm.email.trim())) {
+                        toast.error("כתובת אימייל לא תקינה");
+                        return;
+                      }
+                      try {
+                        await updateUserProfileMut.mutateAsync({
+                          userId: editingUser.id,
+                          name: name ?? null,
+                          phone: phone ?? null,
+                          username: username || null,
+                          email: email || null,
+                        });
+                      } catch {
+                        // error already shown in onError
+                      }
+                    }}
+                  >
+                    {updateUserProfileMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "שמור שינויים"}
                   </Button>
                 </DialogFooter>
               </DialogContent>

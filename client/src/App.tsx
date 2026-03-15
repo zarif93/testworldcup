@@ -3,10 +3,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Route, Switch, useLocation } from "wouter";
 import { useState, lazy, Suspense } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
+import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { useAuth } from "./contexts/AuthContext";
-import { Loader2, Trophy, LayoutGrid, LogOut, Coins, Menu, MessageCircle, FileText, Gem, Sun, Moon, Bell, Share2 } from "lucide-react";
+import { Loader2, Trophy, LayoutGrid, LogOut, LogIn, Coins, Menu, MessageCircle, FileText, Gem, Bell, Share2, Home as HomeIcon, HelpCircle, TrendingUp, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -51,21 +51,6 @@ function LoadingScreen() {
         <Loader2 className="w-12 h-12 animate-spin text-amber-500" aria-hidden />
       </div>
     </div>
-  );
-}
-
-function ThemeToggle({ className }: { className?: string }) {
-  const { theme, toggleTheme, switchable } = useTheme();
-  if (!switchable || !toggleTheme) return null;
-  return (
-    <button
-      type="button"
-      onClick={toggleTheme}
-      className={className ?? "p-2 rounded-xl text-slate-300 hover:text-amber-400 hover:bg-slate-800/50 transition"}
-      aria-label={theme === "dark" ? "מעבר למצב בהיר" : "מעבר למצב כהה"}
-    >
-      {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-    </button>
   );
 }
 
@@ -231,6 +216,215 @@ function NavLinks({
   );
 }
 
+/** Mobile drawer menu: RTL-aligned, sectioned layout with consistent icon+label rows. */
+function MobileDrawerMenu({
+  setLocation,
+  user,
+  logout,
+  onClose,
+  onOpenTerms,
+  whatsappUrl,
+  termsPageSlug,
+  privacyPageSlug,
+  ctaPrimaryText,
+  ctaPrimaryUrl,
+}: {
+  setLocation: (path: string) => void;
+  user: { id?: number; role?: string; points?: number; unlimitedPoints?: boolean; name?: string; username?: string } | null;
+  logout: () => void;
+  onClose: () => void;
+  onOpenTerms: () => void;
+  whatsappUrl?: string;
+  termsPageSlug?: string;
+  privacyPageSlug?: string;
+  ctaPrimaryText?: string;
+  ctaPrimaryUrl?: string;
+}) {
+  const go = (path: string) => {
+    setLocation(path);
+    onClose();
+  };
+  const pointsLabel =
+    user?.unlimitedPoints || user?.role === "admin"
+      ? "ללא הגבלה"
+      : typeof user?.points === "number"
+        ? String(user.points)
+        : "0";
+  const waUrl = whatsappUrl ?? `https://wa.me/${DEFAULT_WHATSAPP}`;
+  const termsSlug = termsPageSlug?.trim();
+  const privacySlug = privacyPageSlug?.trim();
+  const ctaLabel = ctaPrimaryText?.trim() || "תחרויות";
+  const ctaPath = (ctaPrimaryUrl?.trim() && ctaPrimaryUrl.startsWith("/") ? ctaPrimaryUrl.trim() : "/tournaments") || "/tournaments";
+
+  const rowClass = "flex items-center gap-3 w-full min-h-[44px] px-3 py-2.5 rounded-xl text-right transition-colors";
+  const rowLabel = "flex-1 min-w-0 text-sm font-medium";
+  const iconClass = "w-5 h-5 shrink-0 text-slate-400";
+  const sectionSpacing = "space-y-1";
+  const sectionGap = "pt-6";
+
+  const inviteAction = () => {
+    if (typeof window === "undefined") return;
+    const inviteUrl = `${window.location.origin}/register${user?.id != null ? `?ref=${user.id}` : ""}`;
+    const message = `היי! הצטרף אליי לתחרויות – הירשם כאן: ${inviteUrl}`;
+    const waShareUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    try {
+      const opened = window.open(waShareUrl, "_blank", "noopener,noreferrer");
+      if (!opened || opened.closed) {
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(inviteUrl);
+          toast.success("קישור ההזמנה הועתק");
+        }
+      }
+    } catch {
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(inviteUrl);
+        toast.success("קישור ההזמנה הועתק");
+      }
+    }
+    onClose();
+  };
+
+  return (
+    <div className="flex flex-col h-full text-right" dir="rtl">
+      {/* User / account */}
+      {user && (
+        <div className="pb-4 border-b border-slate-700/80">
+          <p className="text-slate-400 text-xs font-medium mb-1">מחובר כעת</p>
+          <p className="text-white font-semibold truncate" aria-label="מחובר כעת">
+            {user.name || user.username || `#${user.id}`}
+          </p>
+        </div>
+      )}
+
+      {/* Primary navigation */}
+      <nav className={sectionGap + " flex-1 min-h-0 overflow-y-auto"} aria-label="ניווט ראשי">
+        <div className={sectionSpacing}>
+          <button type="button" onClick={() => go("/")} className={`${rowClass} text-slate-200 hover:bg-slate-800/60 hover:text-white`} aria-label="דף הבית">
+            <span className={rowLabel}>דף הבית</span>
+            <HomeIcon className={iconClass} aria-hidden />
+          </button>
+          <button type="button" onClick={() => go(ctaPath)} className={`${rowClass} text-slate-200 hover:bg-slate-800/60 hover:text-white`} aria-label={ctaLabel}>
+            <span className={rowLabel}>{ctaLabel}</span>
+            <Trophy className={iconClass} aria-hidden />
+          </button>
+          <button type="button" onClick={() => go("/submissions")} className={`${rowClass} text-slate-200 hover:bg-slate-800/60 hover:text-white`} aria-label="הטפסים שלי">
+            <span className={rowLabel}>הטפסים שלי</span>
+            <FileText className={iconClass} aria-hidden />
+          </button>
+          <button type="button" onClick={() => go("/leaderboard")} className={`${rowClass} text-slate-200 hover:bg-slate-800/60 hover:text-white`} aria-label="דירוג">
+            <span className={rowLabel}>דירוג</span>
+            <TrendingUp className={iconClass} aria-hidden />
+          </button>
+        </div>
+
+        {/* Points highlight (logged-in) */}
+        {user && (
+          <div className={sectionGap}>
+            <button
+              type="button"
+              onClick={() => go("/points")}
+              className="flex items-center gap-3 w-full min-h-[48px] px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-right hover:bg-amber-500/15 transition"
+              aria-label="נקודות שלי"
+            >
+              <span className="flex-1 min-w-0 text-sm font-semibold text-amber-400/95">נקודות שלי</span>
+              <span className="text-base font-bold tabular-nums text-amber-400" aria-hidden>{pointsLabel}</span>
+              <Gem className="w-5 h-5 shrink-0 text-amber-400/90" aria-hidden />
+            </button>
+          </div>
+        )}
+
+        {/* Secondary: how it works, legal, WhatsApp */}
+        <div className={sectionGap}>
+          <button type="button" onClick={() => go("/how-it-works")} className={`${rowClass} text-slate-400 hover:bg-slate-800/50 hover:text-slate-200`} aria-label="איך זה עובד">
+            <span className={rowLabel}>איך זה עובד</span>
+            <HelpCircle className={iconClass} aria-hidden />
+          </button>
+          {termsSlug ? (
+            <button type="button" onClick={() => go(`/page/${encodeURIComponent(termsSlug)}`)} className={`${rowClass} text-slate-400 hover:bg-slate-800/50 hover:text-slate-200`} aria-label="תקנון">
+              <span className={rowLabel}>תקנון</span>
+              <FileText className={iconClass} aria-hidden />
+            </button>
+          ) : (
+            <button type="button" onClick={onOpenTerms} className={`${rowClass} text-slate-400 hover:bg-slate-800/50 hover:text-slate-200`} aria-label="תקנון">
+              <span className={rowLabel}>תקנון</span>
+              <FileText className={iconClass} aria-hidden />
+            </button>
+          )}
+          {privacySlug && (
+            <button type="button" onClick={() => go(`/page/${encodeURIComponent(privacySlug)}`)} className={`${rowClass} text-slate-400 hover:bg-slate-800/50 hover:text-slate-200`} aria-label="פרטיות">
+              <span className={rowLabel}>פרטיות</span>
+              <FileText className={iconClass} aria-hidden />
+            </button>
+          )}
+          <a
+            href={waUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${rowClass} text-[#25D366] hover:bg-slate-800/50`}
+            aria-label="וואטסאפ"
+          >
+            <span className={rowLabel}>וואטסאפ</span>
+            <MessageCircle className="w-5 h-5 shrink-0" aria-hidden />
+          </a>
+        </div>
+
+        {/* User-only: notifications, invite */}
+        {user && (user.role === "user" || user.role === "agent") && (
+          <div className={sectionSpacing + " " + sectionGap}>
+            <button type="button" onClick={() => go("/notifications")} className={`${rowClass} text-slate-400 hover:bg-slate-800/50 hover:text-slate-200`} aria-label="התראות">
+              <span className={rowLabel}>התראות</span>
+              <Bell className={iconClass} aria-hidden />
+            </button>
+            <button type="button" onClick={inviteAction} className={`${rowClass} text-slate-400 hover:bg-slate-800/50 hover:text-slate-200`} aria-label="הזמן חברים">
+              <span className={rowLabel}>הזמן חברים</span>
+              <Share2 className={iconClass} aria-hidden />
+            </button>
+          </div>
+        )}
+
+        {/* Admin / Agent */}
+        {user?.role === "admin" && (
+          <button type="button" onClick={() => go("/admin")} className={`${rowClass} text-amber-400 hover:bg-amber-500/10 mt-4`} aria-label="ניהול">
+            <span className={rowLabel}>ניהול</span>
+            <LayoutGrid className="w-5 h-5 shrink-0 text-amber-400/90" aria-hidden />
+          </button>
+        )}
+        {user?.role === "agent" && (
+          <button type="button" onClick={() => go("/agent")} className={`${rowClass} text-emerald-400 hover:bg-emerald-500/10 mt-4`} aria-label="לוח סוכן">
+            <span className={rowLabel}>לוח סוכן</span>
+            <Users className="w-5 h-5 shrink-0 text-emerald-400/90" aria-hidden />
+          </button>
+        )}
+      </nav>
+
+      {/* Logout / Auth at bottom */}
+      <div className="pt-4 mt-auto border-t border-slate-700/80 space-y-2">
+        {user ? (
+          <button
+            type="button"
+            onClick={() => { logout(); onClose(); }}
+            className={`${rowClass} text-slate-400 hover:bg-slate-800/60 hover:text-white w-full`}
+            aria-label="יציאה"
+          >
+            <span className={rowLabel}>יציאה מהחשבון</span>
+            <LogOut className="w-5 h-5 shrink-0" aria-hidden />
+          </button>
+        ) : (
+          <>
+            <button type="button" onClick={() => go("/login")} className={`${rowClass} text-slate-200 hover:bg-slate-800/60 hover:text-white`} aria-label="התחברות">
+              <span className={rowLabel}>התחברות</span>
+              <LogIn className={iconClass} aria-hidden />
+            </button>
+            <button type="button" onClick={() => go("/register")} className="flex items-center justify-center w-full min-h-[44px] px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition" aria-label="הרשמה">
+              הרשמה
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Layout({ children }: { children: React.ReactNode }) {
   const { user, loading, logout } = useAuth();
   const [, setLocation] = useLocation();
@@ -332,11 +526,11 @@ function Layout({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="min-h-screen relative overflow-x-hidden max-w-[100vw]">
+    <div className="min-h-[100dvh] relative overflow-x-hidden max-w-[100vw]">
       <WorldCupBackground />
       {user?.role === "admin" && <AdminNewSubmissionNotifier />}
       <PointsSocketSync />
-      <div className="relative z-10 min-h-screen flex flex-col min-w-0 max-w-full overflow-x-hidden">
+      <div className="relative z-10 min-h-[100dvh] flex flex-col min-w-0 max-w-full overflow-x-hidden overflow-y-visible">
       <header className="sticky top-0 z-50 border-b border-slate-700/50 bg-slate-950/95 backdrop-blur-md shadow-sm min-w-0 overflow-hidden md:min-h-0">
         <div className="container mx-auto px-3 py-2 md:px-4 md:py-3 flex items-center justify-between gap-2 min-w-0 h-[var(--header-height-mobile)] md:h-auto">
           <button
@@ -362,7 +556,6 @@ function Layout({ children }: { children: React.ReactNode }) {
                 </span>
               </>
             )}
-            <ThemeToggle />
             <NavLinks setLocation={setLocation} user={user} logout={logout} onOpenTerms={() => setTermsOpen(true)} whatsappUrl={whatsappUrl} termsPageSlug={siteSettings?.["legal.terms_page_slug"]} privacyPageSlug={siteSettings?.["legal.privacy_page_slug"]} ctaPrimaryText={siteSettings?.["cta.primary_text"]} ctaPrimaryUrl={siteSettings?.["cta.primary_url"]} />
           </nav>
           <div className="flex md:hidden items-center gap-1.5 shrink-0">
@@ -373,22 +566,26 @@ function Layout({ children }: { children: React.ReactNode }) {
                 {user.unlimitedPoints || user.role === "admin" ? "∞" : `${user.points ?? 0}`}
               </span>
             )}
-            <ThemeToggle className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition shrink-0" />
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild>
                 <button className="p-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition touch-target min-h-[44px] min-w-[44px] flex items-center justify-center active:opacity-80" aria-label="תפריט">
                   <Menu className="w-6 h-6" />
                 </button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[min(100vw-2rem,288px)] bg-slate-900 border-slate-700 text-white p-4 text-right" dir="rtl">
-                <div className="flex flex-col gap-2 pt-6">
-                  {user && (
-                    <p className="text-slate-200 font-semibold text-sm pb-2 border-b border-slate-700 mb-1" aria-label="מחובר כעת">
-                      מחובר: <span className="text-white truncate block">{user.name || user.username || `#${user.id}`}</span>
-                    </p>
-                  )}
-                  <ThemeToggle />
-                  <NavLinks setLocation={setLocation} user={user} logout={logout} onNavigate={() => setMobileOpen(false)} onOpenTerms={() => { setMobileOpen(false); setTermsOpen(true); }} whatsappUrl={whatsappUrl} termsPageSlug={siteSettings?.["legal.terms_page_slug"]} privacyPageSlug={siteSettings?.["legal.privacy_page_slug"]} ctaPrimaryText={siteSettings?.["cta.primary_text"]} ctaPrimaryUrl={siteSettings?.["cta.primary_url"]} />
+              <SheetContent side="left" className="w-[min(100vw-2rem,300px)] max-w-[300px] bg-slate-900 border-slate-700 text-white p-0 flex flex-col overflow-hidden">
+                <div className="pt-14 px-4 pb-4 flex flex-col h-full min-h-0">
+                  <MobileDrawerMenu
+                    setLocation={setLocation}
+                    user={user}
+                    logout={logout}
+                    onClose={() => setMobileOpen(false)}
+                    onOpenTerms={() => { setMobileOpen(false); setTermsOpen(true); }}
+                    whatsappUrl={whatsappUrl}
+                    termsPageSlug={siteSettings?.["legal.terms_page_slug"]}
+                    privacyPageSlug={siteSettings?.["legal.privacy_page_slug"]}
+                    ctaPrimaryText={siteSettings?.["cta.primary_text"]}
+                    ctaPrimaryUrl={siteSettings?.["cta.primary_url"]}
+                  />
                 </div>
               </SheetContent>
             </Sheet>

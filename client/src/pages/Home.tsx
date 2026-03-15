@@ -183,6 +183,159 @@ function LeaderboardTopTeaser({
   );
 }
 
+/** CMS banner block for homepage placements (promo, secondary, cta). Renders nothing if banner is null. */
+type HomepageBannerData = {
+  title: string | null;
+  subtitle: string | null;
+  imageUrl: string | null;
+  mobileImageUrl: string | null;
+  buttonText: string | null;
+  buttonUrl: string | null;
+};
+
+function HomepageBannerBlock({
+  banner,
+  onCtaClick,
+  variant = "default",
+  className = "",
+}: {
+  banner: HomepageBannerData | null;
+  onCtaClick: (url: string) => void;
+  variant?: "promo" | "secondary" | "cta";
+  className?: string;
+}) {
+  if (!banner) return null;
+  const hasContent = (banner.title && banner.title.trim()) || (banner.subtitle && banner.subtitle.trim()) || (banner.buttonText && banner.buttonText.trim());
+  if (!hasContent && !banner.imageUrl) return null;
+  const imageUrl = banner.imageUrl?.trim() || null;
+  const mobileImageUrl = banner.mobileImageUrl?.trim() || null;
+  const containerClass =
+    variant === "cta"
+      ? "rounded-2xl overflow-hidden border border-slate-600/60 bg-slate-800/50"
+      : variant === "promo"
+        ? "rounded-xl overflow-hidden border border-amber-500/30 bg-slate-800/60"
+        : "rounded-xl overflow-hidden border border-slate-600/50 bg-slate-800/40";
+  return (
+    <div className={`relative ${containerClass} ${className}`}>
+      {(imageUrl || mobileImageUrl) && (
+        <div className="absolute inset-0 overflow-hidden">
+          {mobileImageUrl && <img src={mobileImageUrl} alt="" className="w-full h-full object-cover opacity-40 md:hidden" />}
+          {imageUrl && <img src={imageUrl} alt="" className={`w-full h-full object-cover opacity-40 ${mobileImageUrl ? "hidden md:block" : ""}`} />}
+        </div>
+      )}
+      <div className="relative z-10 px-4 py-4 sm:px-6 sm:py-5 text-center">
+        {banner.title?.trim() && (
+          <h3 className="text-lg sm:text-xl font-bold text-white mb-1 break-words">{banner.title.trim()}</h3>
+        )}
+        {banner.subtitle?.trim() && (
+          <p className="text-slate-300 text-sm sm:text-base mb-3 break-words">{banner.subtitle.trim()}</p>
+        )}
+        {banner.buttonText?.trim() && banner.buttonUrl?.trim() && (
+          <Button
+            size="lg"
+            className="min-h-[44px] bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl"
+            onClick={() => onCtaClick(banner.buttonUrl!.trim())}
+          >
+            {banner.buttonText.trim()}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Homepage block from CMS sections (global blocks). Renders by type; supports internal nav via onNavigate. */
+type HomepageSection = { id: number; key: string; type: string; title: string | null; subtitle: string | null; body: string | null; imageUrl: string | null; buttonText: string | null; buttonUrl: string | null; sortOrder: number };
+
+function HomepageSectionBlock({ section, onNavigate }: { section: HomepageSection; onNavigate: (url: string) => void }) {
+  const { type, title, subtitle, body, imageUrl, buttonText, buttonUrl } = section;
+  const cardClass = "rounded-xl bg-slate-800/80 border border-slate-600/80 p-5 md:p-6 shadow-sm";
+
+  const handleAction = () => {
+    if (!buttonUrl?.trim()) return;
+    if (buttonUrl.startsWith("http")) window.location.href = buttonUrl; else onNavigate(buttonUrl);
+  };
+
+  if (type === "hero") {
+    return (
+      <div className={`${cardClass} text-center`}>
+        {imageUrl && <img src={imageUrl} alt={title ?? ""} className="mx-auto rounded-lg max-h-40 object-cover mb-4" />}
+        {title && <h3 className="text-lg font-bold text-white mb-1">{title}</h3>}
+        {subtitle && <p className="text-slate-400 text-sm mb-3">{subtitle}</p>}
+        {body && <p className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">{body}</p>}
+        {buttonText?.trim() && buttonUrl?.trim() && <Button type="button" className="mt-4 bg-amber-500 hover:bg-amber-600" onClick={handleAction}>{buttonText}</Button>}
+      </div>
+    );
+  }
+  if (type === "cta") {
+    return (
+      <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-5 md:p-6 text-center">
+        {title && <h3 className="text-lg font-bold text-white mb-1">{title}</h3>}
+        {subtitle && <p className="text-slate-400 text-sm mb-2">{subtitle}</p>}
+        {body && <p className="text-slate-300 text-sm mb-3">{body}</p>}
+        {buttonText?.trim() && buttonUrl?.trim() && <Button type="button" className="bg-amber-600 hover:bg-amber-700" onClick={handleAction}>{buttonText}</Button>}
+      </div>
+    );
+  }
+  if (type === "features" || type === "cards") {
+    const items = body ? body.split("\n").filter(Boolean) : [];
+    return (
+      <div className={cardClass}>
+        {title && <h3 className="text-lg font-bold text-white mb-2">{title}</h3>}
+        {subtitle && <p className="text-slate-400 text-sm mb-3">{subtitle}</p>}
+        <ul className="space-y-2">
+          {items.map((line, i) => (
+            <li key={i} className="flex items-start gap-2 text-slate-300 text-sm">
+              <span className="text-amber-400 shrink-0">•</span>
+              <span>{line}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+  if (type === "links") {
+    const items = body ? body.split("\n").filter(Boolean) : [];
+    return (
+      <div className={cardClass}>
+        {title && <h3 className="text-lg font-bold text-white mb-2">{title}</h3>}
+        <ul className="space-y-2">
+          {items.map((line, i) => {
+            const [label, url] = line.includes("|") ? line.split("|").map((s) => s.trim()) : [line, ""];
+            return (
+              <li key={i}>
+                {url ? (
+                  <a href={url} className="text-amber-400 hover:text-amber-300 text-sm" target="_blank" rel="noopener noreferrer">{label}</a>
+                ) : (
+                  <span className="text-slate-400 text-sm">{label}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    );
+  }
+  if (type === "html") {
+    return (
+      <div className={cardClass}>
+        {title && <h3 className="text-lg font-bold text-white mb-2">{title}</h3>}
+        {body && <p className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">{body}</p>}
+      </div>
+    );
+  }
+  // text, banner, default
+  return (
+    <div className={cardClass}>
+      {imageUrl && <img src={imageUrl} alt={title ?? ""} className="w-full rounded-lg max-h-32 object-cover mb-3" />}
+      {title && <h3 className="text-lg font-bold text-white mb-1">{title}</h3>}
+      {subtitle && <p className="text-slate-400 text-sm mb-2">{subtitle}</p>}
+      {body && <p className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">{body}</p>}
+      {buttonText?.trim() && buttonUrl?.trim() && <Button type="button" size="sm" className="mt-3 bg-amber-500 hover:bg-amber-600" onClick={handleAction}>{buttonText}</Button>}
+    </div>
+  );
+}
+
 export default function Home() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, user } = useAuth();
@@ -201,9 +354,26 @@ export default function Home() {
     staleTime: 45_000,
   });
   const { data: cmsBanners } = trpc.cms.getActiveBanners.useQuery({ key: "homepage_hero" });
+  const { data: cmsBannersPromo } = trpc.cms.getActiveBanners.useQuery({ key: "homepage_promo" });
+  const { data: cmsBannersSecondary } = trpc.cms.getActiveBanners.useQuery({ key: "homepage_secondary" });
+  const { data: cmsBannersCta } = trpc.cms.getActiveBanners.useQuery({ key: "homepage_cta" });
+  const { data: homepageFeaturesBlocks } = trpc.cms.getActiveHomepageSections.useQuery({ key: "homepage_features" });
+  const { data: homepageSecondaryBlocks } = trpc.cms.getActiveHomepageSections.useQuery({ key: "homepage_secondary" });
+  const { data: homepageCtaBlocks } = trpc.cms.getActiveHomepageSections.useQuery({ key: "homepage_cta" });
   const { data: cmsAnnouncements } = trpc.cms.getActiveAnnouncements.useQuery();
   const { data: siteSettings } = trpc.settings.getPublic.useQuery();
   const heroBanner = (cmsBanners && cmsBanners.length > 0) ? cmsBanners[0] : null;
+  const promoBanner = (cmsBannersPromo && cmsBannersPromo.length > 0) ? cmsBannersPromo[0] : null;
+  const secondaryBanner = (cmsBannersSecondary && cmsBannersSecondary.length > 0) ? cmsBannersSecondary[0] : null;
+  const ctaBanner = (cmsBannersCta && cmsBannersCta.length > 0) ? cmsBannersCta[0] : null;
+  const featuresBlocks = homepageFeaturesBlocks ?? [];
+  const secondaryBlocks = homepageSecondaryBlocks ?? [];
+  const ctaBlocks = homepageCtaBlocks ?? [];
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production" && cmsBanners !== undefined) {
+      console.log("[Home] cms.getActiveBanners(homepage_hero) returned", cmsBanners.length, "banner(s)", cmsBanners.length > 0 ? cmsBanners[0] : null);
+    }
+  }, [cmsBanners]);
   const announcement = (cmsAnnouncements && cmsAnnouncements.length > 0) ? cmsAnnouncements[0] : null;
   const ctaPrimaryText = (siteSettings?.["cta.primary_text"] ?? "").trim();
   const ctaPrimaryUrl = (siteSettings?.["cta.primary_url"] ?? "").trim();
@@ -553,8 +723,28 @@ export default function Home() {
               )}
               {mySummary.inTop10Any && (
                 <p className="text-emerald-400 text-xs font-medium mt-1">אתה בטופ 10</p>
-              )}
-            </div>
+        )}
+        </div>
+      </div>
+        )}
+
+        {/* homepage_promo: promotional banner above tournaments section */}
+        {promoBanner && (
+          <div className="max-w-4xl mx-auto px-3 mb-6">
+            <HomepageBannerBlock
+              banner={promoBanner}
+              variant="promo"
+              onCtaClick={(url) => (url.startsWith("http") ? (window.location.href = url) : setLocation(url))}
+            />
+          </div>
+        )}
+
+        {/* homepage_features: features/benefits blocks above tournaments */}
+        {featuresBlocks.length > 0 && (
+          <div className="max-w-4xl mx-auto px-3 mb-6 space-y-4">
+            {featuresBlocks.map((block) => (
+              <HomepageSectionBlock key={block.id} section={block} onNavigate={setLocation} />
+            ))}
           </div>
         )}
 
@@ -1120,6 +1310,24 @@ export default function Home() {
           </>
         )}
 
+        {/* homepage_secondary: secondary supporting banner + blocks lower on the page */}
+        {secondaryBanner && (
+          <div className="max-w-4xl mx-auto px-2 mb-6">
+            <HomepageBannerBlock
+              banner={secondaryBanner}
+              variant="secondary"
+              onCtaClick={(url) => (url.startsWith("http") ? (window.location.href = url) : setLocation(url))}
+            />
+          </div>
+        )}
+        {secondaryBlocks.length > 0 && (
+          <div className="max-w-4xl mx-auto px-2 mb-6 space-y-4">
+            {secondaryBlocks.map((block) => (
+              <HomepageSectionBlock key={block.id} section={block} onNavigate={setLocation} />
+            ))}
+          </div>
+        )}
+
         <AlertDialog open={hideConfirmId != null} onOpenChange={(open) => !open && setHideConfirmId(null)}>
           <AlertDialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
             <AlertDialogHeader>
@@ -1139,6 +1347,24 @@ export default function Home() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* homepage_cta: CTA banner + blocks before footer / secondary actions */}
+        {ctaBanner && (
+          <div className="max-w-4xl mx-auto px-3 mt-6 mb-4">
+            <HomepageBannerBlock
+              banner={ctaBanner}
+              variant="cta"
+              onCtaClick={(url) => (url.startsWith("http") ? (window.location.href = url) : setLocation(url))}
+            />
+          </div>
+        )}
+        {ctaBlocks.length > 0 && (
+          <div className="max-w-4xl mx-auto px-3 mb-4 space-y-4">
+            {ctaBlocks.map((block) => (
+              <HomepageSectionBlock key={block.id} section={block} onNavigate={setLocation} />
+            ))}
+          </div>
+        )}
 
         {/* Secondary actions – tournaments, ranking, auth */}
         <div className="mt-8 pt-6 border-t border-slate-700/50 flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center flex-wrap px-2">

@@ -1,11 +1,19 @@
 /**
- * Phase 14: Global site footer – company name, copyright, legal links, social, contact.
- * Uses site settings with safe fallbacks; sections hidden when empty.
+ * Global site footer – company name, copyright, CMS page links (when published), legal, social, contact.
  */
 
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { FileText, Mail, Phone, MapPin, Instagram, Facebook } from "lucide-react";
+import { FileText, Mail, Phone, MapPin, Instagram, Facebook, HelpCircle, UserPlus, Shield } from "lucide-react";
+
+const CMS_FOOTER_SLUGS = ["about", "contact", "faq", "terms", "privacy"] as const;
+const CMS_SLUG_LABELS: Record<string, { label: string; icon?: React.ReactNode }> = {
+  about: { label: "אודות" },
+  contact: { label: "צור קשר" },
+  faq: { label: "שאלות נפוצות", icon: <HelpCircle className="w-3.5 h-3.5" /> },
+  terms: { label: "תקנון", icon: <FileText className="w-3.5 h-3.5" /> },
+  privacy: { label: "פרטיות", icon: <Shield className="w-3.5 h-3.5" /> },
+};
 
 function SocialIcon({ href, label, children }: { href: string; label: string; children: React.ReactNode }) {
   return (
@@ -24,11 +32,13 @@ function SocialIcon({ href, label, children }: { href: string; label: string; ch
 export function SiteFooter() {
   const [, setLocation] = useLocation();
   const { data: s } = trpc.settings.getPublic.useQuery();
+  const { data: publishedSlugs = [] } = trpc.cms.getPublishedCmsSlugs.useQuery(
+    { slugs: [...CMS_FOOTER_SLUGS] },
+    { staleTime: 60_000 }
+  );
 
   const companyName = (s?.["footer.company_name"] ?? s?.["brand.site_name"] ?? "WinMondial").trim();
   const copyrightText = (s?.["footer.copyright_text"] ?? "").trim();
-  const termsSlug = (s?.["legal.terms_page_slug"] ?? "").trim();
-  const privacySlug = (s?.["legal.privacy_page_slug"] ?? "").trim();
   const instagram = (s?.["social.instagram"] ?? "").trim();
   const facebook = (s?.["social.facebook"] ?? "").trim();
   const telegram = (s?.["social.telegram"] ?? "").trim();
@@ -44,7 +54,7 @@ export function SiteFooter() {
   };
 
   return (
-    <footer className="border-t border-slate-700/60 bg-slate-900/50 text-right" dir="rtl" aria-label="פוטר האתר">
+    <footer className="border-t border-slate-700/60 bg-slate-900/50 text-right pb-safe-nav md:pb-0" dir="rtl" aria-label="פוטר האתר">
       <div className="container mx-auto px-4 py-6 md:py-8 max-w-6xl">
         <p className="text-slate-500 text-xs mb-4 max-w-xl">האתר מציג דירוגים ושקיפות כספית מלאה. תקנון ופרטיות למטה.</p>
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-6">
@@ -54,27 +64,24 @@ export function SiteFooter() {
           </div>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            {termsSlug && (
-              <button
-                type="button"
-                onClick={() => go(`/page/${encodeURIComponent(termsSlug)}`)}
-                className="text-slate-400 hover:text-amber-400 text-sm transition flex items-center gap-1"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                תקנון
-              </button>
-            )}
-            {privacySlug && (
-              <button
-                type="button"
-                onClick={() => go(`/page/${encodeURIComponent(privacySlug)}`)}
-                className="text-slate-400 hover:text-amber-400 text-sm transition flex items-center gap-1"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                פרטיות
-              </button>
-            )}
-            <button type="button" onClick={() => go("/how-it-works")} className="text-slate-400 hover:text-amber-400 text-sm transition">
+            {publishedSlugs.map((slug) => {
+              const conf = CMS_SLUG_LABELS[slug];
+              const label = conf?.label ?? slug;
+              const icon = conf?.icon;
+              return (
+                <button
+                  key={slug}
+                  type="button"
+                  onClick={() => go(`/page/${encodeURIComponent(slug)}`)}
+                  className="text-slate-400 hover:text-amber-400 text-sm transition flex items-center gap-1"
+                >
+                  {icon}
+                  {label}
+                </button>
+              );
+            })}
+            <button type="button" onClick={() => go("/how-it-works")} className="text-slate-400 hover:text-amber-400 text-sm transition flex items-center gap-1">
+              <HelpCircle className="w-3.5 h-3.5" />
               איך זה עובד
             </button>
             {hasSocial && <span className="text-slate-600 w-px h-4 hidden md:inline" />}

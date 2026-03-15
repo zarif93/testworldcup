@@ -810,6 +810,16 @@ async function initSqlite() {
       updatedAt INTEGER
     )
   `);
+  const contentPageCols = sqlite.prepare("PRAGMA table_info(content_pages)").all() as Array<{ name: string }>;
+  if (!contentPageCols.some((c) => c.name === "shortDescription")) {
+    sqlite.exec("ALTER TABLE content_pages ADD COLUMN shortDescription TEXT");
+  }
+  if (!contentPageCols.some((c) => c.name === "body")) {
+    sqlite.exec("ALTER TABLE content_pages ADD COLUMN body TEXT");
+  }
+  if (!contentPageCols.some((c) => c.name === "coverImageUrl")) {
+    sqlite.exec("ALTER TABLE content_pages ADD COLUMN coverImageUrl TEXT");
+  }
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS content_sections (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -5254,6 +5264,32 @@ export async function setUserBlocked(userId: number, isBlocked: boolean) {
   await db.update(users).set({ isBlocked, updatedAt: new Date() }).where(eq(users.id, userId));
 }
 
+/** עדכון פרטי משתמש על ידי מנהל – שם, טלפון, שם משתמש, אימייל. לא משנה סיסמה, תפקיד או קשרים. */
+export async function updateUserProfile(
+  userId: number,
+  data: { name?: string | null; phone?: string | null; username?: string | null; email?: string | null }
+) {
+  const { users } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
+  const existing = await getUserById(userId);
+  if (!existing) throw new Error("משתמש לא נמצא");
+  const update: Record<string, unknown> = { updatedAt: new Date() };
+  if (data.name !== undefined) update.name = data.name?.trim() || null;
+  if (data.phone !== undefined) update.phone = data.phone?.trim() || null;
+  if (data.email !== undefined) update.email = data.email?.trim() || null;
+  if (data.username !== undefined) {
+    const username = data.username?.trim() || null;
+    if (username !== null && username.length < 2) throw new Error("שם משתמש חייב להכיל לפחות 2 תווים");
+    if (username !== null) {
+      const other = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
+      if (other.length > 0 && (other[0] as { id: number }).id !== userId) throw new Error("שם משתמש זה כבר בשימוש");
+    }
+    update.username = username;
+  }
+  await db.update(users).set(update as typeof users.$inferInsert).where(eq(users.id, userId));
+}
+
 /** רשימת משתמשים לניהול – כולל סוכנים, עם סינון לפי role וסטטיסטיקות סוכן. */
 export async function getUsersList(opts?: { role?: "user" | "admin" | "agent"; includeDeleted?: boolean }) {
   const list = await getAllUsers({ includeDeleted: opts?.includeDeleted });
@@ -5264,6 +5300,7 @@ export async function getUsersList(opts?: { role?: "user" | "admin" | "agent"; i
     username: string | null;
     name: string | null;
     phone: string | null;
+    email: string | null;
     role: string;
     points: number;
     createdAt: Date | null;
@@ -5281,6 +5318,7 @@ export async function getUsersList(opts?: { role?: "user" | "admin" | "agent"; i
       username: (u as { username?: string | null }).username ?? null,
       name: (u as { name?: string | null }).name ?? null,
       phone: (u as { phone?: string | null }).phone ?? null,
+      email: (u as { email?: string | null }).email ?? null,
       role: u.role,
       points: (u as { points?: number }).points ?? 0,
       createdAt: (u as { createdAt?: Date | null }).createdAt ?? null,
@@ -7376,8 +7414,9 @@ export async function getActiveBanners(key?: string): Promise<Array<{ id: number
   const { siteBanners } = await getSchema();
   const db = await getDb();
   if (!db) return [];
+  const effectiveKey = typeof key === "string" && key.trim() !== "" ? key.trim() : undefined;
   const now = Date.now();
-  const whereClause = key != null && key !== "" ? and(eq(siteBanners.isActive, true), eq(siteBanners.key, key)) : eq(siteBanners.isActive, true);
+  const whereClause = effectiveKey != null ? and(eq(siteBanners.isActive, true), eq(siteBanners.key, effectiveKey)) : eq(siteBanners.isActive, true);
   const rows = await db.select().from(siteBanners).where(whereClause).orderBy(asc(siteBanners.sortOrder), asc(siteBanners.id));
   const filtered = (rows as Array<{ id: number; key: string; title: string | null; subtitle: string | null; imageUrl: string | null; mobileImageUrl: string | null; buttonText: string | null; buttonUrl: string | null; isActive: boolean; sortOrder: number; startsAt: Date | null; endsAt: Date | null }>).filter((r) => {
     if (r.startsAt != null && new Date(r.startsAt).getTime() > now) return false;
@@ -7408,7 +7447,7 @@ export async function listContentPages() {
   if (!db) return [];
   return db.select().from(contentPages).orderBy(asc(contentPages.slug));
 }
-/** Public CMS page by slug. Returns page regardless of status (draft or published) so the platform behaves as live; admin can still manage status in DB. */
+/** Get CMS page by slug (admin or internal). Does not filter by status. */
 export async function getContentPageBySlug(slug: string) {
   if (!USE_SQLITE) return null;
   const { contentPages } = await getSchema();
@@ -7418,12 +7457,25 @@ export async function getContentPageBySlug(slug: string) {
   return rows[0] ?? null;
 }
 
-/** Phase 13: Public page + sections for CMS rendering. Sections for that page only. */
+/** Public page + sections. Only published pages are visible; drafts return 404. */
 export async function getPublicPageWithSections(slug: string): Promise<{ page: Awaited<ReturnType<typeof getContentPageBySlug>>; sections: Awaited<ReturnType<typeof listContentSections>> }> {
   const page = await getContentPageBySlug(slug);
-  if (!page) return { page: null, sections: [] };
+  if (!page || (page as { status?: string }).status !== "published") return { page: null, sections: [] };
   const sections = await listContentSections(page.id);
   return { page, sections: sections.filter((s) => s.isActive) };
+}
+
+/** Return slugs that exist and are published (for footer/nav links). */
+export async function getPublishedCmsSlugs(candidateSlugs: string[]): Promise<string[]> {
+  if (!USE_SQLITE || candidateSlugs.length === 0) return [];
+  const { contentPages } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ slug: contentPages.slug })
+    .from(contentPages)
+    .where(and(inArray(contentPages.slug, candidateSlugs), eq(contentPages.status, "published")));
+  return rows.map((r) => (r as { slug: string }).slug);
 }
 export async function getContentPageById(id: number) {
   if (!USE_SQLITE) return null;
@@ -7433,17 +7485,57 @@ export async function getContentPageById(id: number) {
   const rows = await db.select().from(contentPages).where(eq(contentPages.id, id)).limit(1);
   return rows[0] ?? null;
 }
-export async function createContentPage(data: { slug: string; title: string; status?: string; seoTitle?: string | null; seoDescription?: string | null }) {
+export async function createContentPage(data: {
+  slug: string;
+  title: string;
+  status?: string;
+  shortDescription?: string | null;
+  body?: string | null;
+  coverImageUrl?: string | null;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
+}) {
   const { contentPages } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [row] = await db.insert(contentPages).values({ slug: data.slug, title: data.title, status: data.status ?? "draft", seoTitle: data.seoTitle ?? null, seoDescription: data.seoDescription ?? null }).returning({ id: contentPages.id });
+  const existing = await db.select({ id: contentPages.id }).from(contentPages).where(eq(contentPages.slug, data.slug)).limit(1);
+  if (existing.length > 0) throw new Error("כתובת דף זו כבר קיימת. בחר כתובת ייחודית.");
+  const [row] = await db
+    .insert(contentPages)
+    .values({
+      slug: data.slug,
+      title: data.title,
+      status: data.status ?? "draft",
+      shortDescription: data.shortDescription ?? null,
+      body: data.body ?? null,
+      coverImageUrl: data.coverImageUrl ?? null,
+      seoTitle: data.seoTitle ?? null,
+      seoDescription: data.seoDescription ?? null,
+    })
+    .returning({ id: contentPages.id });
   return row!.id;
 }
-export async function updateContentPage(id: number, data: { slug?: string; title?: string; status?: string; seoTitle?: string | null; seoDescription?: string | null }) {
+
+export async function updateContentPage(
+  id: number,
+  data: {
+    slug?: string;
+    title?: string;
+    status?: string;
+    shortDescription?: string | null;
+    body?: string | null;
+    coverImageUrl?: string | null;
+    seoTitle?: string | null;
+    seoDescription?: string | null;
+  }
+) {
   const { contentPages } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  if (data.slug != null) {
+    const other = await db.select({ id: contentPages.id }).from(contentPages).where(eq(contentPages.slug, data.slug)).limit(1);
+    if (other.length > 0 && (other[0] as { id: number }).id !== id) throw new Error("כתובת דף זו כבר בשימוש. בחר כתובת ייחודית.");
+  }
   await db.update(contentPages).set({ ...data, updatedAt: new Date() }).where(eq(contentPages.id, id));
 }
 export async function deleteContentPage(id: number) {
@@ -7461,6 +7553,31 @@ export async function listContentSections(pageId: number | null) {
   const where = pageId != null ? eq(contentSections.pageId, pageId) : isNull(contentSections.pageId);
   return db.select().from(contentSections).where(where).orderBy(asc(contentSections.sortOrder), asc(contentSections.id));
 }
+
+/** Active global blocks for homepage (or other key). pageId null, isActive true, optional key filter, respects metadataJson startsAt/endsAt. */
+export async function getActiveHomepageSections(key?: string): Promise<Array<{ id: number; key: string; type: string; title: string | null; subtitle: string | null; body: string | null; imageUrl: string | null; buttonText: string | null; buttonUrl: string | null; sortOrder: number }>> {
+  if (!USE_SQLITE) return [];
+  const { contentSections } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  const effectiveKey = typeof key === "string" && key.trim() !== "" ? key.trim() : undefined;
+  const where = effectiveKey != null
+    ? and(isNull(contentSections.pageId), eq(contentSections.isActive, true), eq(contentSections.key, effectiveKey))
+    : and(isNull(contentSections.pageId), eq(contentSections.isActive, true));
+  const rows = await db.select().from(contentSections).where(where).orderBy(asc(contentSections.sortOrder), asc(contentSections.id));
+  const now = Date.now();
+  const filtered = (rows as Array<{ id: number; key: string; type: string; title: string | null; subtitle: string | null; body: string | null; imageUrl: string | null; buttonText: string | null; buttonUrl: string | null; sortOrder: number; metadataJson?: { startsAt?: string | number | null; endsAt?: string | number | null } | null }>).filter((r) => {
+    const meta = r.metadataJson;
+    if (meta && typeof meta === "object") {
+      const startsAt = meta.startsAt != null ? new Date(meta.startsAt).getTime() : null;
+      const endsAt = meta.endsAt != null ? new Date(meta.endsAt).getTime() : null;
+      if (startsAt != null && startsAt > now) return false;
+      if (endsAt != null && endsAt < now) return false;
+    }
+    return true;
+  });
+  return filtered.map((r) => ({ id: r.id, key: r.key, type: r.type, title: r.title, subtitle: r.subtitle, body: r.body, imageUrl: r.imageUrl, buttonText: r.buttonText, buttonUrl: r.buttonUrl, sortOrder: r.sortOrder }));
+}
 export async function getContentSectionById(id: number) {
   if (!USE_SQLITE) return null;
   const { contentSections } = await getSchema();
@@ -7469,18 +7586,27 @@ export async function getContentSectionById(id: number) {
   const rows = await db.select().from(contentSections).where(eq(contentSections.id, id)).limit(1);
   return rows[0] ?? null;
 }
-export async function createContentSection(data: { pageId?: number | null; key: string; type: string; title?: string | null; subtitle?: string | null; body?: string | null; imageUrl?: string | null; buttonText?: string | null; buttonUrl?: string | null; sortOrder?: number; isActive?: boolean }) {
+export async function createContentSection(data: { pageId?: number | null; key: string; type: string; title?: string | null; subtitle?: string | null; body?: string | null; imageUrl?: string | null; buttonText?: string | null; buttonUrl?: string | null; sortOrder?: number; isActive?: boolean; metadataJson?: { startsAt?: string | number | Date | null; endsAt?: string | number | Date | null } | null }) {
   const { contentSections } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [row] = await db.insert(contentSections).values({ pageId: data.pageId ?? null, key: data.key, type: data.type, title: data.title ?? null, subtitle: data.subtitle ?? null, body: data.body ?? null, imageUrl: data.imageUrl ?? null, buttonText: data.buttonText ?? null, buttonUrl: data.buttonUrl ?? null, sortOrder: data.sortOrder ?? 0, isActive: data.isActive ?? true }).returning({ id: contentSections.id });
+  const meta = data.metadataJson != null && typeof data.metadataJson === "object"
+    ? { startsAt: data.metadataJson.startsAt != null ? new Date(data.metadataJson.startsAt).toISOString() : null, endsAt: data.metadataJson.endsAt != null ? new Date(data.metadataJson.endsAt).toISOString() : null }
+    : null;
+  const [row] = await db.insert(contentSections).values({ pageId: data.pageId ?? null, key: data.key, type: data.type, title: data.title ?? null, subtitle: data.subtitle ?? null, body: data.body ?? null, imageUrl: data.imageUrl ?? null, buttonText: data.buttonText ?? null, buttonUrl: data.buttonUrl ?? null, sortOrder: data.sortOrder ?? 0, isActive: data.isActive ?? true, metadataJson: meta }).returning({ id: contentSections.id });
   return row!.id;
 }
-export async function updateContentSection(id: number, data: Partial<{ pageId: number | null; key: string; type: string; title: string | null; subtitle: string | null; body: string | null; imageUrl: string | null; buttonText: string | null; buttonUrl: string | null; sortOrder: number; isActive: boolean }>) {
+export async function updateContentSection(id: number, data: Partial<{ pageId: number | null; key: string; type: string; title: string | null; subtitle: string | null; body: string | null; imageUrl: string | null; buttonText: string | null; buttonUrl: string | null; sortOrder: number; isActive: boolean; metadataJson: { startsAt?: string | number | Date | null; endsAt?: string | number | Date | null } | null }>) {
   const { contentSections } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(contentSections).set({ ...data, updatedAt: new Date() }).where(eq(contentSections.id, id));
+  const setData: Record<string, unknown> = { ...data, updatedAt: new Date() };
+  if (data.metadataJson !== undefined) {
+    setData.metadataJson = data.metadataJson != null && typeof data.metadataJson === "object"
+      ? { startsAt: data.metadataJson.startsAt != null ? new Date(data.metadataJson.startsAt).toISOString() : null, endsAt: data.metadataJson.endsAt != null ? new Date(data.metadataJson.endsAt).toISOString() : null }
+      : null;
+  }
+  await db.update(contentSections).set(setData as Record<string, unknown>).where(eq(contentSections.id, id));
 }
 export async function deleteContentSection(id: number) {
   const { contentSections } = await getSchema();
