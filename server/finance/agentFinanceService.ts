@@ -44,6 +44,25 @@ export async function getAgentDashboardMetrics(
     });
   }
   const platformNetProfitFromAgent = totalCommissionGenerated - agentTotalCommissionEarned;
+
+  const sumEntryFees = playerListWithPnL.reduce((s, p) => s + p.totalEntryFees, 0);
+  const sumCommissionGen = playerListWithPnL.reduce((s, p) => s + p.commissionGenerated, 0);
+  const sumAgentComm = playerListWithPnL.reduce((s, p) => s + (p.agentCommissionFromPlayer ?? 0), 0);
+  const sumPlatformShare = playerListWithPnL.reduce((s, p) => s + (p.platformShareFromPlayer ?? 0), 0);
+  if (playerListWithPnL.length > 0) {
+    if (sumEntryFees !== totalPlayerEntryFees || sumCommissionGen !== totalCommissionGenerated) {
+      throw new Error(
+        `Agent report consistency: sum(playerList) must match agent totals. EntryFees ${sumEntryFees}/${totalPlayerEntryFees} CommissionGen ${sumCommissionGen}/${totalCommissionGenerated}`
+      );
+    }
+    if (sumAgentComm !== agentTotalCommissionEarned) {
+      throw new Error(`Agent report consistency: sum(agentCommissionFromPlayer)=${sumAgentComm} must equal agentTotalCommissionEarned=${agentTotalCommissionEarned}`);
+    }
+    if (sumPlatformShare !== platformNetProfitFromAgent) {
+      throw new Error(`Agent report consistency: sum(platformShareFromPlayer)=${sumPlatformShare} must equal platformNetProfitFromAgent=${platformNetProfitFromAgent}`);
+    }
+  }
+
   const a = agent as { username?: string | null; name?: string | null };
   return {
     agentId,

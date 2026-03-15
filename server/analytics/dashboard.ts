@@ -335,14 +335,14 @@ export type AgentAnalytics = {
 
 export async function getAgentAnalytics(): Promise<AgentAnalytics> {
   try {
-    const pnl = await db.getAdminPnLSummary().catch(() => ({ agents: [] }));
-    const agents = (pnl.agents ?? []).slice(0, 50).map((a) => ({
-      id: a.id,
-      username: a.username ?? null,
-      name: a.name ?? null,
-      net: a.net ?? 0,
-      profit: a.profit ?? 0,
-      loss: a.loss ?? 0,
+    const agentsList = await db.getAgents().catch(() => []);
+    const agents = agentsList.slice(0, 50).map((a) => ({
+      id: (a as { id: number }).id,
+      username: (a as { username?: string | null }).username ?? null,
+      name: (a as { name?: string | null }).name ?? null,
+      net: 0,
+      profit: 0,
+      loss: 0,
     }));
     return { agents };
   } catch {

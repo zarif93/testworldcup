@@ -285,37 +285,15 @@ describe("refund and walletNetFlow", () => {
 });
 
 describe("canonical reporting from financial_events", () => {
-  it("getPlayerPnL net and totals align with getPlayerFinancialProfile when same user", async () => {
+  it("getPlayerFinancialProfile returns competition net and totals for user", async () => {
     const db = await getDb();
     if (!db) return;
-    const { getPlayerPnL } = await import("../db");
     const uid = 997003;
     const profile = await getPlayerFinancialProfile(uid);
-    const pnl = await getPlayerPnL(uid);
     if (!profile) return;
-    expect(pnl.net).toBe(profile.competitionNetPnL);
-    expect(pnl.totalBets).toBe(profile.totalEntryFees - profile.totalEntryFeeRefunds);
-    expect(pnl.totalWinnings).toBe(profile.totalPrizesWon);
-    expect(pnl.totalCommission).toBe(profile.totalCommissionGenerated);
-  });
-  it("getAgentPnL returns structure derived from getAgentDashboardMetrics", async () => {
-    const db = await getDb();
-    if (!db) return;
-    const { getAgentPnL } = await import("../db");
-    const { getAgentDashboardMetrics } = await import("./agentFinanceService");
-    const agentId = 1;
-    const metrics = await getAgentDashboardMetrics(agentId);
-    const pnl = await getAgentPnL(agentId);
-    if (!metrics) {
-      expect(pnl.players.length).toBe(0);
-      expect(pnl.totalBets).toBe(0);
-      return;
-    }
-    const expectedBets = metrics.playerListWithPnL.reduce((s, p) => s + (p.totalEntryFees - p.totalEntryFeeRefunds), 0);
-    const expectedWinnings = metrics.playerListWithPnL.reduce((s, p) => s + p.totalPrizesWon, 0);
-    expect(pnl.totalBets).toBe(expectedBets);
-    expect(pnl.totalWinnings).toBe(expectedWinnings);
-    expect(pnl.totalAgentCommission).toBe(metrics.agentTotalCommissionEarned);
-    expect(pnl.players.length).toBe(metrics.playerListWithPnL.length);
+    expect(typeof profile.competitionNetPnL).toBe("number");
+    expect(typeof profile.totalEntryFees).toBe("number");
+    expect(typeof profile.totalPrizesWon).toBe("number");
+    expect(typeof profile.totalCommissionGenerated).toBe("number");
   });
 });

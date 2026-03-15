@@ -40,12 +40,9 @@ export function PointsSocketSync() {
       queryClient.invalidateQueries({ queryKey: [["agent", "getMyReport"]] });
       queryClient.invalidateQueries({ queryKey: [["agent", "getCommissionReport"]] });
       queryClient.invalidateQueries({ queryKey: [["agent", "getMyPointsHistory"]] });
-      queryClient.invalidateQueries({ queryKey: [["agent", "getAgentPnL"]] });
-      queryClient.invalidateQueries({ queryKey: [["agent", "getAgentPlayersPnL"]] });
       queryClient.invalidateQueries({ queryKey: [["admin", "getUsers"]] });
       queryClient.invalidateQueries({ queryKey: [["admin", "getBalanceSummary"]] });
       queryClient.invalidateQueries({ queryKey: [["admin", "getAgentsWithBalances"]] });
-      queryClient.invalidateQueries({ queryKey: [["admin", "getPnLSummary"]] });
       queryClient.invalidateQueries({ queryKey: [["auth", "me"]] });
     });
 

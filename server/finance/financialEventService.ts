@@ -129,6 +129,67 @@ export async function getFinancialEventsByTimeRange(from: Date, to: Date) {
     .orderBy(desc(financialEvents.createdAt));
 }
 
+export interface GetFinancialEventsFilter {
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
+/** All financial events, optionally filtered by date. For global settlement aggregation by tournament. */
+export async function getFinancialEventsFiltered(filter: GetFinancialEventsFilter = {}): Promise<
+  Array<{
+    id: number;
+    eventType: string;
+    amountPoints: number | null;
+    tournamentId: number | null;
+    userId: number | null;
+    agentId: number | null;
+    submissionId: number | null;
+    payloadJson: unknown;
+    createdAt: Date | null;
+  }>
+> {
+  const { financialEvents } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  const conditions: ReturnType<typeof eq>[] = [];
+  if (filter.from) conditions.push(gte(financialEvents.createdAt, new Date(filter.from)));
+  if (filter.to) {
+    const end = new Date(filter.to);
+    end.setHours(23, 59, 59, 999);
+    conditions.push(lte(financialEvents.createdAt, end));
+  }
+  const limit = filter.limit ?? 100_000;
+  let q = db
+    .select({
+      id: financialEvents.id,
+      eventType: financialEvents.eventType,
+      amountPoints: financialEvents.amountPoints,
+      tournamentId: financialEvents.tournamentId,
+      userId: financialEvents.userId,
+      agentId: financialEvents.agentId,
+      submissionId: financialEvents.submissionId,
+      payloadJson: financialEvents.payloadJson,
+      createdAt: financialEvents.createdAt,
+    })
+    .from(financialEvents)
+    .orderBy(desc(financialEvents.createdAt))
+    .limit(limit);
+  if (conditions.length > 0) q = q.where(and(...conditions)) as typeof q;
+  const rows = await q;
+  return rows as Array<{
+    id: number;
+    eventType: string;
+    amountPoints: number | null;
+    tournamentId: number | null;
+    userId: number | null;
+    agentId: number | null;
+    submissionId: number | null;
+    payloadJson: unknown;
+    createdAt: Date | null;
+  }>;
+}
+
 /** Return existing event id if idempotency key already exists; used inside transactions to avoid duplicate. */
 export async function findEventIdByIdempotencyKey(idempotencyKey: string): Promise<number | null> {
   const { financialEvents } = await getSchema();

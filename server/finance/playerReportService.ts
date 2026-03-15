@@ -51,6 +51,8 @@ export interface PlayerReportDetailed {
   userId: number;
   username: string | null;
   fullName: string | null;
+  /** Current wallet balance (user.points) – full ledger, not just game PnL */
+  currentWalletBalance: number;
 }
 
 export interface PlayerReportFilter {
@@ -200,6 +202,14 @@ export async function getPlayerReportDetailed(
   const agentShareSum = rows.reduce((s, r) => s + r.agentShare, 0);
   const platformShareSum = rows.reduce((s, r) => s + r.platformShare, 0);
 
+  const netFromRows = rows.reduce((s, r) => s + r.netResult, 0);
+  if (netFromRows !== netProfitLoss) {
+    throw new Error(`Player report consistency: sum(rows.netResult)=${netFromRows} must equal netProfitLoss=${netProfitLoss} (winnings−bets+refunds)`);
+  }
+  if (platformShareSum + agentShareSum !== totalCommissionGenerated) {
+    throw new Error(`Player report commission: agentShare+platformShare=${agentShareSum + platformShareSum} must equal totalCommissionGenerated=${totalCommissionGenerated}`);
+  }
+
   const summary: PlayerReportSummary = {
     totalParticipations,
     totalEntryFees,
@@ -211,12 +221,13 @@ export async function getPlayerReportDetailed(
     platformShare: platformShareSum,
   };
 
-  const u = user as { username?: string | null; name?: string | null };
+  const u = user as { username?: string | null; name?: string | null; points?: number };
   return {
     summary,
     rows,
     userId,
     username: u.username ?? null,
     fullName: u.name ?? u.username ?? null,
+    currentWalletBalance: Number(u.points ?? 0),
   };
 }

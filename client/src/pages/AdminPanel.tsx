@@ -27,7 +27,6 @@ import {
   Gem,
   ClipboardList,
   ArrowLeft,
-  TrendingUp,
   FileDown,
   Menu,
   Shield,
@@ -60,7 +59,6 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { RolesManagementSection } from "@/components/admin/RolesManagementSection";
 import { CompetitionsTable } from "@/components/admin/CompetitionsTable";
 import { SchemaDebugModal } from "@/components/admin/SchemaDebugModal";
@@ -72,9 +70,9 @@ import { NotificationsSection } from "@/components/admin/NotificationsSection";
 import { AnalyticsDashboardSection } from "@/components/admin/AnalyticsDashboardSection";
 import { OpsStatusSection } from "@/components/admin/OpsStatusSection";
 import { PaymentsSection } from "@/components/admin/PaymentsSection";
-import { FinanceSection } from "@/components/admin/FinanceSection";
+import { SettlementReportsSection } from "@/components/admin/SettlementReportsSection";
 
-type AdminSection = "dashboard" | "analytics" | "ops" | "finance" | "autoFill" | "submissions" | "competitions" | "agents" | "players" | "pnl" | "admins" | "roles" | "cms" | "media" | "notifications" | "payments" | "settings";
+type AdminSection = "dashboard" | "analytics" | "ops" | "finance" | "autoFill" | "submissions" | "competitions" | "agents" | "players" | "admins" | "roles" | "cms" | "media" | "notifications" | "payments" | "settings";
 type CompetitionSubType = "lotto" | "chance" | "mondial" | "football_custom" | null;
 
 export default function AdminPanel() {
@@ -132,57 +130,14 @@ export default function AdminPanel() {
   const [userPasswordConfirm, setUserPasswordConfirm] = useState("");
   const [pointsLogDeleteConfirmOpen, setPointsLogDeleteConfirmOpen] = useState(false);
 
-  const [pnlFrom, setPnlFrom] = useState("");
-  const [pnlTo, setPnlTo] = useState("");
   const [playersReportFrom, _setPlayersReportFrom] = useState("");
   const [playersReportTo, _setPlayersReportTo] = useState("");
   const [agentsReportFrom, _setAgentsReportFrom] = useState("");
   const [agentsReportTo, _setAgentsReportTo] = useState("");
-  const [exportingPlayerId, setExportingPlayerId] = useState<number | null>(null);
-  const [exportingAgentId, setExportingAgentId] = useState<number | null>(null);
-  const [exportPlayerModalOpen, setExportPlayerModalOpen] = useState(false);
-  const [exportPlayerUserId, setExportPlayerUserId] = useState<number | null>(null);
-  const [exportPlayerUsername, setExportPlayerUsername] = useState<string>("");
-  const [exportPlayerFrom, setExportPlayerFrom] = useState("");
-  const [exportPlayerTo, setExportPlayerTo] = useState("");
-  const [exportPlayerError, setExportPlayerError] = useState("");
-  const [exportAgentModalOpen, setExportAgentModalOpen] = useState(false);
-  const [exportAgentId, setExportAgentId] = useState<number | null>(null);
-  const [exportAgentUsername, setExportAgentUsername] = useState<string>("");
-  const [exportAgentFrom, setExportAgentFrom] = useState("");
-  const [exportAgentTo, setExportAgentTo] = useState("");
-  const [exportAgentError, setExportAgentError] = useState("");
-  const [pnlTournamentType, setPnlTournamentType] = useState("");
-  const [pnlSourceLabel, setPnlSourceLabel] = useState<"" | "legacy" | "universal">("");
-  const [pnlFilterAgentId, setPnlFilterAgentId] = useState<number | "">("");
-  const [pnlFilterPlayerId, setPnlFilterPlayerId] = useState<number | "">("");
-  const [pnlDetailAgentId, setPnlDetailAgentId] = useState<number | null>(null);
-  const [pnlDetailPlayerId, setPnlDetailPlayerId] = useState<number | null>(null);
-  const [pnlExporting, setPnlExporting] = useState(false);
-  const [pnlDetailedExporting, setPnlDetailedExporting] = useState(false);
-  const [pnlDetailExporting, setPnlDetailExporting] = useState<"agent" | "player" | null>(null);
-
   const [assignAgentModalOpen, setAssignAgentModalOpen] = useState(false);
   const [assignAgentPlayerId, setAssignAgentPlayerId] = useState<number | null>(null);
   const [assignAgentPlayerName, setAssignAgentPlayerName] = useState("");
   const [assignAgentSelectedId, setAssignAgentSelectedId] = useState<number | "">("");
-
-  /** Phase 9: PnL type filter from competition_types (dynamic). Fallback to legacy list if API empty. */
-  const { data: competitionTypesForPnL } = trpc.competitionTypes.list.useQuery(undefined, { enabled: section === "pnl" });
-  const PNL_TOURNAMENT_TYPE_OPTIONS: { value: string; label: string }[] = useMemo(() => {
-    const all = [{ value: "", label: "כל הסוגים" }];
-    if (competitionTypesForPnL?.length) {
-      return all.concat(competitionTypesForPnL.map((t) => ({ value: t.code, label: (t as { name?: string }).name ?? t.code })));
-    }
-    return all.concat(
-      [
-        { value: "football", label: "כדורגל" },
-        { value: "lotto", label: "לוטו" },
-        { value: "chance", label: "צ'אנס" },
-        { value: "football_custom", label: "כדורגל מותאם" },
-      ]
-    );
-  }, [competitionTypesForPnL]);
 
   const [autoFillTournamentId, setAutoFillTournamentId] = useState<number | "">("");
   const [autoFillCount, setAutoFillCount] = useState(50);
@@ -228,30 +183,6 @@ export default function AdminPanel() {
   const { data: agentsWithBalances } = trpc.admin.getAgentsWithBalances.useQuery(undefined, {
     enabled: (!!status?.verified || !status?.codeRequired) && (section === "dashboard" || section === "agents"),
   });
-  const { data: pnlSummary, isLoading: pnlSummaryLoading } = trpc.admin.getPnLSummary.useQuery(
-    { from: pnlFrom || undefined, to: pnlTo || undefined, tournamentType: pnlTournamentType || undefined, sourceLabel: pnlSourceLabel || undefined },
-    { enabled: (!!status?.verified || !status?.codeRequired) && section === "pnl" }
-  );
-  const { data: pnlAgentDetail } = trpc.admin.getAgentPnL.useQuery(
-    { agentId: pnlDetailAgentId!, from: pnlFrom || undefined, to: pnlTo || undefined, tournamentType: pnlTournamentType || undefined, sourceLabel: pnlSourceLabel || undefined },
-    { enabled: (!!status?.verified || !status?.codeRequired) && section === "pnl" && pnlDetailAgentId != null }
-  );
-  const { data: pnlPlayerDetail } = trpc.admin.getPlayerPnL.useQuery(
-    { userId: pnlDetailPlayerId!, from: pnlFrom || undefined, to: pnlTo || undefined, tournamentType: pnlTournamentType || undefined, sourceLabel: pnlSourceLabel || undefined },
-    { enabled: (!!status?.verified || !status?.codeRequired) && section === "pnl" && pnlDetailPlayerId != null }
-  );
-  const { data: pnlReportRows, isLoading: pnlReportRowsLoading } = trpc.admin.getPnLReport.useQuery(
-    {
-      from: pnlFrom || undefined,
-      to: pnlTo || undefined,
-      tournamentType: pnlTournamentType || undefined,
-      sourceLabel: pnlSourceLabel || undefined,
-      agentId: pnlFilterAgentId === "" ? undefined : pnlFilterAgentId,
-      playerId: pnlFilterPlayerId === "" ? undefined : pnlFilterPlayerId,
-      limit: 2000,
-    },
-    { enabled: (!!status?.verified || !status?.codeRequired) && section === "pnl" }
-  );
   const { data: playersData } = trpc.admin.getPlayers.useQuery(undefined, {
     enabled: (!!status?.verified || !status?.codeRequired) && (section === "players" || section === "dashboard"),
   });
@@ -881,8 +812,7 @@ export default function AdminPanel() {
     ...(canViewSubmissions ? [{ id: "payments" as const, label: "תשלומים", icon: <CreditCard className="w-5 h-5" /> }] : []),
     ...(canManageSettings ? [{ id: "settings" as const, label: "הגדרות אתר", icon: <Settings className="w-5 h-5" /> }] : []),
     { id: "agents", label: "סוכנים", icon: <Users className="w-5 h-5" /> },
-    { id: "finance", label: "כספים ועמלות", icon: <DollarSign className="w-5 h-5" /> },
-    { id: "pnl", label: "דוח רווח והפסד", icon: <TrendingUp className="w-5 h-5" /> },
+    { id: "finance", label: "חשבונאות הסדר", icon: <DollarSign className="w-5 h-5" /> },
     { id: "players", label: "שחקנים", icon: <UserPlus className="w-5 h-5" /> },
     { id: "competitions", label: "תחרויות", icon: <Trophy className="w-5 h-5" /> },
     { id: "autoFill", label: "מילוי אוטומטי", icon: <Zap className="w-5 h-5" /> },
@@ -1125,7 +1055,7 @@ export default function AdminPanel() {
           <PaymentsSection onBack={() => setSection("dashboard")} />
         )}
         {section === "finance" && (
-          <FinanceSection onBack={() => setSection("dashboard")} />
+          <SettlementReportsSection onBack={() => setSection("dashboard")} />
         )}
 
         {section === "autoFill" && (
@@ -2373,25 +2303,6 @@ export default function AdminPanel() {
                                 </Button>
                               )}
                               {u.role === "user" && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8 text-xs border-amber-500/50 text-amber-400"
-                                  onClick={() => {
-                                    setExportPlayerUserId(u.id);
-                                    setExportPlayerUsername(u.username ?? `#${u.id}`);
-                                    setExportPlayerFrom(playersReportFrom);
-                                    setExportPlayerTo(playersReportTo);
-                                    setExportPlayerError("");
-                                    setExportPlayerModalOpen(true);
-                                  }}
-                                  title="ייצוא דוח שחקן – ייפתח חלון לבחירת טווח תאריכים"
-                                >
-                                  <FileDown className="w-4 h-4 ml-1" />
-                                  ייצוא דוח שחקן
-                                </Button>
-                              )}
-                              {u.role === "user" && (
                                 <>
                                   <Button
                                     size="sm"
@@ -2844,124 +2755,6 @@ export default function AdminPanel() {
 
           </div>
         )}
-
-        <Dialog open={exportPlayerModalOpen} onOpenChange={(open) => { if (!open) { setExportPlayerModalOpen(false); setExportPlayerError(""); } }}>
-          <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-sm">
-            <DialogHeader>
-              <DialogTitle className="text-white text-right">ייצוא דוח שחקן – {exportPlayerUsername}</DialogTitle>
-              <DialogDescription className="text-slate-400 text-right">חובה לבחור תאריך התחלה ותאריך סיום לפני יצירת הדוח.</DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-3 py-2">
-              <div>
-                <label className="block text-sm text-slate-400 mb-1 text-right">תאריך התחלה</label>
-                <Input type="date" value={exportPlayerFrom} onChange={(e) => { setExportPlayerFrom(e.target.value); setExportPlayerError(""); }} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 border-slate-600 text-white text-right w-full" />
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1 text-right">תאריך סיום</label>
-                <Input type="date" value={exportPlayerTo} onChange={(e) => { setExportPlayerTo(e.target.value); setExportPlayerError(""); }} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 border-slate-600 text-white text-right w-full" />
-              </div>
-              {exportPlayerError && <p className="text-red-400 text-sm text-right">{exportPlayerError}</p>}
-            </div>
-            <DialogFooter className="gap-2 sm:gap-0 flex-row-reverse">
-              <Button variant="outline" className="border-slate-600 text-slate-300" onClick={() => { setExportPlayerModalOpen(false); setExportPlayerError(""); }}>
-                ביטול
-              </Button>
-              <Button
-                className="bg-amber-600 hover:bg-amber-700"
-                disabled={exportingPlayerId === exportPlayerUserId}
-                onClick={async () => {
-                  const from = exportPlayerFrom.trim();
-                  const to = exportPlayerTo.trim();
-                  if (!from || !to) {
-                    setExportPlayerError("אנא בחר טווח תאריכים לפני יצירת הדוח");
-                    return;
-                  }
-                  if (exportPlayerUserId == null) return;
-                  setExportingPlayerId(exportPlayerUserId);
-                  setExportPlayerError("");
-                  try {
-                    const { csv } = await utils.admin.exportPlayerPnLCSV.fetch({ userId: exportPlayerUserId, from, to });
-                    const blob = new Blob([csv ?? ""], { type: "text/csv;charset=utf-8" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `דוח-שחקן-${exportPlayerUsername}-${from}-${to}.csv`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                    toast.success("הורדת דוח שחקן החלה");
-                    setExportPlayerModalOpen(false);
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "שגיאה בייצוא");
-                  } finally {
-                    setExportingPlayerId(null);
-                  }
-                }}
-              >
-                {exportingPlayerId === exportPlayerUserId ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4 ml-1" />}
-                ייצא דוח
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={exportAgentModalOpen} onOpenChange={(open) => { if (!open) { setExportAgentModalOpen(false); setExportAgentError(""); } }}>
-          <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-sm">
-            <DialogHeader>
-              <DialogTitle className="text-white text-right">ייצוא דוח סוכן – {exportAgentUsername}</DialogTitle>
-              <DialogDescription className="text-slate-400 text-right">חובה לבחור תאריך התחלה ותאריך סיום לפני יצירת הדוח.</DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-3 py-2">
-              <div>
-                <label className="block text-sm text-slate-400 mb-1 text-right">תאריך התחלה</label>
-                <Input type="date" value={exportAgentFrom} onChange={(e) => { setExportAgentFrom(e.target.value); setExportAgentError(""); }} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 border-slate-600 text-white text-right w-full" />
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1 text-right">תאריך סיום</label>
-                <Input type="date" value={exportAgentTo} onChange={(e) => { setExportAgentTo(e.target.value); setExportAgentError(""); }} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 border-slate-600 text-white text-right w-full" />
-              </div>
-              {exportAgentError && <p className="text-red-400 text-sm text-right">{exportAgentError}</p>}
-            </div>
-            <DialogFooter className="gap-2 sm:gap-0 flex-row-reverse">
-              <Button variant="outline" className="border-slate-600 text-slate-300" onClick={() => { setExportAgentModalOpen(false); setExportAgentError(""); }}>
-                ביטול
-              </Button>
-              <Button
-                className="bg-amber-600 hover:bg-amber-700"
-                disabled={exportingAgentId === exportAgentId}
-                onClick={async () => {
-                  const from = exportAgentFrom.trim();
-                  const to = exportAgentTo.trim();
-                  if (!from || !to) {
-                    setExportAgentError("אנא בחר טווח תאריכים לפני יצירת הדוח");
-                    return;
-                  }
-                  if (exportAgentId == null) return;
-                  setExportingAgentId(exportAgentId);
-                  setExportAgentError("");
-                  try {
-                    const { csv } = await utils.admin.exportAgentPnLCSV.fetch({ agentId: exportAgentId, from, to });
-                    const blob = new Blob([csv ?? ""], { type: "text/csv;charset=utf-8" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `דוח-סוכן-${exportAgentUsername}-${from}-${to}.csv`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                    toast.success("הורדת דוח סוכן החלה");
-                    setExportAgentModalOpen(false);
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "שגיאה בייצוא");
-                  } finally {
-                    setExportingAgentId(null);
-                  }
-                }}
-              >
-                {exportingAgentId === exportAgentId ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4 ml-1" />}
-                ייצא דוח
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         <Dialog open={assignAgentModalOpen} onOpenChange={(open) => { if (!open) { setAssignAgentModalOpen(false); setAssignAgentPlayerId(null); setAssignAgentPlayerName(""); setAssignAgentSelectedId(""); } }}>
           <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-sm">
@@ -3427,23 +3220,6 @@ export default function AdminPanel() {
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-8 text-xs border-amber-500/50 text-amber-400"
-                              onClick={() => {
-                                setExportAgentId(r.agentId);
-                                setExportAgentUsername(r.username ?? `סוכן #${r.agentId}`);
-                                setExportAgentFrom(agentsReportFrom);
-                                setExportAgentTo(agentsReportTo);
-                                setExportAgentError("");
-                                setExportAgentModalOpen(true);
-                              }}
-                              title="ייצוא דוח סוכן – ייפתח חלון לבחירת טווח תאריכים"
-                            >
-                              <FileDown className="w-4 h-4 ml-1" />
-                              ייצוא דוח סוכן
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
                               className="text-red-400 border-red-400/50 hover:bg-red-500/20"
                               onClick={() => handleDeleteUser(r.agentId, r.username ?? `סוכן #${r.agentId}`, true)}
                               disabled={deleteUserMut.isPending}
@@ -3492,517 +3268,6 @@ export default function AdminPanel() {
                 </div>
               </CardContent>
             </Card>
-          </div>
-        )}
-
-        {section === "pnl" && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-              <TrendingUp className="w-8 h-8 text-amber-400" />
-              דוח רווח והפסד
-            </h2>
-            <p className="text-slate-400">בחר טווח תאריכים וסוג תחרות. רווח = זכיות והחזרים (שחקנים) / עמלות (סוכנים). הפסד = השתתפויות (שחקנים) / הפקדות לשחקנים (סוכנים).</p>
-            <div className="flex flex-wrap gap-2 items-end">
-              <div>
-                <label className="text-slate-400 text-xs block mb-1">מתאריך</label>
-                <Input type="date" value={pnlFrom} onChange={(e) => setPnlFrom(e.target.value)} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-900 border-slate-600 text-white w-40" />
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1">עד תאריך</label>
-                <Input type="date" value={pnlTo} onChange={(e) => setPnlTo(e.target.value)} placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-900 border-slate-600 text-white w-40" />
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1">סוג תחרות</label>
-                <select value={pnlTournamentType} onChange={(e) => setPnlTournamentType(e.target.value)} className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm w-40">
-                  {PNL_TOURNAMENT_TYPE_OPTIONS.map((o) => (
-                    <option key={o.value || "all"} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1">מקור פריטים</label>
-                <select value={pnlSourceLabel} onChange={(e) => setPnlSourceLabel(e.target.value as "" | "legacy" | "universal")} className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm w-36">
-                  <option value="">כל המקורות</option>
-                  <option value="legacy">Legacy</option>
-                  <option value="universal">Universal (DB)</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1">סוכן</label>
-                <select
-                  value={pnlFilterAgentId === "" ? "" : pnlFilterAgentId}
-                  onChange={(e) => setPnlFilterAgentId(e.target.value === "" ? "" : Number(e.target.value))}
-                  className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm w-48"
-                >
-                  <option value="">כל הסוכנים</option>
-                  {(users ?? []).filter((u) => (u as { role?: string }).role === "agent").map((u) => (
-                    <option key={u.id} value={u.id}>{(u as { name?: string }).name || (u as { username?: string }).username || `#${u.id}`}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1">שחקן</label>
-                <select
-                  value={pnlFilterPlayerId === "" ? "" : pnlFilterPlayerId}
-                  onChange={(e) => setPnlFilterPlayerId(e.target.value === "" ? "" : Number(e.target.value))}
-                  className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm w-48"
-                >
-                  <option value="">כל השחקנים</option>
-                  {(users ?? []).filter((u) => (u as { role?: string }).role === "user").map((u) => (
-                    <option key={u.id} value={u.id}>{(u as { name?: string }).name || (u as { username?: string }).username || `#${u.id}`}</option>
-                  ))}
-                </select>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
-                disabled={pnlExporting}
-                onClick={async () => {
-                  setPnlExporting(true);
-                  try {
-                    const { csv } = await utils.admin.exportPnLSummaryCSV.fetch({
-                      from: pnlFrom || undefined,
-                      to: pnlTo || undefined,
-                      tournamentType: pnlTournamentType || undefined,
-                      sourceLabel: pnlSourceLabel || undefined,
-                    });
-                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `pnl-summary-${pnlFrom || "all"}-${pnlTo || "all"}.csv`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                    toast.success("הורדת CSV החלה");
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "שגיאה בייצוא");
-                  } finally {
-                    setPnlExporting(false);
-                  }
-                }}
-              >
-                {pnlExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
-                <span className="mr-1">ייצא דוח</span>
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="border-slate-600 text-slate-300 hover:bg-slate-700/40"
-                disabled={pnlDetailedExporting}
-                onClick={async () => {
-                  setPnlDetailedExporting(true);
-                  try {
-                    const { csv } = await utils.admin.exportPnLReportCSV.fetch({
-                      from: pnlFrom || undefined,
-                      to: pnlTo || undefined,
-                      tournamentType: pnlTournamentType || undefined,
-                      sourceLabel: pnlSourceLabel || undefined,
-                      agentId: pnlFilterAgentId === "" ? undefined : pnlFilterAgentId,
-                      playerId: pnlFilterPlayerId === "" ? undefined : pnlFilterPlayerId,
-                      limit: 5000,
-                    });
-                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `pnl-detailed-${pnlFrom || "all"}-${pnlTo || "all"}.csv`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                    toast.success("הורדת CSV החלה");
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "שגיאה בייצוא");
-                  } finally {
-                    setPnlDetailedExporting(false);
-                  }
-                }}
-              >
-                {pnlDetailedExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
-                <span className="mr-1">ייצא דוח מפורט</span>
-              </Button>
-            </div>
-            {pnlSummaryLoading ? (
-              <div className="flex items-center justify-center py-12"><Loader2 className="w-10 h-10 animate-spin text-amber-500" /></div>
-            ) : pnlSummary ? (
-              <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <Card className="bg-slate-800/50 border-slate-700">
-                    <CardContent className="pt-4">
-                      <p className="text-slate-500 text-sm">סה״כ רווח שחקנים</p>
-                      <p className="text-xl font-bold text-emerald-400">{pnlSummary.totalPlayersProfit}</p>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-slate-800/50 border-slate-700">
-                    <CardContent className="pt-4">
-                      <p className="text-slate-500 text-sm">סה״כ הפסד שחקנים</p>
-                      <p className="text-xl font-bold text-amber-400">{pnlSummary.totalPlayersLoss}</p>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-slate-800/50 border-slate-700">
-                    <CardContent className="pt-4">
-                      <p className="text-slate-500 text-sm">סה״כ רווח סוכנים</p>
-                      <p className="text-xl font-bold text-emerald-400">{pnlSummary.totalAgentsProfit}</p>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-slate-800/50 border-slate-700">
-                    <CardContent className="pt-4">
-                      <p className="text-slate-500 text-sm">סה״כ הפסד סוכנים</p>
-                      <p className="text-xl font-bold text-amber-400">{pnlSummary.totalAgentsLoss}</p>
-                    </CardContent>
-                  </Card>
-                </div>
-                <Card className="bg-slate-800/50 border-slate-700 border-amber-500/30">
-                  <CardContent className="pt-4">
-                    <p className="text-slate-500 text-sm">רווח והפסד כולל כל השחקנים והסוכנים (נקודות)</p>
-                    <p className="text-3xl font-bold text-amber-400">{pnlSummary.totalNet}</p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-slate-800/50 border-slate-700">
-                  <CardHeader>
-                    <h3 className="text-lg font-bold text-white">גרף רווח מול הפסד</h3>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-64 w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={[
-                            { name: "רווח שחקנים", value: pnlSummary.totalPlayersProfit, fill: "#34d399" },
-                            { name: "הפסד שחקנים", value: pnlSummary.totalPlayersLoss, fill: "#f59e0b" },
-                            { name: "רווח סוכנים", value: pnlSummary.totalAgentsProfit, fill: "#10b981" },
-                            { name: "הפסד סוכנים", value: pnlSummary.totalAgentsLoss, fill: "#d97706" },
-                            { name: "סה״כ נטו", value: pnlSummary.totalNet, fill: pnlSummary.totalNet >= 0 ? "#fbbf24" : "#ef4444" },
-                          ]}
-                          layout="vertical"
-                          margin={{ top: 5, right: 30, left: 80, bottom: 5 }}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
-                          <XAxis type="number" stroke="#94a3b8" />
-                          <YAxis type="category" dataKey="name" stroke="#94a3b8" width={75} tick={{ fill: "#cbd5e1" }} />
-                          <Tooltip contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #475569", borderRadius: "8px" }} labelStyle={{ color: "#e2e8f0" }} />
-                          <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                            {[
-                              { name: "רווח שחקנים", value: pnlSummary.totalPlayersProfit, fill: "#34d399" },
-                              { name: "הפסד שחקנים", value: pnlSummary.totalPlayersLoss, fill: "#f59e0b" },
-                              { name: "רווח סוכנים", value: pnlSummary.totalAgentsProfit, fill: "#10b981" },
-                              { name: "הפסד סוכנים", value: pnlSummary.totalAgentsLoss, fill: "#d97706" },
-                              { name: "סה״כ נטו", value: pnlSummary.totalNet, fill: pnlSummary.totalNet >= 0 ? "#fbbf24" : "#ef4444" },
-                            ].map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.fill} />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card className="bg-slate-800/50 border-slate-700">
-                  <CardHeader>
-                    <h3 className="text-lg font-bold text-white">טבלת סוכנים</h3>
-                  </CardHeader>
-                  <CardContent>
-                    {(pnlSummary.agents ?? []).length > 0 ? (
-                      <div className="overflow-x-auto -mx-1 min-w-0">
-                        <table className="w-full text-xs sm:text-sm text-right min-w-[320px] border-collapse">
-                          <thead>
-                            <tr className="border-b border-slate-600 bg-slate-800/90 text-slate-400 sticky top-0 z-10">
-                              <th className="py-1.5 sm:py-2 px-2 text-right whitespace-nowrap bg-slate-800/95 sticky right-0 z-20 border-l border-slate-600/50 min-w-[4.5rem]">סוכן</th>
-                              <th className="py-1.5 sm:py-2 px-2 whitespace-nowrap">רווח</th>
-                              <th className="py-1.5 sm:py-2 px-2 whitespace-nowrap">הפסד</th>
-                              <th className="py-1.5 sm:py-2 px-2 whitespace-nowrap">רווח נטו</th>
-                              <th className="py-1.5 sm:py-2 px-2 whitespace-nowrap"></th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(pnlSummary.agents ?? []).map((a, idx) => (
-                              <tr key={a.id} className={`border-b border-slate-700/50 ${idx % 2 === 1 ? "bg-slate-800/30" : ""}`}>
-                                <td className="py-1.5 sm:py-2 px-2 text-white font-medium whitespace-nowrap bg-slate-800/95 sm:bg-transparent sticky right-0 z-10 border-l border-slate-600/50">{a.name || a.username || `#${a.id}`}</td>
-                                <td className="py-1.5 sm:py-2 px-2 text-emerald-400 whitespace-nowrap">{a.profit}</td>
-                                <td className="py-1.5 sm:py-2 px-2 text-amber-400 whitespace-nowrap">{a.loss}</td>
-                                <td className="py-1.5 sm:py-2 px-2 font-medium text-white whitespace-nowrap">{a.net}</td>
-                                <td className="py-1.5 sm:py-2 px-2">
-                                  <Button size="sm" variant="outline" className="text-slate-400 text-xs" onClick={() => setPnlDetailAgentId(a.id)}>דוח מפורט</Button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <p className="text-slate-500 py-4">אין סוכנים</p>
-                    )}
-                  </CardContent>
-                </Card>
-                <Card className="bg-slate-800/50 border-slate-700">
-                  <CardHeader>
-                    <h3 className="text-lg font-bold text-white">שחקנים לפי סוכן</h3>
-                  </CardHeader>
-                  <CardContent>
-                    {(pnlSummary.playersByAgent ?? []).length > 0 ? (
-                      <div className="space-y-4">
-                        {(pnlSummary.playersByAgent ?? []).map((group) => (
-                          <div key={group.agentId}>
-                            <p className="text-slate-400 text-sm font-medium mb-2">סוכן: {group.agentName}</p>
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-sm text-right">
-                                <thead>
-                                  <tr className="border-b border-slate-600 text-slate-400">
-                                    <th className="py-2 px-2">שחקן</th>
-                                    <th className="py-2 px-2">רווח</th>
-                                    <th className="py-2 px-2">הפסד</th>
-                                    <th className="py-2 px-2">רווח נטו</th>
-                                    <th className="py-2 px-2"></th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {(group.players ?? []).map((p) => (
-                                    <tr key={p.playerId} className="border-b border-slate-700/50">
-                                      <td className="py-2 px-2 text-white">{p.name || p.username || `#${p.playerId}`}</td>
-                                      <td className="py-2 px-2 text-emerald-400">{p.profit}</td>
-                                      <td className="py-2 px-2 text-amber-400">{p.loss}</td>
-                                      <td className="py-2 px-2 font-medium text-white">{p.net}</td>
-                                      <td className="py-2 px-2">
-                                        <Button size="sm" variant="outline" className="text-slate-400" onClick={() => setPnlDetailPlayerId(p.playerId)}>דוח מפורט</Button>
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-slate-500 py-4">אין שחקנים</p>
-                    )}
-                  </CardContent>
-                </Card>
-                <Card className="bg-slate-800/50 border-slate-700">
-                  <CardHeader>
-                    <h3 className="text-lg font-bold text-white">תנועות מלאות (עמלות + נקודות)</h3>
-                    <p className="text-slate-400 text-sm">כולל השתתפויות, זכיות, הפקדות/משיכות והעברות סוכן. פילטרים למעלה חלים גם כאן.</p>
-                  </CardHeader>
-                  <CardContent>
-                    {pnlReportRowsLoading ? (
-                      <div className="flex items-center justify-center py-10"><Loader2 className="w-8 h-8 animate-spin text-amber-500" /></div>
-                    ) : pnlReportRows && pnlReportRows.length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-right">
-                          <thead>
-                            <tr className="border-b border-slate-600/50 text-slate-400 bg-slate-800/40">
-                              <th className="py-2 px-2">תאריך ושעה</th>
-                              <th className="py-2 px-2">סוג פעולה</th>
-                              <th className="py-2 px-2">שחקן</th>
-                              <th className="py-2 px-2">סוכן</th>
-                              <th className="py-2 px-2">סוג תחרות</th>
-                              <th className="py-2 px-2">השתתפות</th>
-                              <th className="py-2 px-2">זכייה</th>
-                              <th className="py-2 px-2">עמלת אתר</th>
-                              <th className="py-2 px-2">עמלת סוכן</th>
-                              <th className="py-2 px-2">שינוי נק׳</th>
-                              <th className="py-2 px-2">יתרה לאחר</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {pnlReportRows.map((r) => (
-                              <tr key={r.id} className="border-b border-slate-700/40 hover:bg-slate-700/30">
-                                <td className="py-2 px-2 text-slate-300">{r.createdAt ? new Date(r.createdAt).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
-                                <td className="py-2 px-2 text-white">{r.actionType}</td>
-                                <td className="py-2 px-2 text-slate-200">{r.playerName ?? "—"}</td>
-                                <td className="py-2 px-2 text-slate-200">{r.agentName ?? "—"}</td>
-                                <td className="py-2 px-2 text-slate-400">{r.tournamentType ?? "—"}</td>
-                                <td className="py-2 px-2 text-slate-200">{r.participationAmount ? r.participationAmount : "—"}</td>
-                                <td className="py-2 px-2 text-emerald-400">{r.prizeAmount ? `+${r.prizeAmount}` : "—"}</td>
-                                <td className="py-2 px-2 text-amber-400">{r.siteCommission ? r.siteCommission : "—"}</td>
-                                <td className="py-2 px-2 text-emerald-400">{r.agentCommission ? r.agentCommission : "—"}</td>
-                                <td className="py-2 px-2 font-mono">
-                                  {r.pointsDelta >= 0 ? <span className="text-emerald-400">+{r.pointsDelta}</span> : <span className="text-amber-400">{r.pointsDelta}</span>}
-                                </td>
-                                <td className="py-2 px-2 font-mono text-white">{r.balanceAfter}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <p className="text-slate-500 py-6 text-center">אין תנועות להצגה בטווח/פילטר שנבחר.</p>
-                    )}
-                  </CardContent>
-                </Card>
-              </>
-            ) : null}
-
-            <Dialog open={pnlDetailAgentId != null} onOpenChange={(open) => !open && setPnlDetailAgentId(null)}>
-              <DialogContent className="bg-slate-800 border-slate-600 text-white max-h-[85vh] overflow-hidden flex flex-col">
-                <DialogHeader>
-                  <DialogTitle>דוח רווח והפסד מפורט – סוכן #{pnlDetailAgentId}</DialogTitle>
-                  <DialogDescription>עמלות = רווח. הפקדות לשחקנים = הפסד.</DialogDescription>
-                </DialogHeader>
-                <div className="overflow-y-auto flex-1 min-h-0">
-                  {pnlAgentDetail ? (
-                    <>
-                      <div className="grid grid-cols-3 gap-2 mb-4 p-3 rounded-lg bg-slate-900/80 text-sm">
-                        <div><span className="text-slate-500">רווח:</span> <span className="text-emerald-400 font-bold">{pnlAgentDetail.profit}</span></div>
-                        <div><span className="text-slate-500">הפסד:</span> <span className="text-amber-400 font-bold">{pnlAgentDetail.loss}</span></div>
-                        <div><span className="text-slate-500">רווח נטו:</span> <span className="text-white font-bold">{pnlAgentDetail.net}</span></div>
-                      </div>
-                      {(((pnlAgentDetail as { transactions?: Array<{ id: number; date?: string | Date | null; type: string; amount: number; playerName?: string | null; tournamentName?: string | null; balanceAfter?: number }> }).transactions) ?? []).length > 0 ? (
-                        <table className="w-full text-sm text-right">
-                          <thead>
-                            <tr className="border-b border-slate-600 text-slate-400">
-                              <th className="py-2 px-2">תאריך</th>
-                              <th className="py-2 px-2">שחקן</th>
-                              <th className="py-2 px-2">סוג</th>
-                              <th className="py-2 px-2">סכום</th>
-                              <th className="py-2 px-2">תחרות</th>
-                              <th className="py-2 px-2">מאזן לאחר</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(((pnlAgentDetail as { transactions?: Array<{ id: number; date?: string | Date | null; type: string; amount: number; playerName?: string | null; tournamentName?: string | null; balanceAfter?: number }> }).transactions) ?? []).map((t) => (
-                              <tr key={t.id} className="border-b border-slate-700/50">
-                                <td className="py-2 px-2 text-slate-300">{t.date ? new Date(t.date).toLocaleDateString("he-IL") : "—"}</td>
-                                <td className="py-2 px-2 text-white">{(t as { playerName?: string | null }).playerName ?? "—"}</td>
-                                <td className="py-2 px-2 text-slate-300">
-                                  {t.type === "COMMISSION" ? "עמלה" : t.type === "DEPOSIT" ? "הפקדה" : "זכייה"}
-                                </td>
-                                <td className={`py-2 px-2 ${t.amount >= 0 ? "text-emerald-400" : "text-amber-400"}`}>{t.amount >= 0 ? "+" : ""}{t.amount}</td>
-                                <td className="py-2 px-2 text-slate-400">{(t as { tournamentName?: string | null }).tournamentName ?? "—"}</td>
-                                <td className="py-2 px-2 text-white">{(t as { balanceAfter?: number }).balanceAfter ?? "—"}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      ) : (
-                        <p className="text-slate-500 py-4">אין תנועות בתקופה</p>
-                      )}
-                    </>
-                  ) : (
-                    <p className="text-slate-500 py-4">טוען...</p>
-                  )}
-                </div>
-                </DialogContent>
-                <DialogFooter>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-amber-500/50 text-amber-400"
-                    disabled={pnlDetailExporting === "agent"}
-                    onClick={async () => {
-                      if (pnlDetailAgentId == null) return;
-                      setPnlDetailExporting("agent");
-                      try {
-                        const { csv } = await utils.admin.exportAgentPnLCSV.fetch({
-                          agentId: pnlDetailAgentId,
-                          from: pnlFrom || undefined,
-                          to: pnlTo || undefined,
-                          tournamentType: pnlTournamentType || undefined,
-                          sourceLabel: pnlSourceLabel || undefined,
-                        });
-                        const blob = new Blob([csv ?? ""], { type: "text/csv;charset=utf-8" });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement("a");
-                        a.href = url;
-                        a.download = `pnl-agent-${pnlDetailAgentId}.csv`;
-                        a.click();
-                        URL.revokeObjectURL(url);
-                        toast.success("הורדת CSV החלה");
-                      } catch (e) {
-                        toast.error(e instanceof Error ? e.message : "שגיאה בייצוא");
-                      } finally {
-                        setPnlDetailExporting(null);
-                      }
-                    }}
-                  >
-                    {pnlDetailExporting === "agent" ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
-                    <span className="mr-1">ייצוא CSV</span>
-                  </Button>
-                  <Button variant="outline" onClick={() => setPnlDetailAgentId(null)}>סגור</Button>
-                </DialogFooter>
-              </Dialog>
-            <Dialog open={pnlDetailPlayerId != null} onOpenChange={(open) => !open && setPnlDetailPlayerId(null)}>
-              <DialogContent className="bg-slate-800 border-slate-600 text-white max-h-[85vh] overflow-hidden flex flex-col">
-                <DialogHeader>
-                  <DialogTitle>דוח רווח והפסד מפורט – שחקן #{pnlDetailPlayerId}</DialogTitle>
-                  <DialogDescription>זכיות והחזרים = רווח. השתתפויות = הפסד.</DialogDescription>
-                </DialogHeader>
-                <div className="overflow-y-auto flex-1 min-h-0">
-                  {pnlPlayerDetail ? (
-                    <>
-                      <div className="grid grid-cols-3 gap-2 mb-4 p-3 rounded-lg bg-slate-900/80 text-sm">
-                        <div><span className="text-slate-500">רווח:</span> <span className="text-emerald-400 font-bold">{pnlPlayerDetail.profit}</span></div>
-                        <div><span className="text-slate-500">הפסד:</span> <span className="text-amber-400 font-bold">{pnlPlayerDetail.loss}</span></div>
-                        <div><span className="text-slate-500">רווח נטו:</span> <span className="text-white font-bold">{pnlPlayerDetail.net}</span></div>
-                      </div>
-                      {(pnlPlayerDetail.transactions ?? []).length > 0 ? (
-                        <table className="w-full text-sm text-right">
-                          <thead>
-                            <tr className="border-b border-slate-600 text-slate-400">
-                              <th className="py-2 px-2">תאריך</th>
-                              <th className="py-2 px-2">סוג</th>
-                              <th className="py-2 px-2">סכום</th>
-                              <th className="py-2 px-2">יתרה לאחר</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(pnlPlayerDetail.transactions ?? []).map((t) => (
-                              <tr key={t.id} className="border-b border-slate-700/50">
-                                <td className="py-2 px-2 text-slate-300">{t.createdAt ? new Date(t.createdAt).toLocaleDateString("he-IL") : "—"}</td>
-                                <td className="py-2 px-2 text-slate-300">{t.actionType === "prize" ? "זכייה" : t.actionType === "refund" ? "החזר" : "השתתפות"}</td>
-                                <td className={`py-2 px-2 ${t.kind === "profit" ? "text-emerald-400" : "text-amber-400"}`}>{t.amount > 0 ? "+" : ""}{t.amount}</td>
-                                <td className="py-2 px-2 text-amber-400/90">{t.balanceAfter}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      ) : (
-                        <p className="text-slate-500 py-4">אין תנועות בתקופה</p>
-                      )}
-                    </>
-                  ) : (
-                    <p className="text-slate-500 py-4">טוען...</p>
-                  )}
-                </div>
-                <DialogFooter>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-amber-500/50 text-amber-400"
-                    disabled={pnlDetailExporting === "player"}
-                    onClick={async () => {
-                      if (pnlDetailPlayerId == null) return;
-                      setPnlDetailExporting("player");
-                      try {
-                        const { csv } = await utils.admin.exportPlayerPnLCSV.fetch({
-                          userId: pnlDetailPlayerId,
-                          from: pnlFrom || undefined,
-                          to: pnlTo || undefined,
-                          tournamentType: pnlTournamentType || undefined,
-                          sourceLabel: pnlSourceLabel || undefined,
-                        });
-                        const blob = new Blob([csv ?? ""], { type: "text/csv;charset=utf-8" });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement("a");
-                        a.href = url;
-                        a.download = `pnl-player-${pnlDetailPlayerId}.csv`;
-                        a.click();
-                        URL.revokeObjectURL(url);
-                        toast.success("הורדת CSV החלה");
-                      } catch (e) {
-                        toast.error(e instanceof Error ? e.message : "שגיאה בייצוא");
-                      } finally {
-                        setPnlDetailExporting(null);
-                      }
-                    }}
-                  >
-                    {pnlDetailExporting === "player" ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
-                    <span className="mr-1">ייצוא CSV</span>
-                  </Button>
-                  <Button variant="outline" onClick={() => setPnlDetailPlayerId(null)}>סגור</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
           </div>
         )}
 

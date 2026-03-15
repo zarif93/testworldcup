@@ -101,13 +101,6 @@ describe("security hardening", () => {
       ).rejects.toThrow();
     });
 
-    it("export with non-positive userId rejected", async () => {
-      const caller = appRouter.createCaller(createContextWithUser(adminUser));
-      await expect(
-        caller.admin.exportPlayerPnLCSV({ userId: 0 })
-      ).rejects.toThrow();
-    });
-
     it("depositPoints with zero userId rejected", async () => {
       const caller = appRouter.createCaller(createContextWithUser(adminUser));
       await expect(

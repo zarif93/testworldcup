@@ -3,7 +3,7 @@
  * Rounding: floor everywhere. Residue: stays with platform.
  */
 
-/** Commission: 1250 basis points = 12.50% */
+/** Commission is always 12.5%. 1250 basis points = 12.50%. */
 export const DEFAULT_COMMISSION_BASIS_POINTS = 1250;
 /** Agent share: 5000 basis points = 50% */
 export const DEFAULT_AGENT_SHARE_BASIS_POINTS = 5000;

@@ -17,6 +17,8 @@ export interface PlayerFinancialProfileFilter {
   to?: string;
   tournamentType?: string;
   sourceLabel?: "legacy" | "universal";
+  /** When set, only events from these tournament IDs (e.g. settled-only reporting). */
+  tournamentIds?: number[];
 }
 
 export async function getPlayerFinancialProfile(
@@ -25,18 +27,25 @@ export async function getPlayerFinancialProfile(
 ): Promise<PlayerFinancialProfile | null> {
   const user = await getUserById(userId);
   if (!user) return null;
-  const events =
-    opts?.from != null || opts?.to != null || opts?.tournamentType != null || opts?.sourceLabel != null
-      ? await getFinancialEventsByUserFiltered(userId, {
-          from: opts.from,
-          to: opts.to,
-          tournamentIds:
-            opts.tournamentType != null || opts.sourceLabel != null
-              ? await getReportFilterTournamentIds({ tournamentType: opts.tournamentType, sourceLabel: opts.sourceLabel })
+  const hasFilter =
+    opts?.from != null ||
+    opts?.to != null ||
+    opts?.tournamentType != null ||
+    opts?.sourceLabel != null ||
+    opts?.tournamentIds != null;
+  const events = hasFilter
+    ? await getFinancialEventsByUserFiltered(userId, {
+        from: opts!.from,
+        to: opts!.to,
+        tournamentIds:
+          opts!.tournamentIds != null
+            ? opts!.tournamentIds
+            : opts!.tournamentType != null || opts!.sourceLabel != null
+              ? await getReportFilterTournamentIds({ tournamentType: opts!.tournamentType, sourceLabel: opts!.sourceLabel })
               : undefined,
-          limit: 10_000,
-        })
-      : await getFinancialEventsByUser(userId, 10_000);
+        limit: 10_000,
+      })
+    : await getFinancialEventsByUser(userId, 10_000);
   let totalParticipations = 0;
   let totalEntryFees = 0;
   let totalEntryFeeRefunds = 0;
