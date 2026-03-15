@@ -31,10 +31,10 @@ export function settleTournamentBySchema(
       : computePrizePool(submissions.length, options.entryAmount);
   const ranked = rankSubmissions(submissions, options.tournamentType);
   const tieGroups = buildTieGroups(ranked);
-  const winners = selectWinnersBySchema(config, ranked);
+  const winnersWithRank = selectWinnersBySchema(config, ranked);
   const { winnerEntries, prizePerWinner, totalDistributed } = distributePrizesBySchema(
     config,
-    winners,
+    winnersWithRank,
     prizePoolTotal
   );
   const rankedSubmissions = ranked.map((r) => ({
@@ -53,7 +53,7 @@ export function settleTournamentBySchema(
     prizePoolTotal,
     totalPrizeDistributed: totalDistributed,
     prizePerWinner,
-    winnerCount: winners.length,
+    winnerCount: winnersWithRank.length,
     warnings,
     metadata: {
       prizeMode: config.prizeMode,

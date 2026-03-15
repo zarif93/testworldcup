@@ -61,6 +61,75 @@ function tabLabel(tab: PublicTournamentType): string {
   return "לוטו";
 }
 
+/** שורת זוכה אחת מטבלת ההתנחלות – לא מדירוג, רק מ־settlement */
+type SettlementWinnerRow = {
+  rank: number;
+  userId: number;
+  username: string;
+  points: number;
+  prizeAmount: number;
+  prizePercentage: number;
+};
+
+/**
+ * טבלת זוכים – רשמית (התנחלות) או תצוגה מקדימה (FreeRoll). אותן עמודות; כותרת/תת־כותרת ניתנים להעברה.
+ */
+function SettlementWinnersTable({
+  winners,
+  totalPrizePool,
+  isFreeroll,
+  title,
+  subtitle,
+}: {
+  winners: SettlementWinnerRow[];
+  totalPrizePool: number;
+  isFreeroll: boolean;
+  title?: string;
+  subtitle?: string;
+}) {
+  const formatAmount = (n: number) => (isFreeroll ? `₪${n.toLocaleString("he-IL")}` : `${n.toLocaleString("he-IL")} pts`);
+  const showHeader = title !== undefined && title !== "" || subtitle !== undefined && subtitle !== "";
+  return (
+    <div className="rounded-xl border-2 border-amber-500/50 bg-slate-800/60 overflow-hidden shadow-lg">
+      {showHeader && (
+        <div className="px-4 py-3 border-b border-slate-600/50 bg-amber-500/10">
+          <h3 className="text-lg font-bold text-white">{title ?? "🏆 תוצאות חלוקת הפרסים"}</h3>
+          <p className="text-slate-400 text-sm mt-0.5">{subtitle ?? "מבוסס על התנחלות – רק זוכים שקיבלו פרס (לא דירוג כללי)"}</p>
+        </div>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full text-right">
+          <thead>
+            <tr className="border-b border-slate-600/50 text-slate-400 text-sm bg-slate-800/60">
+              <th className="p-3 font-medium w-20">מקום</th>
+              <th className="p-3 font-medium">משתמש</th>
+              <th className="p-3 font-medium">ניקוד</th>
+              <th className="p-3 font-medium">אחוז זכייה</th>
+              <th className="p-3 font-medium">סכום זכייה</th>
+            </tr>
+          </thead>
+          <tbody>
+            {winners.map((w, i) => (
+              <tr key={`${w.userId}-${w.rank}-${i}`} className="border-b border-slate-700/40 hover:bg-slate-700/30 transition-colors">
+                <td className="p-3">
+                  {w.rank === 1 ? "🥇" : w.rank === 2 ? "🥈" : w.rank === 3 ? "🥉" : `#${w.rank}`}
+                </td>
+                <td className="p-3 text-white font-medium">{w.username}</td>
+                <td className="p-3 text-emerald-400 font-bold">{w.points}</td>
+                <td className="p-3 text-amber-400">{w.prizePercentage}%</td>
+                <td className="p-3 text-amber-400 font-medium">{formatAmount(w.prizeAmount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-4 py-2 border-t border-slate-600/50 text-slate-400 text-sm font-medium">
+        סה״כ קופת פרסים: {formatAmount(totalPrizePool)}
+      </div>
+    </div>
+  );
+}
+
 /** כרטיס דירוג בודד לטורניר – טוען דאטה לפי סוג התחרות */
 function SingleTournamentLeaderboardCard({
   tournament,
@@ -81,6 +150,7 @@ function SingleTournamentLeaderboardCard({
   const isMondial = tabId === "WORLD_CUP";
 
   const [isCardOpen, setIsCardOpen] = useState(true);
+  const [showFullLeaderboard, setShowFullLeaderboard] = useState(false);
 
   const { data: chanceLeaderboard } = trpc.submissions.getChanceLeaderboard.useQuery(
     { tournamentId: t.id },
@@ -98,6 +168,20 @@ function SingleTournamentLeaderboardCard({
     { tournamentId: t.id },
     { enabled: isMondial && t.id > 0 }
   );
+  const { data: settlementWinners } = trpc.submissions.getTournamentSettlementWinners.useQuery(
+    { tournamentId: t.id },
+    { enabled: t.id > 0 }
+  );
+  const isFreeroll = Number(t.amount ?? 0) === 0;
+  const { data: settlementPreview } = trpc.submissions.getTournamentSettlementPreview.useQuery(
+    { tournamentId: t.id },
+    { enabled: isFreeroll && t.id > 0 && settlementWinners !== undefined && !settlementWinners.settled }
+  );
+  useEffect(() => {
+    if (settlementWinners?.settled && typeof window !== "undefined") {
+      console.log("settlementWinners", settlementWinners, "settlementWinners.winners.length", settlementWinners.winners?.length);
+    }
+  }, [settlementWinners]);
   const list = useMemo(() => {
     if (isMondial && mondialSubs) {
       return [...mondialSubs].sort((a, b) => {
@@ -114,6 +198,8 @@ function SingleTournamentLeaderboardCard({
   const finalizedAt = tour.resultsFinalizedAt ? new Date(tour.resultsFinalizedAt).getTime() : 0;
   const cleanedAt = tour.dataCleanedAt;
   const isArchived = !!cleanedAt || tour.status === "ARCHIVED";
+  const showLeaderboardPrizeAndWinner = !settlementWinners?.settled;
+  const showPaidLeaderboard = !isFreeroll && (!settlementWinners?.settled || showFullLeaderboard);
 
   return (
     <Card className="card-sport bg-slate-800/60 border-slate-600/50 overflow-hidden mb-4">
@@ -154,6 +240,79 @@ function SingleTournamentLeaderboardCard({
             <p className="text-emerald-200 font-medium">התחרות הסתיימה. הנתונים נשמרו בארכיון וניתנים לצפייה בדף הניהול.</p>
           </div>
         )}
+        {/* SECTION 1: FreeRoll → כותרת בלבד (הטבלה מופיעה בבלוק התחתון). לא FreeRoll → טבלת זוכים רק אחרי חלוקה. */}
+        <div className="mx-4 mt-4 mb-4">
+          {settlementWinners === undefined ? (
+            <p className="text-slate-500 text-center py-4 text-sm">טוען זוכים...</p>
+          ) : settlementWinners.settled ? (
+            isFreeroll ? (
+              <div className="px-4 py-3 border-b border-slate-600/50 bg-amber-500/10 rounded-t-xl">
+                <h3 className="text-lg font-bold text-white">תוצאות חלוקת הפרסים</h3>
+                <p className="text-slate-400 text-sm mt-0.5">תוצאות סופיות לאחר חלוקת הפרסים</p>
+              </div>
+            ) : (
+              <SettlementWinnersTable
+                winners={settlementWinners.winners}
+                totalPrizePool={settlementWinners.totalPrizePool}
+                isFreeroll={false}
+                title="תוצאות חלוקת הפרסים"
+                subtitle="תוצאות סופיות לאחר חלוקת הפרסים"
+              />
+            )
+          ) : isFreeroll ? (
+            settlementPreview === undefined ? (
+              <p className="text-slate-500 text-center py-4 text-sm">טוען תצוגה מקדימה...</p>
+            ) : settlementPreview.preview ? (
+              <div className="px-4 py-3 border-b border-slate-600/50 bg-amber-500/10 rounded-t-xl">
+                <h3 className="text-lg font-bold text-white">זוכים צפויים לפי התוצאות הנוכחיות</h3>
+                <p className="text-slate-400 text-sm mt-0.5">תצוגה מקדימה בלבד – הפרסים טרם חולקו</p>
+              </div>
+            ) : (
+              <div className="p-4 rounded-xl bg-slate-700/40 border border-slate-600/50 text-right">
+                <p className="text-slate-400 font-medium">התחרות טרם חולקה</p>
+              </div>
+            )
+          ) : (
+            <div className="p-4 rounded-xl bg-slate-700/40 border border-slate-600/50 text-right">
+              <p className="text-slate-400 font-medium">התחרות טרם חולקה</p>
+            </div>
+          )}
+        </div>
+        {/* SECTION 2: דירוג מלא – רק בתשלום. FreeRoll מציג רק טבלת זוכים (אותה מקור כמו למעלה). */}
+        {!isFreeroll && settlementWinners?.settled && (
+          <div className="mx-4 mt-4 mb-4">
+            <button
+              type="button"
+              onClick={() => setShowFullLeaderboard((v) => !v)}
+              className="text-sm font-medium text-slate-400 hover:text-white flex items-center gap-1"
+            >
+              {showFullLeaderboard ? "▼" : "▶"} דירוג מלא לפי ניקוד
+            </button>
+          </div>
+        )}
+        {isFreeroll && (settlementWinners?.settled ? (
+          <div className="mx-4 mt-4 mb-4">
+            <SettlementWinnersTable
+              winners={settlementWinners.winners}
+              totalPrizePool={settlementWinners.totalPrizePool}
+              isFreeroll={true}
+              title=""
+              subtitle=""
+            />
+          </div>
+        ) : settlementPreview?.preview ? (
+          <div className="mx-4 mt-4 mb-4">
+            <SettlementWinnersTable
+              winners={settlementPreview.winners}
+              totalPrizePool={settlementPreview.totalPrizePool}
+              isFreeroll={true}
+              title=""
+              subtitle=""
+            />
+          </div>
+        ) : null)}
+        {showPaidLeaderboard && (
+        <>
         {isChance ? (
           !chanceLeaderboard ? (
             <p className="text-slate-500 text-center py-12">טוען דירוג צ'אנס...</p>
@@ -177,8 +336,8 @@ function SingleTournamentLeaderboardCard({
                       </div>
                       <div className="flex flex-wrap gap-2 text-sm">
                         <span className="text-emerald-400 font-bold">{row.points}/4</span>
-                        {row.isWinner ? <Badge className="bg-amber-600/90 text-white rounded-lg">זוכה</Badge> : <span className="text-slate-500">לא זוכה</span>}
-                        {row.prizeAmount > 0 && <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span>}
+                        {showLeaderboardPrizeAndWinner && (row.isWinner ? <Badge className="bg-amber-600/90 text-white rounded-lg">זוכה</Badge> : <span className="text-slate-500">לא זוכה</span>)}
+                        {showLeaderboardPrizeAndWinner && row.prizeAmount > 0 && <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span>}
                       </div>
                     </div>
                   ))
@@ -191,15 +350,15 @@ function SingleTournamentLeaderboardCard({
                     <th className="p-3 font-medium w-24">מיקום</th>
                     <th className="p-3 font-medium">שם משתמש</th>
                     <th className="p-3 font-medium">פגיעות (0–4)</th>
-                    <th className="p-3 font-medium">סטטוס</th>
-                    <th className="p-3 font-medium">סכום זכייה</th>
+                    {showLeaderboardPrizeAndWinner && <th className="p-3 font-medium">סטטוס</th>}
+                    {showLeaderboardPrizeAndWinner && <th className="p-3 font-medium">סכום זכייה</th>}
                     <th className="p-3 w-14"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {chanceLeaderboard.rows?.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="p-8 text-center text-slate-500">אין משתתפים מאושרים או שעדיין לא עודכנו תוצאות ההגרלה.</td>
+                      <td colSpan={showLeaderboardPrizeAndWinner ? 6 : 4} className="p-8 text-center text-slate-500">אין משתתפים מאושרים או שעדיין לא עודכנו תוצאות ההגרלה.</td>
                     </tr>
                   ) : (
                     chanceLeaderboard.rows?.map((row, i) => (
@@ -207,8 +366,8 @@ function SingleTournamentLeaderboardCard({
                         <td className="p-3"><span className="text-slate-400 font-bold">#{i + 1}</span></td>
                         <td className="p-3 text-white font-medium">{row.username}</td>
                         <td className="p-3"><span className="text-emerald-400 font-bold">{row.points}</span><span className="text-slate-500 text-sm mr-1">/ 4</span></td>
-                        <td className="p-3">{row.isWinner ? <Badge className="bg-amber-600/90 text-white rounded-lg">זוכה</Badge> : <span className="text-slate-500">לא זוכה</span>}</td>
-                        <td className="p-3">{row.prizeAmount > 0 ? <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span> : <span className="text-slate-500">—</span>}</td>
+                        {showLeaderboardPrizeAndWinner && <td className="p-3">{row.isWinner ? <Badge className="bg-amber-600/90 text-white rounded-lg">זוכה</Badge> : <span className="text-slate-500">לא זוכה</span>}</td>}
+                        {showLeaderboardPrizeAndWinner && <td className="p-3">{row.prizeAmount > 0 ? <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span> : <span className="text-slate-500">—</span>}</td>}
                         <td className="p-3">
                           <button type="button" onClick={(e) => { e.stopPropagation(); onViewSubmission(row.submissionId); }} className="text-slate-400 hover:text-emerald-400 transition-colors p-1.5 rounded-lg hover:bg-slate-600/50" title="צפייה בניחושים"><Eye className="w-4 h-4" /></button>
                         </td>
@@ -218,8 +377,7 @@ function SingleTournamentLeaderboardCard({
                 </tbody>
               </table>
               <div className="p-3 border-t border-slate-600/50 text-sm text-slate-400">
-                קופת פרסים: ₪{chanceLeaderboard.prizePool.toLocaleString("he-IL")}
-                {chanceLeaderboard.winnerCount > 0 && ` • ${chanceLeaderboard.winnerCount} זוכים`}
+                {showLeaderboardPrizeAndWinner ? <>קופת פרסים: ₪{chanceLeaderboard.prizePool.toLocaleString("he-IL")}{chanceLeaderboard.winnerCount > 0 && ` • ${chanceLeaderboard.winnerCount} זוכים`}</> : "דירוג לפי ניקוד בלבד – תוצאות חלוקת הפרסים למעלה"}
               </div>
             </div>
             </>
@@ -251,8 +409,8 @@ function SingleTournamentLeaderboardCard({
                         </div>
                         <div className="flex justify-between items-center text-sm mt-1 flex-wrap gap-2">
                           <span className="text-slate-400"><span className="text-slate-500">ניקוד:</span> <span className="text-emerald-300 font-bold">{row.points}</span></span>
-                          {row.isWinner ? <Badge className="bg-amber-600/90 text-white rounded-lg text-xs">זוכה</Badge> : <span className="text-slate-500 text-xs">לא זוכה</span>}
-                          {row.prizeAmount > 0 && <span className="text-amber-400 font-medium text-xs">₪{row.prizeAmount.toLocaleString("he-IL")}</span>}
+                          {showLeaderboardPrizeAndWinner && (row.isWinner ? <Badge className="bg-amber-600/90 text-white rounded-lg text-xs">זוכה</Badge> : <span className="text-slate-500 text-xs">לא זוכה</span>)}
+                          {showLeaderboardPrizeAndWinner && row.prizeAmount > 0 && <span className="text-amber-400 font-medium text-xs">₪{row.prizeAmount.toLocaleString("he-IL")}</span>}
                         </div>
                       </div>
                     );
@@ -268,14 +426,14 @@ function SingleTournamentLeaderboardCard({
                     <th className="p-3 font-medium">ניחושים נכונים</th>
                     <th className="p-3 font-medium">מספר חזק</th>
                     <th className="p-3 font-medium">ניקוד סופי</th>
-                    <th className="p-3 font-medium">סטטוס</th>
-                    <th className="p-3 font-medium">סכום זכייה</th>
+                    {showLeaderboardPrizeAndWinner && <th className="p-3 font-medium">סטטוס</th>}
+                    {showLeaderboardPrizeAndWinner && <th className="p-3 font-medium">סכום זכייה</th>}
                     <th className="p-3 w-14"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {lottoLeaderboard.rows?.length === 0 ? (
-                    <tr><td colSpan={7} className="p-8 text-center text-slate-500">אין משתתפים או שעדיין לא עודכנו תוצאות.</td></tr>
+                    <tr><td colSpan={showLeaderboardPrizeAndWinner ? 8 : 6} className="p-8 text-center text-slate-500">אין משתתפים או שעדיין לא עודכנו תוצאות.</td></tr>
                   ) : (
                     lottoLeaderboard.rows?.map((row, i) => {
                       const baseHits = row.points - (row.strongHit ? 1 : 0);
@@ -296,16 +454,20 @@ function SingleTournamentLeaderboardCard({
                           <td className="p-3">
                             <span className="text-emerald-300 font-bold">{finalScore}</span>
                           </td>
-                          <td className="p-3">
-                            {row.isWinner ? <Badge className="bg-amber-600/90 text-white rounded-lg">זוכה</Badge> : <span className="text-slate-500">לא זוכה</span>}
-                          </td>
-                          <td className="p-3">
-                            {row.prizeAmount > 0 ? (
-                              <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span>
-                            ) : (
-                              <span className="text-slate-500">—</span>
-                            )}
-                          </td>
+                          {showLeaderboardPrizeAndWinner && (
+                            <td className="p-3">
+                              {row.isWinner ? <Badge className="bg-amber-600/90 text-white rounded-lg">זוכה</Badge> : <span className="text-slate-500">לא זוכה</span>}
+                            </td>
+                          )}
+                          {showLeaderboardPrizeAndWinner && (
+                            <td className="p-3">
+                              {row.prizeAmount > 0 ? (
+                                <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span>
+                              ) : (
+                                <span className="text-slate-500">—</span>
+                              )}
+                            </td>
+                          )}
                           <td className="p-3">
                             <button
                               type="button"
@@ -326,8 +488,7 @@ function SingleTournamentLeaderboardCard({
                 </tbody>
               </table>
               <div className="p-3 border-t border-slate-600/50 text-sm text-slate-400">
-                קופת פרסים: ₪{lottoLeaderboard.prizePool.toLocaleString("he-IL")}
-                {lottoLeaderboard.winnerCount > 0 && ` • ${lottoLeaderboard.winnerCount} זוכים`}
+                {showLeaderboardPrizeAndWinner ? <>קופת פרסים: ₪{lottoLeaderboard.prizePool.toLocaleString("he-IL")}{lottoLeaderboard.winnerCount > 0 && ` • ${lottoLeaderboard.winnerCount} זוכים`}</> : "דירוג לפי ניקוד בלבד – תוצאות חלוקת הפרסים למעלה"}
               </div>
             </div>
             </>
@@ -351,7 +512,7 @@ function SingleTournamentLeaderboardCard({
                       <div className="flex flex-wrap gap-2 text-sm">
                         <span className="text-emerald-400 font-bold">{row.correctCount}</span>
                         <span className="text-amber-400 font-bold">{row.points} נקודות</span>
-                        {row.prizeAmount > 0 && <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span>}
+                        {showLeaderboardPrizeAndWinner && row.prizeAmount > 0 && <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span>}
                       </div>
                     </div>
                   ))
@@ -365,13 +526,13 @@ function SingleTournamentLeaderboardCard({
                     <th className="p-3 font-medium">שם משתמש</th>
                     <th className="p-3 font-medium">ניחושים נכונים</th>
                     <th className="p-3 font-medium">נקודות</th>
-                    <th className="p-3 font-medium">סכום זכייה</th>
+                    {showLeaderboardPrizeAndWinner && <th className="p-3 font-medium">סכום זכייה</th>}
                     <th className="p-3 w-14"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {customFootballLeaderboard.rows.length === 0 ? (
-                    <tr><td colSpan={6} className="p-8 text-center text-slate-500">אין משתתפים מאושרים.</td></tr>
+                    <tr><td colSpan={showLeaderboardPrizeAndWinner ? 6 : 5} className="p-8 text-center text-slate-500">אין משתתפים מאושרים.</td></tr>
                   ) : (
                     customFootballLeaderboard.rows.map((row) => (
                       <tr key={row.submissionId} onClick={() => onViewSubmission(row.submissionId)} className="border-b border-slate-700/40 hover:bg-slate-700/40 transition-colors cursor-pointer">
@@ -379,7 +540,7 @@ function SingleTournamentLeaderboardCard({
                         <td className="p-3 text-white font-medium">{row.username}</td>
                         <td className="p-3"><span className="text-emerald-400 font-bold">{row.correctCount}</span></td>
                         <td className="p-3"><span className="text-amber-400 font-bold">{row.points}</span></td>
-                        <td className="p-3">{row.prizeAmount > 0 ? <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span> : <span className="text-slate-500">—</span>}</td>
+                        {showLeaderboardPrizeAndWinner && <td className="p-3">{row.prizeAmount > 0 ? <span className="text-amber-400 font-medium">₪{row.prizeAmount.toLocaleString("he-IL")}</span> : <span className="text-slate-500">—</span>}</td>}
                         <td className="p-3"><button type="button" onClick={(e) => { e.stopPropagation(); onViewSubmission(row.submissionId); }} className="text-slate-400 hover:text-emerald-400 p-1.5 rounded-lg hover:bg-slate-600/50" title="צפייה בניחושים"><Eye className="w-4 h-4" /></button></td>
                       </tr>
                     ))
@@ -387,8 +548,7 @@ function SingleTournamentLeaderboardCard({
                 </tbody>
               </table>
               <div className="p-3 border-t border-slate-600/50 text-sm text-slate-400">
-                קופת פרסים: ₪{customFootballLeaderboard.prizePool.toLocaleString("he-IL")}
-                {customFootballLeaderboard.winnerCount > 0 && ` • ${customFootballLeaderboard.winnerCount} זוכים`}
+                {showLeaderboardPrizeAndWinner ? <>קופת פרסים: ₪{customFootballLeaderboard.prizePool.toLocaleString("he-IL")}{customFootballLeaderboard.winnerCount > 0 && ` • ${customFootballLeaderboard.winnerCount} זוכים`}</> : "דירוג לפי ניקוד בלבד – תוצאות חלוקת הפרסים למעלה"}
               </div>
             </div>
             </>
@@ -451,6 +611,8 @@ function SingleTournamentLeaderboardCard({
             </div>
             {list.length === 0 && <p className="text-slate-500 text-center py-12">אין עדיין טפסים בטורניר זה</p>}
           </>
+        )}
+        </>
         )}
       </CardContent>
       )}

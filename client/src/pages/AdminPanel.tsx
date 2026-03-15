@@ -399,10 +399,8 @@ export default function AdminPanel() {
     startDate: "",
     endDate: "",
     maxParticipants: "",
-    prizeMode: "first" as "first" | "top3" | "custom",
-    prize1: "100",
-    prize2: "30",
-    prize3: "20",
+    numberOfWinners: 1,
+    prizePercentages: ["100"] as string[],
     guaranteedPrizeAmount: "",
     guaranteedPrizeEnabled: false,
     drawCode: "",
@@ -754,15 +752,15 @@ export default function AdminPanel() {
       toast.error("בתחרות מונדיאל/כדורגל חובה לבחור תאריך פתיחה, שעת פתיחה, תאריך סגירה ושעת סגירה");
       return;
     }
-    let prizeDistribution: Record<string, number> | null = null;
-    if (newTournament.prizeMode === "first") {
-      prizeDistribution = { "1": 100 };
-    } else if (newTournament.prizeMode === "top3") {
-      const p1 = parseInt(newTournament.prize1, 10) || 50;
-      const p2 = parseInt(newTournament.prize2, 10) || 30;
-      const p3 = parseInt(newTournament.prize3, 10) || 20;
-      prizeDistribution = { "1": p1, "2": p2, "3": p3 };
+    const n = Math.max(1, Math.min(20, newTournament.numberOfWinners));
+    const percentages = newTournament.prizePercentages.slice(0, n).map((s) => parseInt(s, 10) || 0);
+    const totalPct = percentages.reduce((a, b) => a + b, 0);
+    if (Math.abs(totalPct - 100) > 0.01) {
+      toast.error(`חלוקת פרסים: סך האחוזים חייב להיות 100% (נוכחי: ${totalPct}%)`);
+      return;
     }
+    const prizeDistribution: Record<string, number> = {};
+    for (let i = 0; i < n; i++) prizeDistribution[String(i + 1)] = percentages[i];
     function dateTimeToTimestamp(dateStr: string, timeStr: string): number | null {
     if (!dateStr?.trim() || !timeStr?.trim()) return null;
     const s = dateStr.trim() + "T" + timeStr.trim() + ":00+02:00";
@@ -818,10 +816,8 @@ export default function AdminPanel() {
         startDate: "",
         endDate: "",
         maxParticipants: "",
-        prizeMode: "first",
-        prize1: "100",
-        prize2: "30",
-        prize3: "20",
+        numberOfWinners: 1,
+        prizePercentages: ["100"],
         guaranteedPrizeAmount: "",
         guaranteedPrizeEnabled: false,
         drawCode: "",
@@ -1533,6 +1529,76 @@ export default function AdminPanel() {
                     </div>
                   )}
 
+                  {/* Prize distribution – number of winners and percentage per place */}
+                  <div className="pt-4 border-t border-slate-700 space-y-3">
+                    <h3 className="text-sm font-medium text-slate-300">חלוקת פרסים לפי דירוג</h3>
+                    <p className="text-xs text-slate-500">הגדר כמה מקומות זוכים ובאיזה אחוז מהקופה לכל מקום. סך האחוזים חייב להיות 100%.</p>
+                    <div className="flex flex-wrap items-center gap-4">
+                      <div className="space-y-1">
+                        <label htmlFor="prize-number-winners" className="block text-xs text-slate-400">מספר מקומות זוכים</label>
+                        <select
+                          id="prize-number-winners"
+                          aria-label="מספר מקומות זוכים"
+                          className="h-9 rounded-md bg-slate-900 border border-slate-600 text-slate-200 text-sm px-2"
+                          value={newTournament.numberOfWinners}
+                          onChange={(e) => {
+                            const v = Math.max(1, Math.min(20, parseInt(e.target.value, 10) || 1));
+                            setNewTournament((prev) => {
+                              const curr = prev.prizePercentages.slice(0, v);
+                              while (curr.length < v) curr.push("0");
+                              return { ...prev, numberOfWinners: v, prizePercentages: curr };
+                            });
+                          }}
+                        >
+                          {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
+                            <option key={n} value={n}>{n}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {Array.from({ length: newTournament.numberOfWinners }, (_, i) => (
+                          <div key={i} className="flex items-center gap-1">
+                            <label htmlFor={`prize-pct-${i}`} className="text-xs text-slate-400 whitespace-nowrap">מקום {i + 1}</label>
+                            <Input
+                              id={`prize-pct-${i}`}
+                              type="number"
+                              min={0}
+                              max={100}
+                              aria-label={`אחוז למקום ${i + 1}`}
+                              className="w-16 h-9 bg-slate-900 border-slate-600 text-slate-200 text-sm text-center"
+                              value={newTournament.prizePercentages[i] ?? "0"}
+                              onChange={(e) => setNewTournament((prev) => {
+                                const arr = [...(prev.prizePercentages.slice(0, prev.numberOfWinners) || [])];
+                                while (arr.length <= i) arr.push("0");
+                                arr[i] = e.target.value;
+                                return { ...prev, prizePercentages: arr };
+                              })}
+                            />
+                            <span className="text-xs text-slate-500">%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {(() => {
+                      const total = (newTournament.prizePercentages.slice(0, newTournament.numberOfWinners) || [])
+                        .reduce((s, x) => s + (parseInt(x, 10) || 0), 0);
+                      const valid = total === 100;
+                      return (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className={`text-base font-semibold ${valid ? "text-emerald-400" : "text-amber-400"}`} role="status" aria-live="polite">
+                            סך אחוזים: {total}%
+                          </p>
+                          {!valid && total > 0 && (
+                            <p className="text-sm text-amber-400">(חייב להיות 100%)</p>
+                          )}
+                          {!valid && (
+                            <p className="text-xs text-slate-500 w-full">השלם ל־100% כדי לאפשר שליחה.</p>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                   {/* Guaranteed prize – only for FreeRoll tournaments */}
                   {newTournament.freeEntry && (
                     <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-slate-700">
@@ -1561,7 +1627,18 @@ export default function AdminPanel() {
                   )}
 
                   <div className="pt-2">
-                    <Button type="submit" disabled={createTournamentMut.isPending}>
+                    <Button
+                      type="submit"
+                      disabled={
+                        createTournamentMut.isPending ||
+                        Math.abs(
+                          (newTournament.prizePercentages.slice(0, newTournament.numberOfWinners) || []).reduce(
+                            (s, x) => s + (parseInt(x, 10) || 0),
+                            0
+                          ) - 100
+                        ) > 0.01
+                      }
+                    >
                       {createTournamentMut.isPending ? <Loader2 className="w-4 h-4 animate-spin ml-1" /> : null}
                       צור תחרות
                     </Button>
@@ -2121,21 +2198,44 @@ export default function AdminPanel() {
             <Card className="bg-slate-800/50 border-slate-700">
               <CardHeader>
                 <h2 className="text-xl font-bold text-white">חלוקת פרסים לתחרות</h2>
-                <p className="text-slate-400 text-sm">לאחר סיום תחרות – חלוקת קופת הפרסים שווה בין הזוכים (עיגול למטה). פעם אחת לתחרות.</p>
+                <p className="text-slate-400 text-sm">לאחר סיום תחרות – חלוקת קופת הפרסים לפי ההגדרה (אחוזים לכל מקום). פעם אחת לתחרות.</p>
               </CardHeader>
               <CardContent className="flex flex-wrap gap-4 items-end">
-                <div>
-                  <label className="block text-slate-400 text-sm mb-1">תחרות</label>
-                  <select
-                    value={pointsDistributeTournamentId === "" ? "" : pointsDistributeTournamentId}
-                    onChange={(e) => setPointsDistributeTournamentId(e.target.value === "" ? "" : parseInt(e.target.value, 10))}
-                    className="bg-slate-900 border border-slate-600 text-white rounded-lg px-3 py-2 min-w-[200px]"
-                  >
-                    <option value="">בחר תחרות</option>
-                    {(tournaments ?? []).map((t) => (
-                      <option key={t.id} value={t.id}>{(t as { name?: string }).name ?? t.name ?? `#${t.id}`}</option>
-                    ))}
-                  </select>
+                <div className="flex flex-wrap gap-4 items-end">
+                  <div>
+                    <label className="block text-slate-400 text-sm mb-1">תחרות</label>
+                    <select
+                      value={pointsDistributeTournamentId === "" ? "" : pointsDistributeTournamentId}
+                      onChange={(e) => setPointsDistributeTournamentId(e.target.value === "" ? "" : parseInt(e.target.value, 10))}
+                      className="bg-slate-900 border border-slate-600 text-white rounded-lg px-3 py-2 min-w-[200px]"
+                    >
+                      <option value="">בחר תחרות</option>
+                      {(tournaments ?? []).map((t) => (
+                        <option key={t.id} value={t.id}>{(t as { name?: string }).name ?? t.name ?? `#${t.id}`}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {pointsDistributeTournamentId && (() => {
+                    const t = (tournaments ?? []).find((x) => x.id === pointsDistributeTournamentId) as { prizeDistribution?: Record<string, number> | string | null } | undefined;
+                    let pd = t?.prizeDistribution;
+                    if (typeof pd === "string") {
+                      try {
+                        pd = JSON.parse(pd) as Record<string, number>;
+                      } catch {
+                        return null;
+                      }
+                    }
+                    if (!pd || typeof pd !== "object" || Object.keys(pd).length === 0) return null;
+                    const entries = Object.entries(pd)
+                      .filter(([, v]) => typeof v === "number")
+                      .sort(([a], [b]) => parseInt(a, 10) - parseInt(b, 10));
+                    if (entries.length === 0) return null;
+                    return (
+                      <p className="text-slate-400 text-sm">
+                        חלוקה בתחרות: {entries.map(([place, pct]) => `מקום ${place} – ${pct}%`).join(" · ")}
+                      </p>
+                    );
+                  })()}
                 </div>
                 <Button
                   disabled={!pointsDistributeTournamentId || distributePrizesMut.isPending}
@@ -2146,7 +2246,7 @@ export default function AdminPanel() {
                         const tour = (tournaments ?? []).find((x) => x.id === pointsDistributeTournamentId);
                         const name = (tour as { name?: string })?.name ?? `#${pointsDistributeTournamentId}`;
                         toast.success(
-                          `חולקו פרסים: ${res.winnerCount} זוכים, ${res.prizePerWinner} נקודות לכל אחד (סה"כ ${res.distributed}). תחרות "${name}" הסתיימה והוסרה מהדף הראשי.`
+                          `חולקו פרסים: ${res.winnerCount} זוכים, סה"כ ${res.distributed} נקודות. תחרות "${name}" הסתיימה והוסרה מהדף הראשי.`
                         );
                       refetchPointsLogs();
                       utils.auth.me.invalidate();

@@ -478,6 +478,10 @@ export default function PredictionForm() {
       }
       return;
     }
+    if (freerollLimitReached) {
+      toast.error("הגעת למקסימום 2 טפסים בתחרות FreeRoll זו");
+      return;
+    }
     if (hasEntries && entryCost > 0 && !confirmedAddEntryRef.current) {
       setShowAddEntryConfirm(true);
       return;
@@ -618,6 +622,11 @@ export default function PredictionForm() {
       : matchesList.length > 0 && Object.keys(predictions).length === matchesList.length;
   const styles = getTournamentStyles(tournament.amount);
   const entryCost = (tournament as { entryCostPoints?: number }).entryCostPoints ?? (tournament as { amount?: number }).amount ?? 0;
+  const isFreeroll = entryCost === 0;
+  const countPendingApproved = (list: Array<{ status?: string }> | undefined) =>
+    (list ?? []).filter((s) => s.status === "pending" || s.status === "approved").length;
+  const freerollSubmissionCount = countPendingApproved(myEntriesForTournament);
+  const freerollLimitReached = !!isAuthenticated && isFreeroll && freerollSubmissionCount >= 2;
   const hasEntries = !!isAuthenticated && (myEntriesForTournament?.length ?? 0) > 0;
   const hasEnoughPoints =
     user?.unlimitedPoints || user?.role === "admin" || (typeof user?.points === "number" && user.points >= entryCost);
@@ -680,6 +689,12 @@ export default function PredictionForm() {
         {tournament.isLocked && (
           <div className="bg-amber-500/20 border border-amber-500/50 rounded-xl p-4 mb-6 text-amber-200 flex items-center gap-2 break-words min-w-0">
             🔒 הטורניר נעול – לא ניתן לשלוח ניחושים. הניחושים ששלחת סופיים ולא ניתנים לעריכה.
+          </div>
+        )}
+
+        {freerollLimitReached && !tournament.isLocked && (
+          <div className="bg-amber-500/20 border border-amber-500/50 rounded-xl p-4 mb-6 text-amber-200 flex items-center gap-2 break-words min-w-0">
+            הגעת למקסימום 2 טפסים בתחרות FreeRoll זו
           </div>
         )}
 
@@ -862,7 +877,7 @@ export default function PredictionForm() {
         <div className="mt-6 sm:mt-8 flex justify-center pb-safe-nav sm:pb-0" id="predict-submit-area">
           <Button
             size="lg"
-            disabled={!allFilled || tournament.isLocked || (isChance && chanceDrawClosedForUI) || (isLotto && lottoDrawClosedForUI) || submitMutation.isPending || updateMutation.isPending}
+            disabled={!allFilled || tournament.isLocked || freerollLimitReached || (isChance && chanceDrawClosedForUI) || (isLotto && lottoDrawClosedForUI) || submitMutation.isPending || updateMutation.isPending}
             onClick={handleSubmit}
             className={`rounded-xl shadow-lg btn-sport text-base sm:text-lg px-6 sm:px-10 min-h-[48px] w-full max-w-md touch-target ${styles.button}`}
           >
@@ -885,7 +900,7 @@ export default function PredictionForm() {
           <div className="container mx-auto max-w-md">
             <Button
               size="lg"
-              disabled={!allFilled || tournament.isLocked || (isChance && chanceDrawClosedForUI) || (isLotto && lottoDrawClosedForUI) || submitMutation.isPending || updateMutation.isPending}
+              disabled={!allFilled || tournament.isLocked || freerollLimitReached || (isChance && chanceDrawClosedForUI) || (isLotto && lottoDrawClosedForUI) || submitMutation.isPending || updateMutation.isPending}
               onClick={handleSubmit}
               className={`w-full rounded-xl shadow-lg btn-sport text-base px-6 min-h-[48px] touch-target ${styles.button}`}
             >

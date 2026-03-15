@@ -455,6 +455,7 @@ async function initSqlite() {
     ["totalPoolPoints", "INTEGER"],
     ["totalCommissionPoints", "INTEGER"],
     ["totalPrizePoolPoints", "INTEGER"],
+    ["guaranteedPrizeAmount", "INTEGER"],
     ["opensAt", "INTEGER"],
     ["closesAt", "INTEGER"],
     ["entryCostPoints", "INTEGER"],
@@ -3327,6 +3328,12 @@ async function doDistributePrizesBody(
   const prizePerWinner = resolved.prizePerWinner;
   const distributed = resolved.distributed;
   const tournamentName = (tournament as { name?: string }).name ?? String(tournamentId);
+  const winnerPrizeBySubId = new Map<number, number>(
+    winnerSubmissions.map((s) => [s.id, (s as { prizeAmount?: number }).prizeAmount ?? prizePerWinner])
+  );
+  const winnerRankBySubId = new Map<number, number>(
+    winnerSubmissions.map((s) => [s.id, (s as { rank?: number }).rank ?? 1])
+  );
   const winnerSubIds = new Set(winnerSubmissions.map((s) => s.id));
   const tType = (tournament as { type?: string }).type ?? "football";
   const participantCountForEvent = subs.length;
@@ -3350,8 +3357,9 @@ async function doDistributePrizesBody(
 
   for (const sub of winnerSubmissions) {
     if (alreadyPaidSubIds.has(sub.id)) continue;
-    if (prizePerWinner > 0) {
-      await addUserPoints(sub.userId, prizePerWinner, "prize", {
+    const amount = winnerPrizeBySubId.get(sub.id) ?? prizePerWinner;
+    if (amount > 0) {
+      await addUserPoints(sub.userId, amount, "prize", {
         referenceId: tournamentId,
         description: `זכייה בתחרות: ${tournamentName}`,
       });
@@ -3361,7 +3369,7 @@ async function doDistributePrizesBody(
         userId: sub.userId,
         username: sub.username ?? `#${sub.userId}`,
         type: "Prize",
-        amount: prizePerWinner,
+        amount,
         siteProfit: 0,
         agentProfit: 0,
         transactionDate: new Date(),
@@ -3370,7 +3378,7 @@ async function doDistributePrizesBody(
       await insertTournamentFinancialEvent(tournamentId, TOURNAMENT_FINANCIAL_EVENT_TYPES.PRIZE_ALLOCATED, {
         submissionId: sub.id,
         userId: sub.userId,
-        amount: prizePerWinner,
+        amount,
       });
     }
   }
@@ -3405,7 +3413,8 @@ async function doDistributePrizesBody(
         userId: s.userId,
         username: s.username ?? `#${s.userId}`,
         amountPaid: tAmount,
-        prizeWon: winnerSubIds.has(s.id) ? prizePerWinner : 0,
+        prizeWon: winnerPrizeBySubId.get(s.id) ?? 0,
+        rank: winnerRankBySubId.get(s.id),
       })),
     },
   });
@@ -3569,14 +3578,23 @@ export async function runRecoverSettlements(opts?: { onlyTournamentIds?: number[
         .where(and(eq(pointTransactions.actionType, "prize"), eq(pointTransactions.referenceId, tournamentId)))
         .limit(1);
       if (prizeRows.length > 0) {
-        const now = new Date();
-        await db.update(tournaments).set({
-          status: "ARCHIVED",
-          visibility: "HIDDEN",
-          archivedAt: now,
-          dataCleanedAt: now,
-        } as typeof tournaments.$inferInsert).where(eq(tournaments.id, tournamentId));
-        recovered.push(tournamentId);
+        // Prizes already distributed but tournament stuck in SETTLING. Run full settlement body so
+        // insertFinancialRecord is always written (getTournamentSettlementWinners can read it).
+        // Payout loop will skip already-paid; financial record + ARCHIVED will be written.
+        const tournament = await getTournamentById(tournamentId);
+        if (tournament) {
+          await doDistributePrizesBody(tournamentId, tournament);
+          recovered.push(tournamentId);
+        } else {
+          const now = new Date();
+          await db.update(tournaments).set({
+            status: "ARCHIVED",
+            visibility: "HIDDEN",
+            archivedAt: now,
+            dataCleanedAt: now,
+          } as typeof tournaments.$inferInsert).where(eq(tournaments.id, tournamentId));
+          recovered.push(tournamentId);
+        }
       } else {
         const tournament = await getTournamentById(tournamentId);
         if (tournament) {
@@ -4638,7 +4656,7 @@ export async function updateTournamentStatus(tournamentId: number, status: strin
 }
 
 /** שמירה לצמיתות – רשומה כספית בעת חלוקת פרסים או החזר. לא נמחקת אוטומטית. */
-export type FinancialRecordParticipant = { submissionId?: number; userId: number; username: string; amountPaid: number; prizeWon: number };
+export type FinancialRecordParticipant = { submissionId?: number; userId: number; username: string; amountPaid: number; prizeWon: number; rank?: number };
 export async function insertFinancialRecord(data: {
   competitionId: number;
   competitionName: string;
@@ -4670,6 +4688,155 @@ export async function insertFinancialRecord(data: {
     closedAt: data.closedAt,
     participantSnapshot: data.participantSnapshot as never,
   });
+}
+
+/**
+ * Backfill: ensure a tournament-level financial record exists when prizes were distributed
+ * but the record was never written (e.g. recovery path had only set ARCHIVED).
+ * Uses PRIZE_ALLOCATED events to build participantSnapshot. Idempotent: no-op if record exists.
+ */
+export async function ensureSettlementFinancialRecord(tournamentId: number): Promise<
+  { created: true } | { created: false; reason: string }
+> {
+  const { financialRecords } = await getSchema();
+  const db = await getDb();
+  if (!db) return { created: false, reason: "db_unavailable" };
+  const existing = await db
+    .select({ id: financialRecords.id })
+    .from(financialRecords)
+    .where(eq(financialRecords.competitionId, tournamentId))
+    .limit(1);
+  if (existing.length > 0) return { created: false, reason: "record_already_exists" };
+  const tournament = await getTournamentById(tournamentId);
+  if (!tournament) return { created: false, reason: "tournament_not_found" };
+  const subs = (await getSubmissionsByTournament(tournamentId)).filter((s) => s.status === "approved");
+  const events = await getTournamentFinancialEvents(tournamentId);
+  const prizeBySubId = new Map<number, number>();
+  for (const e of events) {
+    if (e.eventType !== TOURNAMENT_FINANCIAL_EVENT_TYPES.PRIZE_ALLOCATED || !e.payloadJson || typeof e.payloadJson !== "object") continue;
+    const p = e.payloadJson as { submissionId?: number; amount?: number };
+    const subId = p.submissionId;
+    const amount = Number(p.amount ?? 0);
+    if (subId != null && amount > 0) prizeBySubId.set(subId, (prizeBySubId.get(subId) ?? 0) + amount);
+  }
+  if (prizeBySubId.size === 0) {
+    const { pointTransactions } = await getSchema();
+    const prizeRows = await db
+      .select({ userId: pointTransactions.userId, amount: pointTransactions.amount })
+      .from(pointTransactions)
+      .where(and(eq(pointTransactions.actionType, "prize"), eq(pointTransactions.referenceId, tournamentId)));
+    const prizeByUserId = new Map<number, number>();
+    for (const r of prizeRows) {
+      const uid = r.userId ?? 0;
+      const amt = Number(r.amount ?? 0);
+      if (amt > 0) prizeByUserId.set(uid, (prizeByUserId.get(uid) ?? 0) + amt);
+    }
+    if (prizeByUserId.size > 0) {
+      for (const s of subs) {
+        const total = prizeByUserId.get(s.userId) ?? 0;
+        if (total <= 0) continue;
+        const best = subs.filter((x) => x.userId === s.userId).sort((a, b) => b.points - a.points)[0];
+        if (best && best.id === s.id) prizeBySubId.set(s.id, total);
+      }
+    }
+    if (prizeBySubId.size === 0) {
+      const { resolveSettlement } = await import("./settlement/resolveSettlement");
+      const tAmount = Number((tournament as { amount?: number }).amount ?? 0);
+      const tGuaranteed = Number((tournament as { guaranteedPrizeAmount?: number | null }).guaranteedPrizeAmount ?? 0) || 0;
+      const settlementInput = subs.map((s) => ({
+        id: s.id,
+        userId: s.userId,
+        username: s.username ?? null,
+        points: s.points,
+        strongHit: (s as { strongHit?: boolean }).strongHit,
+      }));
+      const resolved = await resolveSettlement(
+        { ...tournament, id: tournamentId, amount: tAmount, guaranteedPrizeAmount: tGuaranteed > 0 ? tGuaranteed : null } as { id: number; amount: number; guaranteedPrizeAmount?: number | null; competitionTypeId?: number | null; type?: string | null },
+        settlementInput
+      );
+      for (const w of resolved.winnerSubmissions) {
+        const amt = (w as { prizeAmount?: number }).prizeAmount ?? resolved.prizePerWinner;
+        if (amt > 0) prizeBySubId.set(w.id, (prizeBySubId.get(w.id) ?? 0) + amt);
+      }
+      const rankByWinner = new Map<number, number>();
+      resolved.winnerSubmissions.forEach((w, i) => rankByWinner.set(w.id, (w as { rank?: number }).rank ?? i + 1));
+      if (prizeBySubId.size > 0) {
+        const totalPrizesResolved = resolved.distributed;
+        const winnerCountResolved = resolved.winnerSubmissions.length;
+        const tType = (tournament as { type?: string }).type ?? "football";
+        const tournamentName = (tournament as { name?: string }).name ?? String(tournamentId);
+        const subsWithPrize = subs.filter((s) => (prizeBySubId.get(s.id) ?? 0) > 0).sort((a, b) => b.points - a.points);
+        const rankBySubIdResolved = new Map<number, number>();
+        subsWithPrize.forEach((s, i) => rankBySubIdResolved.set(s.id, (rankByWinner.get(s.id) ?? i + 1)));
+        const participantCount = subs.length;
+        const totalParticipation = participantCount * tAmount;
+        const isFreeroll = totalParticipation === 0 && totalPrizesResolved > 0;
+        const closedAt = new Date();
+        await insertFinancialRecord({
+          competitionId: tournamentId,
+          competitionName: tournamentName,
+          recordType: "income",
+          type: tType,
+          totalCollected: totalParticipation,
+          siteFee: 0,
+          totalPrizes: totalPrizesResolved,
+          netProfit: isFreeroll ? -totalPrizesResolved : 0,
+          participantsCount: participantCount,
+          winnersCount: winnerCountResolved,
+          closedAt,
+          participantSnapshot: {
+            participants: subs.map((s) => ({
+              submissionId: s.id,
+              userId: s.userId,
+              username: s.username ?? `#${s.userId}`,
+              amountPaid: tAmount,
+              prizeWon: prizeBySubId.get(s.id) ?? 0,
+              rank: rankBySubIdResolved.get(s.id),
+            })),
+          },
+        });
+        return { created: true };
+      }
+      return { created: false, reason: "no_prize_events" };
+    }
+  }
+  const totalPrizes = [...prizeBySubId.values()].reduce((a, b) => a + b, 0);
+  const winnerCount = new Set(prizeBySubId.keys()).size;
+  const tAmount = Number((tournament as { amount?: number }).amount ?? 0);
+  const tType = (tournament as { type?: string }).type ?? "football";
+  const tournamentName = (tournament as { name?: string }).name ?? String(tournamentId);
+  const subsWithPrize = subs.filter((s) => (prizeBySubId.get(s.id) ?? 0) > 0).sort((a, b) => b.points - a.points);
+  const rankBySubId = new Map<number, number>();
+  subsWithPrize.forEach((s, i) => rankBySubId.set(s.id, i + 1));
+  const participantCount = subs.length;
+  const totalParticipation = participantCount * tAmount;
+  const isFreeroll = totalParticipation === 0 && totalPrizes > 0;
+  const fee = 0;
+  const closedAt = new Date();
+  await insertFinancialRecord({
+    competitionId: tournamentId,
+    competitionName: tournamentName,
+    recordType: "income",
+    type: tType,
+    totalCollected: totalParticipation,
+    siteFee: fee,
+    totalPrizes,
+    netProfit: isFreeroll ? -totalPrizes : fee,
+    participantsCount: participantCount,
+    winnersCount: winnerCount,
+    closedAt,
+    participantSnapshot: {
+      participants: subs.map((s) => ({
+        submissionId: s.id,
+        userId: s.userId,
+        username: s.username ?? `#${s.userId}`,
+        amountPaid: tAmount,
+        prizeWon: prizeBySubId.get(s.id) ?? 0,
+        rank: rankBySubId.get(s.id),
+      })),
+    },
+  });
+  return { created: true };
 }
 
 export type FinancialRecordRow = {
@@ -4742,6 +4909,165 @@ export async function getFinancialRecordById(id: number): Promise<FinancialRecor
     participantSnapshot: r.participantSnapshot as { participants: FinancialRecordParticipant[] } | null,
     createdAt: r.createdAt,
   };
+}
+
+/** Winners row for settlement-driven winners table (from financial record snapshot). */
+export type SettlementWinnerRow = {
+  rank: number;
+  userId: number;
+  username: string;
+  points: number;
+  prizeAmount: number;
+  prizePercentage: number;
+};
+
+/**
+ * Parse participantSnapshot from DB (may be object or JSON string).
+ * Returns { participants: FinancialRecordParticipant[] }.
+ */
+function parseParticipantSnapshot(snapshot: unknown): { participants: FinancialRecordParticipant[] } {
+  if (snapshot == null) return { participants: [] };
+  let obj: { participants?: unknown } | null = null;
+  if (typeof snapshot === "string") {
+    try {
+      obj = JSON.parse(snapshot) as { participants?: unknown };
+    } catch {
+      return { participants: [] };
+    }
+  } else if (typeof snapshot === "object" && snapshot !== null) {
+    obj = snapshot as { participants?: unknown };
+  }
+  const raw = obj?.participants;
+  const participants: FinancialRecordParticipant[] = Array.isArray(raw) ? raw : [];
+  return { participants };
+}
+
+/**
+ * Returns settlement winners for a tournament from the financial record (participantSnapshot).
+ * Use for winners table UI – settlement-driven, not leaderboard recompute.
+ * Uses the LATEST financial record for this competitionId that has at least one participant with prizeWon > 0
+ * (any recordType, so FreeRoll and legacy records are detected). If snapshot is stored as JSON string, parses it.
+ * If no such record, returns settled: false.
+ */
+export async function getTournamentSettlementWinners(tournamentId: number): Promise<
+  | { settled: true; totalPrizePool: number; winners: SettlementWinnerRow[] }
+  | { settled: false }
+> {
+  const { financialRecords } = await getSchema();
+  const db = await getDb();
+  if (!db) {
+    console.log("SETTLEMENT WINNERS DEBUG tournamentId=" + tournamentId + " db=null");
+    return { settled: false };
+  }
+  // Fetch ALL financial records for this tournament, newest first (no recordType filter – settlement may be stored as income or legacy null)
+  const rows = await db
+    .select()
+    .from(financialRecords)
+    .where(eq(financialRecords.competitionId, tournamentId))
+    .orderBy(desc(financialRecords.id));
+  // Runtime debug: what we have for this tournament
+  const debugRecords = rows.map((r) => {
+    const parsed = parseParticipantSnapshot(r.participantSnapshot);
+    const withPrize = parsed.participants.filter((p) => Number((p as { prizeWon?: number }).prizeWon) > 0);
+    return {
+      id: r.id,
+      recordType: r.recordType ?? "(null)",
+      competitionId: r.competitionId,
+      totalPrizes: r.totalPrizes,
+      participantsLength: parsed.participants.length,
+      withPrizeWonGt0: withPrize.length,
+    };
+  });
+  console.log("SETTLEMENT WINNERS DEBUG tournamentId=" + tournamentId + " records=" + JSON.stringify(debugRecords));
+  // Use the first (latest) record that has at least one prize recipient
+  let record: (typeof rows)[0] | undefined;
+  let participants: FinancialRecordParticipant[] = [];
+  let winnersOnly: FinancialRecordParticipant[] = [];
+  for (const r of rows) {
+    if (!r.participantSnapshot) continue;
+    const parsed = parseParticipantSnapshot(r.participantSnapshot);
+    const list = parsed.participants;
+    const withPrize = list.filter((p) => Number((p as { prizeWon?: number }).prizeWon) > 0);
+    if (withPrize.length > 0) {
+      record = r;
+      participants = list;
+      winnersOnly = withPrize;
+      break;
+    }
+  }
+  if (!record || winnersOnly.length === 0) {
+    const reason = rows.length === 0 ? "no_financial_record" : "no_record_with_prize_recipients";
+    console.log("SETTLEMENT WINNERS DEBUG tournamentId=" + tournamentId + " settled=false reason=" + reason);
+    return { settled: false };
+  }
+  const totalPrizes = Number(record.totalPrizes ?? 0) || 1;
+  const bySubmissionId = new Map<number, number>();
+  const subs = await getSubmissionsByTournament(tournamentId);
+  for (const s of subs) bySubmissionId.set(s.id, s.points);
+  const winners: SettlementWinnerRow[] = winnersOnly
+    .sort((a, b) => (Number((a as { rank?: number }).rank) ?? 999) - (Number((b as { rank?: number }).rank) ?? 999))
+    .map((p) => {
+      const prizeWon = Number((p as { prizeWon?: number }).prizeWon) ?? 0;
+      const rank = Number((p as { rank?: number }).rank) ?? 1;
+      const submissionId = (p as { submissionId?: number }).submissionId;
+      return {
+        rank,
+        userId: (p as { userId: number }).userId,
+        username: (p as { username?: string }).username ?? `#${(p as { userId: number }).userId}`,
+        points: submissionId != null ? bySubmissionId.get(submissionId) ?? 0 : 0,
+        prizeAmount: prizeWon,
+        prizePercentage: Math.round((prizeWon / totalPrizes) * 1000) / 10,
+      };
+    });
+  // Runtime proof
+  console.log("SETTLEMENT WINNERS PROOF tournamentId=" + tournamentId + " settled=true recordId=" + record.id + " recordType=" + (record.recordType ?? "null") + " totalPrizePool=" + totalPrizes + " winnersCount=" + winners.length + " snapshotParticipantsWithPrizeGt0=" + winnersOnly.length);
+  console.log("SETTLEMENT WINNERS RETURNED JSON " + JSON.stringify({ settled: true, totalPrizePool: totalPrizes, winnerCount: winners.length, winners: winners.map((w) => ({ rank: w.rank, username: w.username, points: w.points, prizeAmount: w.prizeAmount, prizePercentage: w.prizePercentage })) }));
+  return { settled: true, totalPrizePool: totalPrizes, winners };
+}
+
+/**
+ * Pre-settlement winners preview for FreeRoll only. Same ranking/prize logic as settlement, read-only.
+ * No payouts, no financial records. Returns preview: false for paid tournaments.
+ */
+export async function getTournamentSettlementPreview(tournamentId: number): Promise<
+  | { preview: true; totalPrizePool: number; winners: SettlementWinnerRow[] }
+  | { preview: false }
+> {
+  const tournament = await getTournamentById(tournamentId);
+  if (!tournament) return { preview: false };
+  const tAmount = Number((tournament as { amount?: number }).amount ?? 0);
+  if (tAmount !== 0) return { preview: false };
+  const subs = (await getSubmissionsByTournament(tournamentId)).filter((s) => s.status === "approved");
+  if (subs.length === 0) return { preview: false };
+  const { resolveSettlement } = await import("./settlement/resolveSettlement");
+  const tGuaranteed = Number((tournament as { guaranteedPrizeAmount?: number | null }).guaranteedPrizeAmount ?? 0) || 0;
+  const settlementInput = subs.map((s) => ({
+    id: s.id,
+    userId: s.userId,
+    username: s.username ?? null,
+    points: s.points,
+    strongHit: (s as { strongHit?: boolean }).strongHit,
+  }));
+  const resolved = await resolveSettlement(
+    { ...tournament, id: tournamentId, amount: tAmount, guaranteedPrizeAmount: tGuaranteed > 0 ? tGuaranteed : null } as { id: number; amount: number; guaranteedPrizeAmount?: number | null; competitionTypeId?: number | null; type?: string | null },
+    settlementInput
+  );
+  const winnerSubmissions = resolved.winnerSubmissions;
+  if (winnerSubmissions.length === 0) return { preview: false };
+  const totalPrizes = resolved.distributed || 1;
+  const winners: SettlementWinnerRow[] = winnerSubmissions.map((w) => {
+    const prizeWon = (w as { prizeAmount?: number }).prizeAmount ?? resolved.prizePerWinner;
+    const rank = (w as { rank?: number }).rank ?? 1;
+    return {
+      rank,
+      userId: w.userId,
+      username: w.username ?? `#${w.userId}`,
+      points: w.points,
+      prizeAmount: prizeWon,
+      prizePercentage: Math.round((prizeWon / totalPrizes) * 1000) / 10,
+    };
+  });
+  return { preview: true, totalPrizePool: totalPrizes, winners };
 }
 
 export type FinancialSummary = {
@@ -5210,9 +5536,17 @@ export async function insertSubmission(data: {
   const predictionsJson = JSON.stringify(data.predictions);
   const strongHitVal = data.strongHit != null ? (data.strongHit ? 1 : 0) : null;
 
+  const FREEROLL_SUBMISSION_LIMIT_MSG = "FREEROLL_SUBMISSION_LIMIT";
   const run = sqlite.transaction(() => {
-    const tRow = sqlite.prepare("SELECT status, maxParticipants FROM tournaments WHERE id = ?").get(data.tournamentId) as { status?: string; maxParticipants?: number | null } | undefined;
+    const tRow = sqlite.prepare("SELECT status, maxParticipants, amount FROM tournaments WHERE id = ?").get(data.tournamentId) as { status?: string; maxParticipants?: number | null; amount?: number | null } | undefined;
     if (!tRow || tRow.status !== "OPEN") return null as number | null;
+    const amount = Number(tRow.amount ?? 0);
+    if (amount === 0) {
+      const userCountRow = sqlite.prepare(
+        "SELECT COUNT(*) as c FROM submissions WHERE userId = ? AND tournamentId = ? AND status IN ('pending', 'approved')"
+      ).get(data.userId, data.tournamentId) as { c: number };
+      if (userCountRow.c >= 2) throw new Error(FREEROLL_SUBMISSION_LIMIT_MSG);
+    }
     const maxParticipants = tRow.maxParticipants;
     if (maxParticipants != null && Number(maxParticipants) > 0) {
       const countRow = sqlite.prepare("SELECT COUNT(*) as c FROM submissions WHERE tournamentId = ?").get(data.tournamentId) as { c: number };

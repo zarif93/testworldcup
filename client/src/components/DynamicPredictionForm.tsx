@@ -202,6 +202,11 @@ export function DynamicPredictionForm({
   const [stickySubmitVisible, setStickySubmitVisible] = useState(false);
 
   const entryCost = (tournament as { entryCostPoints?: number }).entryCostPoints ?? (tournament as { amount?: number }).amount ?? 0;
+  const isFreeroll = entryCost === 0;
+  const countPendingApproved = (list: Array<{ status?: string }> | undefined) =>
+    (list ?? []).filter((s) => s.status === "pending" || s.status === "approved").length;
+  const freerollSubmissionCount = countPendingApproved(myEntriesForTournament);
+  const freerollLimitReached = isFreeroll && freerollSubmissionCount >= 2;
   const hasEntries = !!isAuthenticated && (myEntriesForTournament?.length ?? 0) > 0;
   const hasEnoughPoints =
     user?.unlimitedPoints || user?.role === "admin" || (typeof user?.points === "number" && user.points >= entryCost);
@@ -317,6 +322,10 @@ export function DynamicPredictionForm({
       return;
     }
 
+    if (freerollLimitReached) {
+      toast.error("הגעת למקסימום 2 טפסים בתחרות FreeRoll זו");
+      return;
+    }
     if (hasEntries && entryCost > 0 && !confirmedAddEntryRef.current) {
       setShowAddEntryConfirm(true);
       return;
@@ -425,6 +434,7 @@ export function DynamicPredictionForm({
   const submitDisabled =
     !allFilled ||
     isLocked ||
+    freerollLimitReached ||
     (isChance && chanceDrawClosedForUI) ||
     (isLotto && lottoDrawClosedForUI) ||
     submitMutation.isPending ||
@@ -462,6 +472,12 @@ export function DynamicPredictionForm({
         {isLocked && (
           <div className="bg-amber-500/20 border border-amber-500/50 rounded-xl p-4 mb-6 text-amber-200 flex items-center gap-2 break-words min-w-0">
             🔒 הטורניר נעול – לא ניתן לשלוח ניחושים.
+          </div>
+        )}
+
+        {freerollLimitReached && !isLocked && (
+          <div className="bg-amber-500/20 border border-amber-500/50 rounded-xl p-4 mb-6 text-amber-200 flex items-center gap-2 break-words min-w-0">
+            הגעת למקסימום 2 טפסים בתחרות FreeRoll זו
           </div>
         )}
 

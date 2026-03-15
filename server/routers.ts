@@ -106,6 +106,8 @@ import {
   recalcCustomFootballPoints,
   getCustomFootballLeaderboard,
   getCustomFootballMatchById,
+  getTournamentSettlementWinners,
+  getTournamentSettlementPreview,
   getNearWinMessage,
   getRivalStatus,
   getPositionDrama,
@@ -1028,6 +1030,9 @@ export const appRouter = router({
         if (newSubId) trackTournamentJoin(ctx.user!.id, input.tournamentId, { entryCost: cost });
         return result;
         } catch (e) {
+          if (e instanceof Error && e.message === "FREEROLL_SUBMISSION_LIMIT") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "בתחרות FreeRoll ניתן לשלוח עד 2 טפסים בלבד" });
+          }
           logError("submission.create", e, { userId: ctx.user?.id, tournamentId: input.tournamentId });
           throw e;
         }
@@ -1182,6 +1187,12 @@ export const appRouter = router({
     getCustomFootballLeaderboard: publicProcedure
       .input(z.object({ tournamentId: z.number() }))
       .query(({ input }) => getCustomFootballLeaderboard(input.tournamentId)),
+    getTournamentSettlementWinners: publicProcedure
+      .input(z.object({ tournamentId: z.number() }))
+      .query(({ input }) => getTournamentSettlementWinners(input.tournamentId)),
+    getTournamentSettlementPreview: publicProcedure
+      .input(z.object({ tournamentId: z.number() }))
+      .query(({ input }) => getTournamentSettlementPreview(input.tournamentId)),
     getMine: protectedProcedure.query(async ({ ctx }) => {
       if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
       const raw = await getSubmissionsByUserId(ctx.user.id);
@@ -2239,6 +2250,18 @@ export const appRouter = router({
           const existing = await getTournamentByDrawDateAndTime(input.drawDate.trim(), input.drawTime.trim());
           if (existing) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "כבר קיימת תחרות צ'אנס באותו תאריך ובאותה שעה. בחר שעה או תאריך אחר." });
+          }
+        }
+        if (input.prizeDistribution != null && typeof input.prizeDistribution === "object" && Object.keys(input.prizeDistribution).length > 0) {
+          const pd = input.prizeDistribution as Record<string, number>;
+          const keys = Object.keys(pd).filter((k) => /^[1-9]\d*$/.test(k)).map((k) => parseInt(k, 10)).sort((a, b) => a - b);
+          const expectedKeys = keys.length > 0 ? Array.from({ length: keys.length }, (_, i) => i + 1) : [];
+          if (keys.length === 0 || keys.some((k, i) => k !== expectedKeys[i])) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "חלוקת פרסים: המקומות חייבים להיות 1, 2, 3, ... ברצף לפי מספר הזוכים" });
+          }
+          const sum = keys.reduce((s, k) => s + (typeof pd[String(k)] === "number" && pd[String(k)] >= 0 ? pd[String(k)] : 0), 0);
+          if (Math.abs(sum - 100) > 0.01) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `חלוקת פרסים: סך האחוזים חייב להיות 100% (נוכחי: ${sum}%)` });
           }
         }
         if (input.type === "football" || input.type === "football_custom") {

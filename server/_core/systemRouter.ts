@@ -5,7 +5,7 @@ import { getDb, getDbInitError } from "../db";
 import { getMetricsSnapshot } from "./metrics";
 import { getTournamentsWithStatusSettling } from "../db";
 import { getPendingNotificationsForDelivery } from "../db";
-import { runRecoverSettlements } from "../db";
+import { runRecoverSettlements, ensureSettlementFinancialRecord } from "../db";
 import { runFinancialReconciliationJob } from "../jobs/reconciliationJob";
 
 export const systemRouter = router({
@@ -47,6 +47,13 @@ export const systemRouter = router({
     .mutation(async ({ input }) => {
       const result = await runRecoverSettlements({ onlyTournamentIds: input?.onlyTournamentIds });
       return result;
+    }),
+
+  /** Backfill financial record for a settled tournament that has no record (e.g. 914910). Uses PRIZE_ALLOCATED events. */
+  ensureSettlementFinancialRecord: adminProcedure
+    .input(z.object({ tournamentId: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      return ensureSettlementFinancialRecord(input.tournamentId);
     }),
 
   /** Phase 15: Operational – manually run financial reconciliation (anomaly check). */

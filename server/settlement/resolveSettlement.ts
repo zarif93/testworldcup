@@ -17,8 +17,11 @@ const SUPPORTED_LEGACY_TYPES = ["football", "football_custom", "lotto", "chance"
 /** Full submission row as used in doDistributePrizesBody (has id, userId, username, points, strongHit?). */
 export type SubmissionRow = ScoredSubmission & { strongHit?: boolean };
 
+/** Winner submission with optional per-winner prize and rank (schema path); legacy uses same prizePerWinner for all. */
+export type WinnerSubmissionRow = SubmissionRow & { prizeAmount?: number; rank?: number };
+
 export interface ResolvedSettlementResult {
-  winnerSubmissions: SubmissionRow[];
+  winnerSubmissions: WinnerSubmissionRow[];
   prizePerWinner: number;
   distributed: number;
   settlementSource: SettlementSource;
@@ -89,8 +92,11 @@ export async function resolveSettlement(
       entryAmount,
       guaranteedPrizeAmount: guaranteedPrize > 0 ? guaranteedPrize : undefined,
     });
-    const winnerIds = new Set(schemaResult.winners.map((w) => w.submissionId));
-    const winnerSubmissions = submissions.filter((s) => winnerIds.has(s.id));
+    const winnerSubmissions: WinnerSubmissionRow[] = schemaResult.winners.map((w) => {
+      const s = submissions.find((sub) => sub.id === w.submissionId);
+      if (!s) throw new Error("Winner submission not in list");
+      return { ...s, prizeAmount: w.prizeAmount, rank: w.rank };
+    });
     return {
       winnerSubmissions,
       prizePerWinner: schemaResult.prizePerWinner,
