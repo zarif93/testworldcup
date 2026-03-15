@@ -46,16 +46,18 @@ export default function Transparency() {
   return (
     <div className="min-h-screen py-4 sm:py-8 overflow-x-hidden max-w-full">
       <div className="container mx-auto px-4 max-w-4xl">
-        <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 flex items-center gap-2 animate-fade-in">
+        <div className="max-w-[750px]">
+          <h1 className="text-3xl md:text-4xl font-bold text-white mb-6 flex items-center gap-2 animate-fade-in">
           <Coins className="w-9 h-9 text-amber-400" />
           שקיפות כספית
         </h1>
-        <p className="text-slate-400 mb-4">
+        <p className="text-slate-400 text-[18px] leading-[1.8] mb-5">
           כל הסכומים מתעדכנים לפי טפסים מאושרים. הצגה בלבד – לא ניתן לערוך.
         </p>
-        <p className="text-slate-500 text-sm mb-8">
+        <p className="text-slate-500 text-[18px] leading-[1.8] mb-8">
           שקיפות מלאה כדי שתוכלו לראות איך הכסף נאסף, איך קופת הפרסים מחושבת ואיך הזכיות מחולקות.
         </p>
+        </div>
 
         {/* סיכום כולל */}
         <Card className="card-sport bg-gradient-to-br from-emerald-950/50 to-slate-900 border-emerald-700/50 mb-8 overflow-hidden">
@@ -104,7 +106,7 @@ export default function Transparency() {
 
         {/* טבלה לכל טורניר */}
         <div className="space-y-4">
-          <h2 className="text-xl font-bold text-white">לפי טורניר</h2>
+          <h2 className="text-xl font-bold text-white mb-6">לפי טורניר</h2>
           {byTournament.map((row) => {
             const isExpanded = expandedTournament === row.tournamentId;
             return (

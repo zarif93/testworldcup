@@ -438,16 +438,19 @@ function Layout({ children }: { children: React.ReactNode }) {
   if (loading) return <LoadingScreen />;
 
   const termsContent = (
-    <div className="space-y-8 text-right text-slate-300 text-sm max-h-[70vh] overflow-y-auto pr-2">
+    <div className="content-prose max-h-[70vh] overflow-y-auto pr-2 text-slate-300 max-w-[750px] mx-auto">
       {/* פתיחה */}
-      <p className="text-slate-400 text-base leading-relaxed">
-        תקנון זה מגדיר את תנאי השימוש באתר. השימוש באתר מהווה הסכמה לתקנון. מומלץ לקרוא לפני ההרשמה וההשתתפות.
+      <p className="text-slate-400 mb-6">
+        תקנון זה מגדיר את תנאי השימוש באתר. השימוש באתר מהווה הסכמה לתקנון.
+      </p>
+      <p className="text-slate-400 mb-10">
+        מומלץ לקרוא לפני ההרשמה וההשתתפות.
       </p>
 
       {/* 1. הרשמה ושימוש */}
-      <section className="space-y-2">
-        <h3 className="text-white font-bold text-base border-b border-slate-600 pb-1.5">1. הרשמה ושימוש</h3>
-        <ul className="list-disc list-inside space-y-1.5 pr-1">
+      <section className="mb-10">
+        <h3 className="text-white font-bold text-xl border-b border-slate-600 pb-1.5 mb-4">1. הרשמה ושימוש</h3>
+        <ul className="list-disc list-inside space-y-3 pr-5 mb-0">
           <li><strong className="text-amber-400/90">גיל מינימום 18</strong> – השימוש באתר מותר לבני 18 ומעלה בלבד.</li>
           <li>בהרשמה יש למסור <strong className="text-white">פרטים אמיתיים ומדויקים</strong> (שם, טלפון, וכו').</li>
           <li>אתה אחראי לשמירה על <strong className="text-white">סודיות הסיסמה</strong> ולכל הפעולות מחשבונך.</li>
@@ -455,9 +458,9 @@ function Layout({ children }: { children: React.ReactNode }) {
       </section>
 
       {/* 2. השתתפות בתחרויות */}
-      <section className="space-y-2">
-        <h3 className="text-white font-bold text-base border-b border-slate-600 pb-1.5">2. השתתפות בתחרויות</h3>
-        <ul className="list-disc list-inside space-y-1.5 pr-1">
+      <section className="mb-10">
+        <h3 className="text-white font-bold text-xl border-b border-slate-600 pb-1.5 mb-4">2. השתתפות בתחרויות</h3>
+        <ul className="list-disc list-inside space-y-3 pr-5 mb-0">
           <li>ניתן להשתתף בתחרויות: <strong className="text-white">מונדיאל</strong> (ניחושי משחקים), <strong className="text-white">לוטו</strong>, <strong className="text-white">צ'אנס</strong> ותחרויות כדורגל נוספות.</li>
           <li>בכל תחרות מופיעים <strong className="text-amber-400/90">סכום ההשתתפות</strong> ו־<strong className="text-amber-400/90">קופת הפרסים</strong>.</li>
           <li>תחרות שמסומנת כ־🔒 <strong className="text-white">נעולה</strong> – לא ניתן לשלוח אליה טפסים חדשים.</li>
@@ -465,18 +468,18 @@ function Layout({ children }: { children: React.ReactNode }) {
       </section>
 
       {/* 3. מילוי ניחושים */}
-      <section className="space-y-2">
-        <h3 className="text-white font-bold text-base border-b border-slate-600 pb-1.5">3. מילוי ניחושים</h3>
-        <ul className="list-disc list-inside space-y-1.5 pr-1">
+      <section className="mb-10">
+        <h3 className="text-white font-bold text-xl border-b border-slate-600 pb-1.5 mb-4">3. מילוי ניחושים</h3>
+        <ul className="list-disc list-inside space-y-3 pr-5 mb-0">
           <li>יש למלא את הניחושים <strong className="text-white">בעצמך</strong>, באחריות ובהגינות.</li>
           <li>אסור להשתמש ב<strong className="text-red-400/90">כלים אוטומטיים, בוטים או תוכנות</strong> שמשפיעים על התהליך או התוצאות.</li>
         </ul>
       </section>
 
       {/* 4. דירוג וחלוקת פרסים */}
-      <section className="space-y-2">
-        <h3 className="text-white font-bold text-base border-b border-slate-600 pb-1.5">4. טבלת דירוג וחלוקת פרסים</h3>
-        <ul className="list-disc list-inside space-y-1.5 pr-1">
+      <section className="mb-10">
+        <h3 className="text-white font-bold text-xl border-b border-slate-600 pb-1.5 mb-4">4. טבלת דירוג וחלוקת פרסים</h3>
+        <ul className="list-disc list-inside space-y-3 pr-5 mb-0">
           <li>טפסים <strong className="text-emerald-400/90">מאושרים</strong> נכנסים לטבלת הדירוג של אותה תחרות; ניתן לעקוב אחרי הציונים והמיקום בזמן אמת.</li>
           <li><strong className="text-amber-400/90">חלוקת פרסים:</strong> לאחר סיום התחרות והגרלת התוצאות (במקרה של לוטו/צ'אנס), הזוכים נקבעים לפי הכללים של כל תחרות.</li>
           <li>אם יש <strong className="text-white">מספר זוכים עם אותו ציון</strong> – קופת הפרסים מתחלקת <strong className="text-white">שווה בשווה</strong> ביניהם (עיגול לפי כללי האתר).</li>
@@ -484,42 +487,42 @@ function Layout({ children }: { children: React.ReactNode }) {
       </section>
 
       {/* 5. פרטיות ואבטחת מידע */}
-      <section className="space-y-2">
-        <h3 className="text-white font-bold text-base border-b border-slate-600 pb-1.5">5. פרטיות ואבטחת מידע</h3>
-        <ul className="list-disc list-inside space-y-1.5 pr-1">
+      <section className="mb-10">
+        <h3 className="text-white font-bold text-xl border-b border-slate-600 pb-1.5 mb-4">5. פרטיות ואבטחת מידע</h3>
+        <ul className="list-disc list-inside space-y-3 pr-5 mb-0">
           <li>המידע האישי נשמר באופן מאובטח ומוגן.</li>
           <li>האתר לא מעביר את פרטיך ל<strong className="text-white">צד שלישי</strong> ללא הסכמתך, אלא אם נדרש על פי דין.</li>
         </ul>
       </section>
 
       {/* 6. הגבלת אחריות */}
-      <section className="space-y-2">
-        <h3 className="text-white font-bold text-base border-b border-slate-600 pb-1.5">6. הגבלת אחריות</h3>
-        <ul className="list-disc list-inside space-y-1.5 pr-1">
+      <section className="mb-10">
+        <h3 className="text-white font-bold text-xl border-b border-slate-600 pb-1.5 mb-4">6. הגבלת אחריות</h3>
+        <ul className="list-disc list-inside space-y-3 pr-5 mb-0">
           <li>האתר <strong className="text-white">אינו אחראי</strong> להפסדים כספיים כתוצאה מהשתתפות בתחרויות.</li>
           <li>האתר אינו אחראי לעיכובים או לשגיאות במידע שמגיע ממקורות חיצוניים (כגון תוצאות הגרלות, תוצאות משחקים).</li>
         </ul>
       </section>
 
       {/* 7. ביטול והפסקת שימוש */}
-      <section className="space-y-2">
-        <h3 className="text-white font-bold text-base border-b border-slate-600 pb-1.5">7. ביטול והפסקת שימוש</h3>
-        <ul className="list-disc list-inside space-y-1.5 pr-1">
+      <section className="mb-10">
+        <h3 className="text-white font-bold text-xl border-b border-slate-600 pb-1.5 mb-4">7. ביטול והפסקת שימוש</h3>
+        <ul className="list-disc list-inside space-y-3 pr-5 mb-0">
           <li>ניתן להפסיק את השימוש באתר בכל עת.</li>
           <li>במקרה של <strong className="text-red-400/90">הפרת תקנון</strong> – האתר רשאי לחסום או להסיר משתמש, ו־<strong className="text-red-400/90">דמי השתתפות ששולמו לא יוחזרו</strong>.</li>
         </ul>
       </section>
 
       {/* 8. תנאי משיכה */}
-      <section className="space-y-2">
-        <h3 className="text-white font-bold text-base border-b border-slate-600 pb-1.5">8. תנאי משיכה</h3>
-        <ul className="list-disc list-inside space-y-1.5 pr-1">
+      <section className="mb-10">
+        <h3 className="text-white font-bold text-xl border-b border-slate-600 pb-1.5 mb-4">8. תנאי משיכה</h3>
+        <ul className="list-disc list-inside space-y-3 pr-5 mb-0">
           <li>משיכות מתבצעות <strong className="text-amber-400/90">בימי חול בלבד</strong>, בין השעות <strong className="text-white">09:00–13:00</strong>.</li>
           <li><strong className="text-white">ביום שבת</strong> לא מתבצעות משיכות.</li>
         </ul>
       </section>
 
-      <p className="text-slate-500 text-xs pt-2 border-t border-slate-700">
+      <p className="text-slate-500 text-base pt-10 mt-10 border-t border-white/10 mb-0">
         עדכון אחרון: תקנון זה עשוי להתעדכן. המשך שימוש באתר לאחר עדכון מהווה הסכמה לגרסה המעודכנת.
       </p>
     </div>

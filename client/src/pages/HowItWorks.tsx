@@ -53,7 +53,8 @@ const steps = [
       "בתחרויות כדורגל – תנחשו את תוצאות המשחקים.",
       "בתחרויות לוטו או צ'אנס – תבחרו מספרים לפי חוקי התחרות.",
     ],
-    footer: "לאחר שליחת הטופס המערכת מאשרת את ההשתתפות ומכניסה אתכם לדירוג התחרות. ניתן לשלוח מספר טפסים לאותה תחרות. מה קורה אחרי אישור? אתם מופיעים בדירוג; כשהתחרות נסגרת ומחושבות התוצאות – הזוכים מקבלים את הפרס לחשבון הנקודות.",
+    footer: "לאחר שליחת הטופס המערכת מאשרת את ההשתתפות ומכניסה אתכם לדירוג התחרות. ניתן לשלוח מספר טפסים לאותה תחרות.",
+    footerExtra: "מה קורה אחרי אישור? אתם מופיעים בדירוג; כשהתחרות נסגרת ומחושבות התוצאות – הזוכים מקבלים את הפרס לחשבון הנקודות.",
   },
   {
     icon: Lock,
@@ -86,14 +87,14 @@ export default function HowItWorks() {
 
   return (
     <div className="min-h-screen py-4 sm:py-8 overflow-x-hidden max-w-full">
-      <div className="container mx-auto px-4 max-w-3xl">
+      <div className="container mx-auto px-4 max-w-[750px]">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
           <div>
-            <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 flex items-center gap-2 animate-fade-in">
+            <h1 className="text-3xl md:text-4xl font-bold text-white mb-6 flex items-center gap-2 animate-fade-in">
               <HelpCircle className="w-9 h-9 text-emerald-400" />
               איך זה עובד?
             </h1>
-            <p className="text-slate-400 text-lg">
+            <p className="text-slate-400 text-[18px] leading-[1.8] mb-5">
               ברוכים הבאים ל-WinMondial – מערכת התחרויות והניחושים.
             </p>
           </div>
@@ -106,27 +107,29 @@ export default function HowItWorks() {
           </Button>
         </div>
 
-        <Card className="card-sport bg-slate-800/60 border-slate-600/50 mb-6">
+        <Card className="card-sport bg-slate-800/60 border-slate-600/50 mb-10">
           <CardContent className="pt-6">
-            <p className="text-slate-300 leading-relaxed">
+            <p className="text-slate-300 text-[18px] leading-[1.8] mb-6">
               באתר תוכלו להשתתף בתחרויות שונות, לנחש תוצאות ולהתחרות מול שחקנים נוספים.
+            </p>
+            <p className="text-slate-300 text-[18px] leading-[1.8] mb-0">
               כל המערכת פועלת בצורה אוטומטית ושקופה.
             </p>
           </CardContent>
         </Card>
 
-        <Card className="card-sport bg-amber-500/10 border-amber-500/30 mb-8">
+        <Card className="card-sport bg-amber-500/10 border-amber-500/30 mb-10">
           <CardHeader className="pb-2">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">בקצרה – 3 שלבים</h2>
+            <h2 className="text-xl font-bold text-white flex items-center gap-2 mb-6">בקצרה – 3 שלבים</h2>
           </CardHeader>
-          <CardContent className="space-y-2 text-slate-300 text-sm sm:text-base">
+          <CardContent className="space-y-6 text-slate-300 text-[18px] leading-[1.8]">
             <p><strong className="text-amber-200">1. בחר תחרות</strong> מהרשימה ולחץ עליה.</p>
             <p><strong className="text-amber-200">2. מלא טופס ושלוח</strong> – הניחושים או הבחירות לפי סוג התחרות.</p>
             <p><strong className="text-amber-200">3. אחרי אישור</strong> – ההשתתפות נספרת ואתם נכנסים לדירוג. הזוכים מקבלים פרסים לחשבון.</p>
           </CardContent>
         </Card>
 
-        <div className="space-y-6">
+        <div className="space-y-10 [&>.card-sport:not(:first-child)]:pt-10 [&>.card-sport:not(:first-child)]:border-t [&>.card-sport:not(:first-child)]:border-white/10">
           {steps.map((step, idx) => {
             const Icon = step.icon;
             return (
@@ -139,60 +142,67 @@ export default function HowItWorks() {
                     <div className={`p-2.5 rounded-xl bg-slate-800/80 ${step.color}`}>
                       <Icon className="w-6 h-6" />
                     </div>
-                    <h2 className="text-xl font-bold text-white">{step.title}</h2>
+                    <h2 className="text-xl font-bold text-white mb-6">{step.title}</h2>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-slate-300 leading-relaxed">{step.content}</p>
+                <CardContent className="space-y-6">
+                  <p className="text-slate-300 text-[18px] leading-[1.8] mb-6">{step.content}</p>
                   {step.list && (
-                    <ul className="list-disc list-inside space-y-1 text-slate-300 pr-2">
+                    <ul className="list-disc list-inside space-y-3 text-slate-300 pr-5 text-[18px] leading-[1.8]">
                       {step.list.map((item, i) => (
                         <li key={i}>{item}</li>
                       ))}
                     </ul>
                   )}
                   {step.extra && (
-                    <p className="text-slate-400 text-sm">{step.extra}</p>
+                    <p className="text-slate-400 text-[18px] leading-[1.8] mb-6">{step.extra}</p>
                   )}
-                  <p className="text-slate-400 text-sm pt-1 border-t border-slate-700/50">
-                    {step.footer}
-                  </p>
+                  <div className="pt-6 border-t border-white/10 space-y-6">
+                    <p className="text-slate-400 text-[18px] leading-[1.8] mb-0">
+                      {step.footer}
+                    </p>
+                    {"footerExtra" in step && step.footerExtra && (
+                      <p className="text-slate-400 text-[18px] leading-[1.8] mb-0">
+                        {step.footerExtra}
+                      </p>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             );
           })}
         </div>
 
-        <Card className="card-sport bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-slate-600/50 mt-8">
+        <Card className="card-sport bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-slate-600/50 mt-10 pt-10 border-t border-white/10">
           <CardHeader>
             <div className="flex items-center gap-3">
               <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400">
                 <Eye className="w-6 h-6" />
               </div>
-              <h2 className="text-xl font-bold text-white">למה לסמוך על האתר? – שקיפות ואמינות</h2>
+              <h2 className="text-xl font-bold text-white mb-6">למה לסמוך על האתר? – שקיפות ואמינות</h2>
             </div>
           </CardHeader>
-          <CardContent className="space-y-2">
-            <p className="text-slate-300 leading-relaxed">
+          <CardContent className="space-y-6">
+            <p className="text-slate-300 text-[18px] leading-[1.8] mb-6">
               משתתפים אמיתיים, תחרות אמיתית, כללים ברורים. המערכת פועלת בצורה שקופה:
             </p>
-            <ul className="list-disc list-inside space-y-1 text-slate-300 pr-2">
+            <ul className="list-disc list-inside space-y-3 text-slate-300 pr-5 text-[18px] leading-[1.8] mb-6">
               <li>תוצאות התחרויות והדירוג מתעדכנים לפי הכללים</li>
               <li>טפסים שנשלחו ואושרו – גלויים לכם</li>
               <li>חלוקת פרסים לזוכים – אוטומטית ושקופה</li>
             </ul>
-            <p className="text-slate-400 text-sm pt-2">
+            <p className="text-slate-400 text-[18px] leading-[1.8] mb-0">
               בדף השקיפות תוכלו לראות סיכום כספי ותחרויות. תקנון ופרטיות זמינים בתחתית האתר.
             </p>
           </CardContent>
         </Card>
 
-        <Card className="card-sport bg-amber-500/10 border-amber-500/30 mt-6">
+        <Card className="card-sport bg-amber-500/10 border-amber-500/30 mt-10 pt-10 border-t border-white/10">
           <CardContent className="pt-6 flex items-start gap-3">
             <Lightbulb className="w-8 h-8 text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <h3 className="font-bold text-amber-200 mb-1">טיפ לשחקנים</h3>
-              <p className="text-slate-300 leading-relaxed">
+              <h3 className="text-xl font-bold text-amber-200 mb-4">טיפ לשחקנים</h3>
+              <p className="text-slate-300 text-[18px] leading-[1.8] mb-0">
                 ככל שתשלחו יותר טפסים ותשתתפו ביותר תחרויות, כך יגדלו הסיכויים שלכם לזכות בפרסים.
               </p>
             </div>

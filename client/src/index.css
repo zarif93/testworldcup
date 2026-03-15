@@ -275,6 +275,90 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+  /* Static content typography – Stripe/Notion-style readability, RTL-friendly */
+  .content-prose {
+    max-width: 750px;
+    font-size: 18px;
+    line-height: 1.8;
+    text-align: right;
+    direction: rtl;
+  }
+  .content-prose p {
+    margin-bottom: 24px;
+  }
+  .content-prose p:last-child {
+    margin-bottom: 0;
+  }
+  .content-prose h2 {
+    margin-top: 2.5rem;
+    margin-bottom: 24px;
+  }
+  .content-prose h2:first-child {
+    margin-top: 0;
+  }
+  .content-prose h3 {
+    font-size: 1.25rem;
+    margin-top: 2rem;
+    margin-bottom: 16px;
+  }
+  .content-prose h3:first-child {
+    margin-top: 0;
+  }
+  .content-prose ul,
+  .content-prose ol {
+    padding-right: 1.25rem;
+    padding-left: 0;
+    margin-bottom: 24px;
+  }
+  .content-prose li {
+    margin-bottom: 0.75rem;
+  }
+  .content-prose li:last-child {
+    margin-bottom: 0;
+  }
+  /* Section separators for vertical rhythm */
+  .content-prose section + section {
+    padding-top: 2.5rem;
+    margin-top: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  /* Highlight blocks – Stripe/Linear/Notion style */
+  .content-prose .info-box,
+  .info-box {
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    background: rgba(59, 130, 246, 0.08);
+    font-size: 1rem;
+    line-height: 1.75;
+    text-align: right;
+    direction: rtl;
+  }
+  .content-prose .tip-box,
+  .tip-box {
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(34, 197, 94, 0.25);
+    background: rgba(34, 197, 94, 0.06);
+    font-size: 1rem;
+    line-height: 1.75;
+    text-align: right;
+    direction: rtl;
+  }
+  .content-prose .warning-box,
+  .warning-box {
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    background: rgba(245, 158, 11, 0.08);
+    font-size: 1rem;
+    line-height: 1.75;
+    text-align: right;
+    direction: rtl;
+  }
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }

@@ -45,6 +45,7 @@ import {
 } from "@/config/cmsPredefinedOptions";
 import { MediaPickerModal } from "@/components/admin/MediaPickerModal";
 import { toast } from "sonner";
+import { looksLikeHtml, plainTextToHtml, htmlToPlainText } from "@/lib/cmsBody";
 
 /** Normalize slug for URL: lowercase, hyphens, no spaces */
 function normalizeSlug(s: string): string {
@@ -620,7 +621,16 @@ function PageFormModal({ open, onClose, editingId }: { open: boolean; onClose: (
       setSlugCustom(inList ? "" : p.slug);
       setTitle(p.title);
       setShortDescription(p.shortDescription ?? "");
-      setBody(p.body ?? "");
+      const rawBody = p.body ?? "";
+      if ((import.meta.env?.DEV || process.env?.NODE_ENV === "development") && rawBody) {
+        console.log("[CMS page body] stored value:", {
+          length: rawBody.length,
+          preview: rawBody.slice(0, 100).replace(/\n/g, "↵"),
+          hasNewlines: /\n/.test(rawBody),
+          looksLikeHtml: looksLikeHtml(rawBody),
+        });
+      }
+      setBody(looksLikeHtml(rawBody) ? htmlToPlainText(rawBody) : rawBody);
       setCoverImageUrl(p.coverImageUrl ?? "");
       setSeoTitle(p.seoTitle ?? "");
       setSeoDescription(p.seoDescription ?? "");
@@ -634,11 +644,13 @@ function PageFormModal({ open, onClose, editingId }: { open: boolean; onClose: (
     const finalSlug = slug || normalizeSlug(title);
     if (!finalSlug) { toast.error("כתובת הדף חובה (אותיות אנגלית קטנות, מספרים ומקף)"); return; }
     if (!SLUG_REGEX.test(finalSlug)) { toast.error("כתובת הדף: רק אותיות אנגלית קטנות, מספרים ומקף"); return; }
+    const rawBody = body.trim() || null;
+    const bodyToSave = rawBody ? plainTextToHtml(rawBody) : null;
     const payload = {
       slug: finalSlug,
       title: title.trim(),
       shortDescription: shortDescription.trim() || null,
-      body: body.trim() || null,
+      body: bodyToSave,
       coverImageUrl: coverImageUrl.trim() || null,
       seoTitle: seoTitle.trim() || null,
       seoDescription: seoDescription.trim() || null,
@@ -681,7 +693,7 @@ function PageFormModal({ open, onClose, editingId }: { open: boolean; onClose: (
           </div>
           <div>
             <Label className="text-slate-300">תוכן ראשי (אופציונלי)</Label>
-            <Textarea className="bg-slate-800 text-white mt-1 border-slate-600 min-h-[120px]" value={body} onChange={(e) => setBody(e.target.value)} placeholder="טקסט חופשי. ניתן להוסיף גם בלוקים בדף אחרי השמירה." />
+            <Textarea className="bg-slate-800 text-white mt-1 border-slate-600 min-h-[120px] font-normal" value={body} onChange={(e) => setBody(e.target.value)} placeholder="טקסט חופשי. שורה ריקה בין פסקאות = פסקה חדשה. ניתן להוסיף בלוקים בדף אחרי השמירה." />
           </div>
           <div>
             <Label className="text-slate-300">תמונת כיסוי (אופציונלי)</Label>

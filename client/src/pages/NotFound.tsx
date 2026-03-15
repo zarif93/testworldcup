@@ -23,10 +23,10 @@ export default function NotFound() {
 
           <h1 className="text-4xl font-bold text-slate-900 mb-2">404</h1>
 
-          <h2 className="text-xl font-semibold text-slate-700 mb-4">
+          <h2 className="text-xl font-semibold text-slate-700 mb-6">
             WinMondial – הדף לא נמצא
           </h2>
-          <p className="text-slate-600 mb-8 leading-relaxed">
+          <p className="text-slate-600 text-[18px] leading-[1.8] mb-8">
             הדף שחיפשת לא קיים או הועבר.
             <br />
             חזור לדף הבית או נסה ניווט אחר.

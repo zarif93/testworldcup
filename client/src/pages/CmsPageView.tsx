@@ -8,6 +8,7 @@ import { useRoute, useLocation, Link } from "wouter";
 import { Loader2, FileText, ArrowRight, Link2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
+import { looksLikeHtml, plainTextToHtml } from "@/lib/cmsBody";
 
 /** Max width for main content column (readable + ~900–1100px) */
 const CONTENT_MAX_WIDTH = "max-w-[min(65rem,100%)]";
@@ -32,13 +33,29 @@ type Section = {
 /** Allow only safe tags for HTML body (reduce XSS risk). */
 function sanitizeHtml(html: string): string {
   if (!html || typeof html !== "string") return "";
-  const allowedTags = ["p", "br", "strong", "em", "b", "i", "ul", "ol", "li", "a", "h2", "h3", "span"];
+  const allowedTags = ["p", "br", "strong", "em", "b", "i", "ul", "ol", "li", "a", "h2", "h3", "span", "div"];
   let out = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
   out = out.replace(/<\/?([a-z][a-z0-9]*)\b[^>]*>/gi, (full, tag) => {
     if (!allowedTags.includes(tag.toLowerCase())) return "";
     return full.replace(/\s+on\w+=["'][^"']*["']/gi, "").replace(/href\s*=\s*["']?\s*javascript:/gi, "href=\"#\"");
   });
   return out;
+}
+
+/**
+ * Normalize CMS body: plain text → paragraphs + br; HTML → preserved and sanitized.
+ * - Plain text: split by double newlines into <p>, single newlines → <br />
+ * - HTML: pass through sanitizer only (preserve p, br, ul, ol, li, h2, h3).
+ */
+function normalizeBodyContent(body: string): string {
+  if (!body || typeof body !== "string") return "";
+  const trimmed = body.trim();
+  if (!trimmed) return "";
+
+  if (looksLikeHtml(trimmed)) {
+    return sanitizeHtml(trimmed);
+  }
+  return sanitizeHtml(plainTextToHtml(trimmed));
 }
 
 function SectionBlock({ section }: { section: Section }) {
@@ -216,15 +233,15 @@ export default function CmsPageView() {
             {p.title}
           </h1>
           {p.shortDescription?.trim() && (
-            <p className="text-slate-400 text-lg md:text-xl mb-8 leading-relaxed max-w-2xl">
+            <p className="content-prose text-slate-400 text-lg md:text-xl mb-8 leading-[1.8] max-w-[750px]">
               {p.shortDescription.trim()}
             </p>
           )}
 
           {hasBody && (
             <div
-              className="cms-body text-slate-300 text-base md:text-lg leading-[1.7] mb-10 [&_p]:mb-4 [&_p:last-child]:mb-0 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:text-white [&_h2]:mt-8 [&_h2]:mb-3 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:text-white [&_h3]:mt-6 [&_h3]:mb-2 [&_ul]:list-disc [&_ul]:pr-5 [&_ul]:space-y-1.5 [&_ol]:list-decimal [&_ol]:pr-5 [&_ol]:space-y-1.5 [&_a]:text-amber-400 [&_a]:underline [&_a:hover]:text-amber-300"
-              dangerouslySetInnerHTML={{ __html: sanitizeHtml(p.body!) }}
+              className="content-prose cms-body text-slate-300 mb-10 [&_p]:mb-6 [&_p:last-child]:mb-0 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:text-white [&_h2]:mt-10 [&_h2]:mb-6 [&_h3]:text-xl [&_h3]:font-semibold [&_h3]:text-white [&_h3]:mt-8 [&_h3]:mb-4 [&_ul]:list-disc [&_ul]:pr-5 [&_ul]:space-y-3 [&_ol]:list-decimal [&_ol]:pr-5 [&_ol]:space-y-3 [&_a]:text-amber-400 [&_a]:underline [&_a:hover]:text-amber-300"
+              dangerouslySetInnerHTML={{ __html: normalizeBodyContent(p.body!) }}
             />
           )}
 
