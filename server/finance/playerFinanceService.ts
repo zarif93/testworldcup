@@ -5,11 +5,11 @@
  */
 
 import { getSchema, getDb } from "../db";
-import { getDepositsTotal, getWinningsTotal, getRefundsTotal, getUserById, getReportFilterTournamentIds } from "../db";
+import { getDepositsTotal, getWinningsTotal, getRefundsTotal, getUserById, getReportFilterTournamentIds, getTournamentById } from "../db";
 import { eq, and } from "drizzle-orm";
 import { getFinancialEventsByUser, getFinancialEventsByUserFiltered } from "./financialEventService";
-import { computeCommissionFromEntry } from "./commissionService";
-import { DEFAULT_COMMISSION_BASIS_POINTS } from "./constants";
+import { getCommissionBasisPoints, computeCommissionFromEntry } from "./commissionService";
+import { logError } from "../_core/logger";
 import type { PlayerFinancialProfile } from "./types";
 
 export interface PlayerFinancialProfileFilter {
@@ -52,6 +52,7 @@ export async function getPlayerFinancialProfile(
   let totalPrizesWon = 0;
   let totalCommissionGenerated = 0;
   let agentCommissionFromPlayer = 0;
+  const tournamentCache = new Map<number, { commissionPercentBasisPoints?: number | null }>();
   for (const e of events) {
     const amt = e.amountPoints ?? 0;
     const payload = (e.payloadJson ?? {}) as { commissionAmount?: number; agentCommissionAmount?: number };
@@ -59,10 +60,25 @@ export async function getPlayerFinancialProfile(
       case "ENTRY_FEE":
         totalParticipations += 1;
         totalEntryFees += amt;
-        totalCommissionGenerated +=
-          typeof payload.commissionAmount === "number"
-            ? payload.commissionAmount
-            : computeCommissionFromEntry(amt, DEFAULT_COMMISSION_BASIS_POINTS);
+        if (typeof payload.commissionAmount === "number") {
+          totalCommissionGenerated += payload.commissionAmount;
+        } else {
+          const tid = e.tournamentId ?? 0;
+          let t = tournamentCache.get(tid);
+          if (!t) {
+            const tour = await getTournamentById(tid);
+            if (!tour) {
+              logError("getPlayerFinancialProfile", new Error("Tournament not found for entry; commission for this entry set to 0"), { tournamentId: tid, userId });
+            } else {
+              t = tour as { commissionPercentBasisPoints?: number | null };
+              tournamentCache.set(tid, t);
+            }
+          }
+          if (t) {
+            const bps = getCommissionBasisPoints(t as { id?: number; name?: string; commissionPercentBasisPoints?: number | null });
+            totalCommissionGenerated += computeCommissionFromEntry(amt, bps);
+          }
+        }
         if (typeof payload.agentCommissionAmount === "number") agentCommissionFromPlayer += payload.agentCommissionAmount;
         break;
       case "REFUND":

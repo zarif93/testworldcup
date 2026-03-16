@@ -3,6 +3,9 @@
  * - כל מספר רגיל שנפגע = נקודה אחת
  * - פגיעה במספר החזק = נקודה נוספת
  *
+ * Isolation: one tournament per test so setLottoResult rescores only the submission
+ * created in that test. No cross-test state; scoring applies to intended submission only.
+ *
  * מקרי בדיקה:
  * 1. 5 מספרים בלי חזק  → 5 נקודות
  * 2. 4 מספרים + חזק    → 5 נקודות
@@ -15,7 +18,7 @@ import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import { getDb, getSubmissionsByUserAndTournament } from "./db";
 import { users, submissions } from "../drizzle/schema-sqlite";
-import { eq, desc, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 function createContext(user: TrpcContext["user"]): TrpcContext {
   return {
@@ -51,13 +54,9 @@ describe("lotto scoring", () => {
   const testUsername = `lottotest_${Date.now()}`;
   const testPassword = "TestPassword123";
   let testUserId: number;
-  let tournamentId: number;
 
   beforeAll(async () => {
     const publicCaller = appRouter.createCaller(createContext(null));
-    const adminCaller = appRouter.createCaller(createContext(adminUser));
-
-    // יצירת משתמש בדיקה
     const reg = await publicCaller.auth.register({
       username: testUsername,
       phone: "0509998888",
@@ -65,19 +64,6 @@ describe("lotto scoring", () => {
       name: "Lotto Test User",
     });
     testUserId = reg.user.id;
-
-    // יצירת תחרות לוטו בודדת (חובה תאריך ושעת סגירה)
-    await adminCaller.admin.createTournament({
-      name: "Lotto Scoring Test",
-      amount: 10,
-      type: "lotto",
-      drawCode: `lotto-test-${Date.now()}`,
-      drawDate: "2030-01-15",
-      drawTime: "23:00",
-    });
-    const list = await adminCaller.tournaments.getAll();
-    const t = list.find((tt: { name?: string }) => tt.name === "Lotto Scoring Test");
-    tournamentId = (t as { id: number }).id;
   });
 
   afterAll(async () => {
@@ -110,19 +96,33 @@ describe("lotto scoring", () => {
     } as TrpcContext["user"]);
   }
 
-  async function submitLotto(numbers: number[], strongNumber: number) {
-    // מוודאים שלמשתמש יש מספיק נקודות להשתתפות
+  /** Create a fresh tournament for this test; submit one entry; set draw; return the single submission's points/strongHit. */
+  async function runScenario(
+    numbers: number[],
+    strongNumber: number,
+    draw: { nums: number[]; strong: number }
+  ): Promise<{ points: number; strongHit: boolean }> {
     const adminCaller = appRouter.createCaller(createContext(adminUser));
+    const unique = `lotto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await adminCaller.admin.createTournament({
+      name: `Lotto ${unique}`,
+      amount: 10,
+      type: "lotto",
+      drawCode: unique,
+      drawDate: "2030-01-15",
+      drawTime: "23:00",
+    });
+    const list = await adminCaller.tournaments.getAll();
+    const t = list.find((tt: { drawCode?: string }) => tt.drawCode === unique);
+    const tournamentId = (t as { id: number }).id;
+
     await adminCaller.admin.depositPoints({ userId: testUserId, amount: 100 });
     const caller = appRouter.createCaller(testUserContext());
     await caller.submissions.submit({
       tournamentId,
       predictionsLotto: { numbers, strongNumber },
     });
-  }
 
-  async function setLottoResult(draw: { nums: number[]; strong: number }) {
-    const adminCaller = appRouter.createCaller(createContext(adminUser));
     await adminCaller.admin.updateLottoResults({
       tournamentId,
       num1: draw.nums[0],
@@ -134,58 +134,64 @@ describe("lotto scoring", () => {
       strongNumber: draw.strong,
       drawDate: "2030-01-01",
     });
-  }
 
-  async function getLastSubmissionPoints(): Promise<{ points: number; strongHit: number | boolean | null } | undefined> {
-    const list = await getSubmissionsByUserAndTournament(testUserId, tournamentId);
-    if (list.length === 0) return undefined;
-    const last = list.reduce((a, b) => (a.id > b.id ? a : b));
-    return { points: last.points ?? 0, strongHit: (last as { strongHit?: boolean | null }).strongHit ?? null };
+    const listSubs = await getSubmissionsByUserAndTournament(testUserId, tournamentId);
+    expect(listSubs.length).toBe(1);
+    const sub = listSubs[0];
+    return {
+      points: sub.points ?? 0,
+      strongHit: !!((sub as { strongHit?: boolean | null }).strongHit),
+    };
   }
 
   it("5 מספרים בלי חזק = 5 נקודות", async () => {
-    await submitLotto([1, 2, 3, 4, 5, 6], 7);
-    await setLottoResult({ nums: [1, 2, 3, 4, 5, 8], strong: 1 });
-    const sub = await getLastSubmissionPoints();
-    expect(sub).toBeDefined();
-    expect(sub!.points).toBe(5);
-    expect(!!sub!.strongHit).toBe(false);
+    const result = await runScenario(
+      [1, 2, 3, 4, 5, 6],
+      7,
+      { nums: [1, 2, 3, 4, 5, 8], strong: 1 }
+    );
+    expect(result.points).toBe(5);
+    expect(result.strongHit).toBe(false);
   });
 
   it("4 מספרים + חזק = 5 נקודות", async () => {
-    await submitLotto([1, 2, 3, 4, 5, 6], 7);
-    await setLottoResult({ nums: [1, 2, 3, 4, 9, 10], strong: 7 });
-    const sub = await getLastSubmissionPoints();
-    expect(sub).toBeDefined();
-    expect(sub!.points).toBe(5);
-    expect(!!sub!.strongHit).toBe(true);
+    const result = await runScenario(
+      [1, 2, 3, 4, 5, 6],
+      7,
+      { nums: [1, 2, 3, 4, 9, 10], strong: 7 }
+    );
+    expect(result.points).toBe(5);
+    expect(result.strongHit).toBe(true);
   });
 
   it("5 מספרים + חזק = 6 נקודות", async () => {
-    await submitLotto([1, 2, 3, 4, 5, 6], 7);
-    await setLottoResult({ nums: [1, 2, 3, 4, 5, 9], strong: 7 });
-    const sub = await getLastSubmissionPoints();
-    expect(sub).toBeDefined();
-    expect(sub!.points).toBe(6);
-    expect(!!sub!.strongHit).toBe(true);
+    const result = await runScenario(
+      [1, 2, 3, 4, 5, 6],
+      7,
+      { nums: [1, 2, 3, 4, 5, 9], strong: 7 }
+    );
+    expect(result.points).toBe(6);
+    expect(result.strongHit).toBe(true);
   });
 
   it("0 מספרים + חזק = 1 נקודה", async () => {
-    await submitLotto([11, 12, 13, 14, 15, 16], 7);
-    await setLottoResult({ nums: [1, 2, 3, 4, 5, 6], strong: 7 });
-    const sub = await getLastSubmissionPoints();
-    expect(sub).toBeDefined();
-    expect(sub!.points).toBe(1);
-    expect(!!sub!.strongHit).toBe(true);
+    const result = await runScenario(
+      [11, 12, 13, 14, 15, 16],
+      7,
+      { nums: [1, 2, 3, 4, 5, 6], strong: 7 }
+    );
+    expect(result.points).toBe(1);
+    expect(result.strongHit).toBe(true);
   });
 
   it("0 מספרים בלי חזק = 0 נקודות", async () => {
-    await submitLotto([11, 12, 13, 14, 15, 16], 7);
-    await setLottoResult({ nums: [1, 2, 3, 4, 5, 6], strong: 1 });
-    const sub = await getLastSubmissionPoints();
-    expect(sub).toBeDefined();
-    expect(sub!.points).toBe(0);
-    expect(!!sub!.strongHit).toBe(false);
+    const result = await runScenario(
+      [11, 12, 13, 14, 15, 16],
+      7,
+      { nums: [1, 2, 3, 4, 5, 6], strong: 1 }
+    );
+    expect(result.points).toBe(0);
+    expect(result.strongHit).toBe(false);
   });
 });
 

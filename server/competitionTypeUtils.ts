@@ -19,8 +19,8 @@ const CODE_TO_LEGACY: Record<string, LegacyCompetitionType> = {
 
 /** Map from legacy type to display name (Hebrew) when type is not in DB. */
 const LEGACY_DISPLAY_NAMES: Record<string, string> = {
-  football: "מונדיאל / כדורגל",
-  football_custom: "כדורגל מותאם",
+  football: "מונדיאל",
+  football_custom: "תחרויות ספורט",
   lotto: "לוטו",
   chance: "צ'אנס",
   custom: "מותאם",

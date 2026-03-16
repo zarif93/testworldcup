@@ -19,10 +19,10 @@ const ACTION_LABELS: Record<string, string> = {
 
 const TOURNAMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "כל הסוגים" },
-  { value: "football", label: "כדורגל" },
+  { value: "football", label: "מונדיאל" },
   { value: "lotto", label: "לוטו" },
   { value: "chance", label: "צ'אנס" },
-  { value: "football_custom", label: "כדורגל מותאם" },
+  { value: "football_custom", label: "תחרויות ספורט" },
 ];
 
 export default function PointsHistory() {

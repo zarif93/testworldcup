@@ -98,7 +98,7 @@ export default function Submissions() {
             </TabsTrigger>
             <TabsTrigger value="football_custom" className="rounded-lg shrink-0 data-[state=active]:bg-rose-600/80 data-[state=active]:text-white">
               <Trophy className="w-4 h-4 ml-1" />
-              תחרות כדורגל
+              תחרויות ספורט
             </TabsTrigger>
           </TabsList>
 

@@ -56,7 +56,7 @@ function parseTournamentTypeParam(raw: string | null): PublicTournamentType | nu
 
 function tabLabel(tab: PublicTournamentType): string {
   if (tab === "WORLD_CUP") return "מונדיאל";
-  if (tab === "FOOTBALL") return "תחרות כדורגל";
+  if (tab === "FOOTBALL") return "תחרויות ספורט";
   if (tab === "CHANCE") return "צ'אנס";
   return "לוטו";
 }
@@ -768,7 +768,7 @@ export default function Leaderboard() {
             </TabsTrigger>
             <TabsTrigger value="FOOTBALL" className="rounded-lg shrink-0 data-[state=active]:bg-rose-600/80 data-[state=active]:text-white">
               <Trophy className="w-4 h-4 ml-1 shrink-0" />
-              <span className="whitespace-nowrap">תחרות כדורגל</span>
+              <span className="whitespace-nowrap">תחרויות ספורט</span>
             </TabsTrigger>
             <TabsTrigger value="CHANCE" className="rounded-lg shrink-0 data-[state=active]:bg-amber-600/80 data-[state=active]:text-white">
               <Trophy className="w-4 h-4 ml-1 shrink-0" />

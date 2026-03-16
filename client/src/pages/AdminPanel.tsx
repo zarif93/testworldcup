@@ -71,6 +71,8 @@ import { AnalyticsDashboardSection } from "@/components/admin/AnalyticsDashboard
 import { OpsStatusSection } from "@/components/admin/OpsStatusSection";
 import { PaymentsSection } from "@/components/admin/PaymentsSection";
 import { SettlementReportsSection } from "@/components/admin/SettlementReportsSection";
+import { TeamLibrarySection } from "@/components/admin/TeamLibrarySection";
+import { TeamPicker } from "@/components/admin/TeamPicker";
 
 type AdminSection = "dashboard" | "analytics" | "ops" | "finance" | "autoFill" | "submissions" | "competitions" | "agents" | "players" | "admins" | "roles" | "cms" | "media" | "notifications" | "payments" | "settings";
 type CompetitionSubType = "lotto" | "chance" | "mondial" | "football_custom" | null;
@@ -82,6 +84,8 @@ export default function AdminPanel() {
   const [competitionSubType, setCompetitionSubType] = useState<CompetitionSubType>(null);
   const [schemaDebugTournamentId, setSchemaDebugTournamentId] = useState<number | null>(null);
   const [itemsManageTournament, setItemsManageTournament] = useState<{ id: number; name: string } | null>(null);
+  const [editCommissionModal, setEditCommissionModal] = useState<{ tournamentId: number; tournamentName: string; currentCommissionPercent: number } | null>(null);
+  const [editCommissionValue, setEditCommissionValue] = useState("");
   const [adminCode, setAdminCode] = useState("");
   const [codeError, setCodeError] = useState(false);
   const [searchSubmissions, setSearchSubmissions] = useState("");
@@ -107,9 +111,19 @@ export default function AdminPanel() {
   });
 
   const [footballCustomSelectedId, setFootballCustomSelectedId] = useState<number | "">("");
-  const [footballCustomNewMatch, setFootballCustomNewMatch] = useState({ homeTeam: "", awayTeam: "", matchDate: "", matchTime: "" });
+  const [footballCustomNewMatch, setFootballCustomNewMatch] = useState<{
+    homeTeam: string; awayTeam: string;
+    homeTeamId?: number; awayTeamId?: number;
+    homeCategoryName?: string; awayCategoryName?: string;
+    matchDate: string; matchTime: string;
+  }>({ homeTeam: "", awayTeam: "", matchDate: "", matchTime: "" });
   const [footballCustomResultEdit, setFootballCustomResultEdit] = useState<Record<number, { homeScore: string; awayScore: string }>>({});
-  const [editCustomMatch, setEditCustomMatch] = useState<{ id: number; homeTeam: string; awayTeam: string; matchDate: string; matchTime: string } | null>(null);
+  const [editCustomMatch, setEditCustomMatch] = useState<{
+    id: number; homeTeam: string; awayTeam: string;
+    homeTeamId?: number; awayTeamId?: number;
+    homeCategoryName?: string; awayCategoryName?: string;
+    matchDate: string; matchTime: string;
+  } | null>(null);
 
   const [pointsSelectedUserId, setPointsSelectedUserId] = useState<number | "">("");
   const [pointsDepositAmount, setPointsDepositAmount] = useState("");
@@ -255,6 +269,7 @@ export default function AdminPanel() {
   const lockMut = trpc.admin.lockTournament.useMutation();
   const createTournamentMut = trpc.admin.createTournament.useMutation();
   const deleteTournamentMut = trpc.admin.deleteTournament.useMutation();
+  const updateTournamentCommissionMut = trpc.admin.updateTournamentCommission.useMutation();
   const createAgentMut = trpc.admin.createAgent.useMutation();
   const deleteUserMut = trpc.admin.deleteUser.useMutation();
   const createAutoSubmissionsMut = trpc.admin.createAutoSubmissions.useMutation();
@@ -343,7 +358,6 @@ export default function AdminPanel() {
   const updateCustomFootballMatchMut = trpc.admin.updateCustomFootballMatch.useMutation();
   const deleteCustomFootballMatchMut = trpc.admin.deleteCustomFootballMatch.useMutation();
   const recalcCustomFootballPointsMut = trpc.admin.recalcCustomFootballPoints.useMutation();
-
   const [agentForm, setAgentForm] = useState({ username: "", phone: "", password: "", name: "" });
   const [adminForm, setAdminForm] = useState({ username: "", password: "", name: "" });
   const [adminEditId, setAdminEditId] = useState<number | null>(null);
@@ -372,7 +386,17 @@ export default function AdminPanel() {
     openTime: "",
     closeTime: "",
     closeDate: "",
+    commissionPercent: "12.5",
+    /** תחרויות ספורט: מספר משחקים (1–30). מציג N שורות משחקים בטופס היצירה. */
+    numberOfGames: "",
   });
+  /** תחרויות ספורט: שורות משחקים בטופס היצירה (מתעדכן לפי numberOfGames). teamId/categoryName for library picker. */
+  const [sportsCreateMatches, setSportsCreateMatches] = useState<Array<{
+    homeTeam: string; awayTeam: string;
+    homeTeamId?: number; awayTeamId?: number;
+    homeCategoryName?: string; awayCategoryName?: string;
+    matchDate: string; matchTime: string;
+  }>>([]);
 
   const CHANCE_DRAW_TIMES = ["09:00", "11:00", "13:00", "15:00", "17:00", "19:00", "21:00"] as const;
   const LOTTO_DRAW_TIMES = ["20:00", "22:30", "23:00", "23:30", "00:00"] as const;
@@ -424,7 +448,7 @@ export default function AdminPanel() {
     {
       id: "competitions-new",
       title: "פתיחת תחרות חדשה",
-      description: "פתיחת תחרות לוטו, צ'אנס, כדורגל או מונדיאל.",
+      description: "פתיחת תחרות לוטו, צ'אנס, תחרויות ספורט או מונדיאל.",
       icon: <Trophy className="w-8 h-8 text-amber-400" />,
       route: "competitions" as DashboardCardRoute,
       status: activeTournamentsCount > 0 ? { text: `${activeTournamentsCount} תחרויות פעילות`, color: "green" as const } : { text: "אין תחרויות פעילות", color: "slate" as const },
@@ -710,8 +734,34 @@ export default function AdminPanel() {
       return;
     }
     if ((tournamentType === "football" || tournamentType === "football_custom") && (!newTournament.openDate?.trim() || !newTournament.openTime?.trim() || !newTournament.closeDate?.trim() || !newTournament.closeTime?.trim())) {
-      toast.error("בתחרות מונדיאל/כדורגל חובה לבחור תאריך פתיחה, שעת פתיחה, תאריך סגירה ושעת סגירה");
+      toast.error("בתחרות מונדיאל/תחרויות ספורט חובה לבחור תאריך פתיחה, שעת פתיחה, תאריך סגירה ושעת סגירה");
       return;
+    }
+    if (tournamentType === "football_custom") {
+      const ng = newTournament.numberOfGames.trim() ? parseInt(newTournament.numberOfGames, 10) : NaN;
+      if (!Number.isInteger(ng) || ng < 1 || ng > 30) {
+        toast.error("בתחרות ספורט חובה להזין מספר משחקים בין 1 ל־30");
+        return;
+      }
+      if (sportsCreateMatches.length !== ng) {
+        toast.error("מלא את כל שורות המשחקים לפי מספר המשחקים שבחרת");
+        return;
+      }
+      for (let i = 0; i < sportsCreateMatches.length; i++) {
+        const r = sportsCreateMatches[i];
+        if (!(r.homeTeam?.trim()) || !(r.awayTeam?.trim())) {
+          toast.error(`משחק ${i + 1}: חובה למלא קבוצה ביתית ואורחת`);
+          return;
+        }
+        if (r.homeTeam.trim() === r.awayTeam.trim()) {
+          toast.error(`משחק ${i + 1}: קבוצה ביתית ואורחת לא יכולות להיות אותו שם`);
+          return;
+        }
+        if (!(r.matchDate?.trim()) || !(r.matchTime?.trim())) {
+          toast.error(`משחק ${i + 1}: חובה למלא תאריך ושעה`);
+          return;
+        }
+      }
     }
     const n = Math.max(1, Math.min(20, newTournament.numberOfWinners));
     const percentages = newTournament.prizePercentages.slice(0, n).map((s) => parseInt(s, 10) || 0);
@@ -736,6 +786,20 @@ export default function AdminPanel() {
   };
 
     try {
+      const commissionNum = newTournament.commissionPercent.trim() === "" ? 12.5 : parseFloat(newTournament.commissionPercent);
+      const commissionPercent = Number.isFinite(commissionNum) && commissionNum >= 0 && commissionNum <= 100 ? commissionNum : 12.5;
+      const numberOfGamesNum = tournamentType === "football_custom" && newTournament.numberOfGames.trim()
+        ? parseInt(newTournament.numberOfGames, 10) : undefined;
+      const matchesPayload = tournamentType === "football_custom" && numberOfGamesNum != null && sportsCreateMatches.length === numberOfGamesNum
+        ? sportsCreateMatches.map((r) => ({
+            homeTeam: r.homeTeam.trim(),
+            awayTeam: r.awayTeam.trim(),
+            homeTeamId: r.homeTeamId ?? undefined,
+            awayTeamId: r.awayTeamId ?? undefined,
+            matchDate: r.matchDate.trim() || undefined,
+            matchTime: r.matchTime.trim() || undefined,
+          }))
+        : undefined;
       await createTournamentMut.mutateAsync({
         name: newTournament.name.trim(),
         amount,
@@ -749,6 +813,7 @@ export default function AdminPanel() {
         drawDate: tournamentType === "chance" || tournamentType === "lotto" ? newTournament.drawDate.trim() : undefined,
         drawTime: tournamentType === "chance" || tournamentType === "lotto" ? newTournament.drawTime.trim() : undefined,
         customIdentifier: newTournament.customIdentifier?.trim() || undefined,
+        commissionPercent,
         guaranteedPrizeAmount: (() => {
           if (!newTournament.freeEntry) return undefined;
           if (!newTournament.guaranteedPrizeEnabled) return undefined;
@@ -757,6 +822,8 @@ export default function AdminPanel() {
           const n = parseInt(v, 10);
           return Number.isFinite(n) && n > 0 ? n : undefined;
         })(),
+        numberOfGames: numberOfGamesNum != null && numberOfGamesNum >= 1 && numberOfGamesNum <= 30 ? numberOfGamesNum : undefined,
+        matches: matchesPayload,
         ...((tournamentType === "football" || tournamentType === "football_custom") && (() => {
           const built = buildOpensClosesMondial(
             newTournament.openDate,
@@ -789,7 +856,10 @@ export default function AdminPanel() {
         openTime: "",
         closeTime: "",
         closeDate: "",
+        commissionPercent: "12.5",
+        numberOfGames: "",
       });
+      setSportsCreateMatches([]);
       await utils.tournaments.getAll.invalidate();
     } catch (err: unknown) {
       const msg = err && typeof err === "object" && "message" in err ? String((err as { message: string }).message) : "שגיאה";
@@ -1117,7 +1187,7 @@ export default function AdminPanel() {
                     <option value="">— בחר טורניר —</option>
                     {(tournaments ?? []).map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.name} – ₪{t.amount} {((t as { type?: string }).type === "chance" ? "צ'אנס" : (t as { type?: string }).type === "lotto" ? "לוטו" : (t as { type?: string }).type === "football_custom" ? "כדורגל" : "מונדיאל")}
+                        {t.name} – ₪{t.amount} {((t as { type?: string }).type === "chance" ? "צ'אנס" : (t as { type?: string }).type === "lotto" ? "לוטו" : (t as { type?: string }).type === "football_custom" ? "תחרויות ספורט" : "מונדיאל")}
                       </option>
                     ))}
                   </select>
@@ -1360,7 +1430,7 @@ export default function AdminPanel() {
                         onChange={(e) => setNewTournament((prev) => ({ ...prev, type: e.target.value as typeof prev.type }))}
                       >
                         <option value="football">מונדיאל</option>
-                        <option value="football_custom">כדורגל מותאם</option>
+                        <option value="football_custom">תחרויות ספורט</option>
                         <option value="lotto">לוטו</option>
                         <option value="chance">צ'אנס</option>
                       </select>
@@ -1408,6 +1478,21 @@ export default function AdminPanel() {
                     {newTournament.freeEntry && (
                       <p className="text-slate-400 text-sm">מחיר השתתפות: 0 ₪ (FreeRoll)</p>
                     )}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-300">עמלת מנהל (%)</label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.1}
+                        className="w-28 bg-slate-900 border-slate-600 text-slate-200"
+                        value={newTournament.commissionPercent}
+                        onChange={(e) => setNewTournament((prev) => ({ ...prev, commissionPercent: e.target.value }))}
+                        placeholder="12.5"
+                        title="0–100. ברירת מחדל 12.5%"
+                      />
+                      <p className="text-slate-500 text-xs">0–100. אחוז מהתפוס שנשמר לאתר. ברירת מחדל 12.5%.</p>
+                    </div>
                   </div>
 
                   {(newTournament.type === "lotto" || newTournament.type === "chance") && (
@@ -1445,6 +1530,79 @@ export default function AdminPanel() {
                           ))}
                         </select>
                       </div>
+                    </div>
+                  )}
+
+                  {newTournament.type === "football_custom" && (
+                    <div className="pt-2 border-t border-slate-700 space-y-3">
+                      <div className="space-y-2 max-w-xs">
+                        <label className="text-sm font-medium text-slate-300">מספר משחקים (1–30) <span className="text-amber-400">*</span></label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={30}
+                          className="bg-slate-900 border-slate-600 text-slate-200 w-24"
+                          value={newTournament.numberOfGames}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setNewTournament((prev) => ({ ...prev, numberOfGames: v }));
+                            const n = parseInt(v, 10);
+                            if (Number.isInteger(n) && n >= 1 && n <= 30) {
+                              setSportsCreateMatches((prev) => {
+                                const next = Array.from({ length: n }, (_, i) => prev[i] ?? { homeTeam: "", awayTeam: "", matchDate: "", matchTime: "" });
+                                return next;
+                              });
+                            } else {
+                              setSportsCreateMatches([]);
+                            }
+                          }}
+                          placeholder="למשל 5"
+                        />
+                        <p className="text-slate-500 text-xs">מלא את כל שורות המשחקים למטה ולחץ צור תחרות.</p>
+                      </div>
+                      {sportsCreateMatches.length > 0 && (
+                        <div className="space-y-2">
+                          <h4 className="text-amber-400 text-sm font-medium">משחקים – בחר קבוצות מהספרייה (חיפוש) או הזן ידנית</h4>
+                          <div className="flex flex-wrap gap-2 items-center p-2 text-slate-400 text-xs">
+                            <span className="w-6">#</span>
+                            <span className="min-w-[180px] max-w-[220px]">קבוצת בית</span>
+                            <span className="min-w-[180px] max-w-[220px]">קבוצת חוץ</span>
+                            <span className="w-36">תאריך</span>
+                            <span className="w-28">שעה</span>
+                          </div>
+                          <div className="space-y-2">
+                            {sportsCreateMatches.map((row, i) => (
+                              <div key={i} className="flex flex-wrap gap-2 items-center p-2 rounded bg-slate-800/50">
+                                <span className="text-slate-500 text-sm w-6">#{i + 1}</span>
+                                <TeamPicker
+                                  placeholder="חיפוש או הזנה ידנית — קבוצת בית"
+                                  className="min-w-[180px] max-w-[220px]"
+                                  value={row.homeTeam ? { teamName: row.homeTeam, teamId: row.homeTeamId, categoryName: row.homeCategoryName } : null}
+                                  onChange={(v) => setSportsCreateMatches((prev) => {
+                                    const n = [...prev];
+                                    n[i] = { ...n[i], homeTeam: v.teamName, homeTeamId: v.teamId, homeCategoryName: v.categoryName };
+                                    return n;
+                                  })}
+                                  excludeTeamId={row.awayTeamId ?? null}
+                                />
+                                <TeamPicker
+                                  placeholder="חיפוש או הזנה ידנית — קבוצת חוץ"
+                                  className="min-w-[180px] max-w-[220px]"
+                                  value={row.awayTeam ? { teamName: row.awayTeam, teamId: row.awayTeamId, categoryName: row.awayCategoryName } : null}
+                                  onChange={(v) => setSportsCreateMatches((prev) => {
+                                    const n = [...prev];
+                                    n[i] = { ...n[i], awayTeam: v.teamName, awayTeamId: v.teamId, awayCategoryName: v.categoryName };
+                                    return n;
+                                  })}
+                                  excludeTeamId={row.homeTeamId ?? null}
+                                />
+                                <Input type="date" className="bg-slate-800 text-white w-36" value={row.matchDate} onChange={(e) => setSportsCreateMatches((prev) => { const n = [...prev]; n[i] = { ...n[i], matchDate: e.target.value }; return n; })} />
+                                <Input type="time" className="bg-slate-800 text-white w-28" value={row.matchTime} onChange={(e) => setSportsCreateMatches((prev) => { const n = [...prev]; n[i] = { ...n[i], matchTime: e.target.value }; return n; })} />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1596,7 +1754,13 @@ export default function AdminPanel() {
                             (s, x) => s + (parseInt(x, 10) || 0),
                             0
                           ) - 100
-                        ) > 0.01
+                        ) > 0.01 ||
+                        (newTournament.type === "football_custom" && (() => {
+                          const ng = newTournament.numberOfGames.trim() ? parseInt(newTournament.numberOfGames, 10) : NaN;
+                          if (!Number.isInteger(ng) || ng < 1 || ng > 30) return true;
+                          if (sportsCreateMatches.length !== ng) return true;
+                          return sportsCreateMatches.some((r) => !(r.homeTeam?.trim()) || !(r.awayTeam?.trim()) || !(r.matchDate?.trim()) || !(r.matchTime?.trim()));
+                        })())
                       }
                     >
                       {createTournamentMut.isPending ? <Loader2 className="w-4 h-4 animate-spin ml-1" /> : null}
@@ -1619,11 +1783,16 @@ export default function AdminPanel() {
                 opensAt: (t as { opensAt?: unknown }).opensAt,
                 closesAt: (t as { closesAt?: unknown }).closesAt,
                 createdAt: (t as { createdAt?: unknown }).createdAt,
+                commissionPercentBasisPoints: (t as { commissionPercentBasisPoints?: number | null }).commissionPercentBasisPoints ?? 1250,
               }))}
               typesFromApi={competitionTypesList}
               submissionCountByTournamentId={submissionsCountByTournament}
               onLock={handleLock}
               onDelete={handleDeleteTournament}
+              onEditCommission={(id, name, current) => {
+                setEditCommissionModal({ tournamentId: id, tournamentName: name, currentCommissionPercent: current });
+                setEditCommissionValue(String(current));
+              }}
               onViewSchema={setSchemaDebugTournamentId}
               onViewItems={(id, name) => setItemsManageTournament({ id, name })}
             />
@@ -1659,7 +1828,7 @@ export default function AdminPanel() {
                     onClick={() => setCompetitionSubType("football_custom")}
                   >
                     <span className="text-2xl">⚽</span>
-                    <span>כדורגל מותאם</span>
+                    <span>תחרויות ספורט</span>
                   </Button>
                   <Button
                     type="button"
@@ -1686,6 +1855,66 @@ export default function AdminPanel() {
                 onClose={() => setItemsManageTournament(null)}
               />
             )}
+            <Dialog
+              open={editCommissionModal != null}
+              onOpenChange={(open) => {
+                if (!open) {
+                  setEditCommissionModal(null);
+                  setEditCommissionValue("");
+                }
+              }}
+            >
+              <DialogContent className="bg-slate-800 border-slate-700 text-white">
+                <DialogHeader>
+                  <DialogTitle>עדכון עמלת מנהל</DialogTitle>
+                  <DialogDescription className="text-slate-400">
+                    {editCommissionModal != null && `תחרות: ${editCommissionModal.tournamentName}. ניתן לעדכן עמלה רק כאשר אין משתתפים רשומים.`}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-2 py-2">
+                  <label className="text-sm text-slate-300">עמלה (%)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.1}
+                    className="bg-slate-900 border-slate-600 w-28"
+                    value={editCommissionValue}
+                    onChange={(e) => setEditCommissionValue(e.target.value)}
+                    placeholder="12.5"
+                  />
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" className="border-slate-600" onClick={() => { setEditCommissionModal(null); setEditCommissionValue(""); }}>
+                    ביטול
+                  </Button>
+                  <Button
+                    className="bg-amber-600 hover:bg-amber-700"
+                    disabled={updateTournamentCommissionMut.isPending}
+                    onClick={async () => {
+                      if (editCommissionModal == null) return;
+                      const num = parseFloat(editCommissionValue);
+                      if (!Number.isFinite(num) || num < 0 || num > 100) {
+                        toast.error("הזן עמלה בין 0 ל־100");
+                        return;
+                      }
+                      try {
+                        await updateTournamentCommissionMut.mutateAsync({ tournamentId: editCommissionModal.tournamentId, commissionPercent: num });
+                        toast.success("עמלה עודכנה");
+                        setEditCommissionModal(null);
+                        setEditCommissionValue("");
+                        await utils.tournaments.getAll.invalidate();
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "שגיאה בעדכון עמלה");
+                      }
+                    }}
+                  >
+                    {updateTournamentCommissionMut.isPending ? <Loader2 className="w-4 h-4 animate-spin ml-1" /> : null}
+                    שמור
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         )}
 
@@ -3351,7 +3580,7 @@ export default function AdminPanel() {
             <Card className="bg-slate-800/50 border-slate-700">
               <CardHeader>
                 <h2 className="text-xl font-bold text-white">סוכנים ודוחות</h2>
-                <p className="text-slate-400 text-sm">עמלה מלאה 12.5% לאתר, סוכן מקבל 50% מתוך ה-12.5%.</p>
+                <p className="text-slate-400 text-sm">עמלת אתר לפי עמלה של כל תחרות; סוכן מקבל חלק לפי הגדרתו.</p>
                 <div className="flex flex-wrap gap-2 items-center mt-2">
                   <span className="text-slate-500 text-sm">לפני ייצוא דוח סוכן – ייפתח חלון לבחירת טווח תאריכים.</span>
                 </div>
@@ -3365,17 +3594,17 @@ export default function AdminPanel() {
                         סכום כולל שנכנס דרך סוכנים: <strong className="text-white">₪{agentReports.reduce((s, r) => s + r.totalEntryAmount, 0).toLocaleString("he-IL")}</strong>
                       </span>
                       <span className="text-slate-300">
-                        עמלה לאתר (12.5%): <strong className="text-amber-400">₪{agentReports.reduce((s, r) => s + Math.round(r.totalEntryAmount * 0.125), 0).toLocaleString("he-IL")}</strong>
+                        עמלה לאתר: <strong className="text-amber-400">₪{agentReports.reduce((s, r) => s + (r.totalSiteCommission ?? 0), 0).toLocaleString("he-IL")}</strong>
                       </span>
                       <span className="text-slate-300">
-                        עמלה לסוכנים (50% מ-12.5%): <strong className="text-emerald-400">₪{agentReports.reduce((s, r) => s + r.totalCommission, 0).toLocaleString("he-IL")}</strong>
+                        עמלה לסוכנים: <strong className="text-emerald-400">₪{agentReports.reduce((s, r) => s + r.totalCommission, 0).toLocaleString("he-IL")}</strong>
                       </span>
                     </div>
                   </div>
                 )}
                 <div className="space-y-4">
                   {agentReports?.map((r) => {
-                    const siteFee = Math.round(r.totalEntryAmount * 0.125);
+                    const siteFee = r.totalSiteCommission ?? 0;
                     return (
                       <div key={r.agentId} className="p-4 rounded-lg bg-slate-700/30 border border-slate-600/50">
                         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -3405,11 +3634,11 @@ export default function AdminPanel() {
                             <p className="text-white font-medium">₪{r.totalEntryAmount.toLocaleString("he-IL")}</p>
                           </div>
                           <div>
-                            <p className="text-slate-500">עמלה לאתר (12.5%)</p>
+                            <p className="text-slate-500">עמלה לאתר</p>
                             <p className="text-amber-400 font-medium">₪{siteFee.toLocaleString("he-IL")}</p>
                           </div>
                           <div>
-                            <p className="text-slate-500">עמלה לסוכן (50% מ-12.5%)</p>
+                            <p className="text-slate-500">עמלה לסוכן</p>
                             <p className="text-emerald-400 font-bold">₪{r.totalCommission.toLocaleString("he-IL")}</p>
                           </div>
                         </div>
@@ -3444,7 +3673,7 @@ export default function AdminPanel() {
               <div>
                 <h2 className="text-xl font-bold text-white flex items-center gap-2">
                   <Trophy className="w-6 h-6 text-amber-400" />
-                  תחרויות מונדיאל (כדורגל)
+                  תחרויות מונדיאל
                 </h2>
                 <p className="text-slate-400 text-sm">תחרויות ניחושי משחקים. פתיחה, נעילה ומחיקה. עדכון תוצאות ושמות קבוצות למטה.</p>
               </div>
@@ -3575,20 +3804,22 @@ export default function AdminPanel() {
         )}
 
         {section === "competitions" && competitionSubType === "football_custom" && (
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader className="flex flex-row items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                  <Trophy className="w-6 h-6 text-amber-400" />
-                  ניהול תחרויות כדורגל
-                </h2>
-                <p className="text-slate-400 text-sm">תחרות עם משחקים שתגדיר ידנית (שם, סכום, רשימת משחקים). עמלה 12.5%, ניקוד 3 לכל ניחוש נכון.</p>
-              </div>
-              <Button variant="outline" size="sm" className="text-slate-400 shrink-0" onClick={() => setCompetitionSubType(null)}>← חזרה</Button>
-            </CardHeader>
+          <div className="space-y-6">
+            <TeamLibrarySection />
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardHeader className="flex flex-row items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Trophy className="w-6 h-6 text-amber-400" />
+                    ניהול תחרויות ספורט
+                  </h2>
+                  <p className="text-slate-400 text-sm">תחרות עם משחקים שתגדיר ידנית (שם, סכום, רשימת משחקים). עמלה לפי הגדרת התחרות, ניקוד 3 לכל ניחוש נכון.</p>
+                </div>
+                <Button variant="outline" size="sm" className="text-slate-400 shrink-0" onClick={() => setCompetitionSubType(null)}>← חזרה</Button>
+              </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <h3 className="text-white font-medium mb-2">רשימת תחרויות כדורגל</h3>
+                <h3 className="text-white font-medium mb-2">רשימת תחרויות ספורט</h3>
                 {footballCustomTournaments.length === 0 ? (
                   <p className="text-slate-500 text-sm">אין תחרויות.</p>
                 ) : (
@@ -3615,11 +3846,17 @@ export default function AdminPanel() {
                                   toast.error("יש להזין קבוצה ביתית ואורחת");
                                   return;
                                 }
+                                if (footballCustomNewMatch.homeTeam.trim() === footballCustomNewMatch.awayTeam.trim()) {
+                                  toast.error("קבוצה ביתית ואורחת לא יכולות להיות אותו שם");
+                                  return;
+                                }
                                 try {
                                   await addCustomFootballMatchMut.mutateAsync({
                                     tournamentId: t.id,
                                     homeTeam: footballCustomNewMatch.homeTeam.trim(),
                                     awayTeam: footballCustomNewMatch.awayTeam.trim(),
+                                    homeTeamId: footballCustomNewMatch.homeTeamId ?? undefined,
+                                    awayTeamId: footballCustomNewMatch.awayTeamId ?? undefined,
                                     matchDate: footballCustomNewMatch.matchDate.trim() || undefined,
                                     matchTime: footballCustomNewMatch.matchTime.trim() || undefined,
                                   });
@@ -3631,8 +3868,20 @@ export default function AdminPanel() {
                                 }
                               }}
                             >
-                              <Input placeholder="קבוצה ביתית" className="bg-slate-800 text-white w-32" value={footballCustomNewMatch.homeTeam} onChange={(e) => setFootballCustomNewMatch((p) => ({ ...p, homeTeam: e.target.value }))} />
-                              <Input placeholder="קבוצה אורחת" className="bg-slate-800 text-white w-32" value={footballCustomNewMatch.awayTeam} onChange={(e) => setFootballCustomNewMatch((p) => ({ ...p, awayTeam: e.target.value }))} />
+                              <TeamPicker
+                                placeholder="קבוצה ביתית"
+                                className="min-w-[160px] max-w-[200px]"
+                                value={footballCustomNewMatch.homeTeam ? { teamName: footballCustomNewMatch.homeTeam, teamId: footballCustomNewMatch.homeTeamId, categoryName: footballCustomNewMatch.homeCategoryName } : null}
+                                onChange={(v) => setFootballCustomNewMatch((p) => ({ ...p, homeTeam: v.teamName, homeTeamId: v.teamId, homeCategoryName: v.categoryName }))}
+                                excludeTeamId={footballCustomNewMatch.awayTeamId ?? null}
+                              />
+                              <TeamPicker
+                                placeholder="קבוצה אורחת"
+                                className="min-w-[160px] max-w-[200px]"
+                                value={footballCustomNewMatch.awayTeam ? { teamName: footballCustomNewMatch.awayTeam, teamId: footballCustomNewMatch.awayTeamId, categoryName: footballCustomNewMatch.awayCategoryName } : null}
+                                onChange={(v) => setFootballCustomNewMatch((p) => ({ ...p, awayTeam: v.teamName, awayTeamId: v.teamId, awayCategoryName: v.categoryName }))}
+                                excludeTeamId={footballCustomNewMatch.homeTeamId ?? null}
+                              />
                               <Input type="date" placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 text-white w-36" value={footballCustomNewMatch.matchDate} onChange={(e) => setFootballCustomNewMatch((p) => ({ ...p, matchDate: e.target.value }))} />
                               <Input type="time" placeholder="שעה" className="bg-slate-800 text-white w-28" value={footballCustomNewMatch.matchTime} onChange={(e) => setFootballCustomNewMatch((p) => ({ ...p, matchTime: e.target.value }))} />
                               <Button type="submit" size="sm" disabled={addCustomFootballMatchMut.isPending}>הוסף משחק</Button>
@@ -3645,17 +3894,35 @@ export default function AdminPanel() {
                                     <div key={m.id} className="flex flex-wrap items-center gap-2 p-2 rounded bg-slate-800/50">
                                       {editCustomMatch?.id === m.id ? (
                                         <>
-                                          <Input placeholder="קבוצה ביתית" className="bg-slate-800 text-white w-32" value={editCustomMatch.homeTeam} onChange={(e) => setEditCustomMatch((x) => (x ? { ...x, homeTeam: e.target.value } : null))} />
-                                          <Input placeholder="קבוצה אורחת" className="bg-slate-800 text-white w-32" value={editCustomMatch.awayTeam} onChange={(e) => setEditCustomMatch((x) => (x ? { ...x, awayTeam: e.target.value } : null))} />
+                                          <TeamPicker
+                                            placeholder="קבוצה ביתית"
+                                            className="min-w-[160px] max-w-[200px]"
+                                            value={editCustomMatch.homeTeam ? { teamName: editCustomMatch.homeTeam, teamId: editCustomMatch.homeTeamId, categoryName: editCustomMatch.homeCategoryName } : null}
+                                            onChange={(v) => setEditCustomMatch((x) => (x ? { ...x, homeTeam: v.teamName, homeTeamId: v.teamId, homeCategoryName: v.categoryName } : null))}
+                                            excludeTeamId={editCustomMatch.awayTeamId ?? null}
+                                          />
+                                          <TeamPicker
+                                            placeholder="קבוצה אורחת"
+                                            className="min-w-[160px] max-w-[200px]"
+                                            value={editCustomMatch.awayTeam ? { teamName: editCustomMatch.awayTeam, teamId: editCustomMatch.awayTeamId, categoryName: editCustomMatch.awayCategoryName } : null}
+                                            onChange={(v) => setEditCustomMatch((x) => (x ? { ...x, awayTeam: v.teamName, awayTeamId: v.teamId, awayCategoryName: v.categoryName } : null))}
+                                            excludeTeamId={editCustomMatch.homeTeamId ?? null}
+                                          />
                                           <Input type="date" className="bg-slate-800 text-white w-36" value={editCustomMatch.matchDate} onChange={(e) => setEditCustomMatch((x) => (x ? { ...x, matchDate: e.target.value } : null))} />
                                           <Input type="time" className="bg-slate-800 text-white w-28" value={editCustomMatch.matchTime} onChange={(e) => setEditCustomMatch((x) => (x ? { ...x, matchTime: e.target.value } : null))} />
                                           <Button size="sm" onClick={async () => {
                                             if (!editCustomMatch) return;
+                                            if (editCustomMatch.homeTeam.trim() === editCustomMatch.awayTeam.trim()) {
+                                              toast.error("קבוצה ביתית ואורחת לא יכולות להיות אותו שם");
+                                              return;
+                                            }
                                             try {
                                               await updateCustomFootballMatchMut.mutateAsync({
                                                 matchId: m.id,
                                                 homeTeam: editCustomMatch.homeTeam.trim(),
                                                 awayTeam: editCustomMatch.awayTeam.trim(),
+                                                homeTeamId: editCustomMatch.homeTeamId ?? undefined,
+                                                awayTeamId: editCustomMatch.awayTeamId ?? undefined,
                                                 matchDate: editCustomMatch.matchDate.trim() || null,
                                                 matchTime: editCustomMatch.matchTime.trim() || null,
                                               });
@@ -3674,7 +3941,7 @@ export default function AdminPanel() {
                                         <>
                                           <span className="text-slate-300 text-sm min-w-[140px]">{m.homeTeam} – {m.awayTeam}</span>
                                           {(m.matchDate || m.matchTime) && <span className="text-slate-500 text-xs">{[m.matchDate, m.matchTime].filter(Boolean).join(" ")}</span>}
-                                          <Button size="sm" variant="outline" className="text-slate-400" onClick={() => setEditCustomMatch({ id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam, matchDate: m.matchDate ?? "", matchTime: m.matchTime ?? "" })} title="ערוך משחק">
+                                          <Button size="sm" variant="outline" className="text-slate-400" onClick={() => setEditCustomMatch({ id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam, homeTeamId: (m as { homeTeamId?: number }).homeTeamId, awayTeamId: (m as { awayTeamId?: number }).awayTeamId, matchDate: m.matchDate ?? "", matchTime: m.matchTime ?? "" })} title="ערוך משחק">
                                             <Pencil className="w-3.5 h-3.5 ml-1" />
                                             ערוך משחק
                                           </Button>
@@ -3769,6 +4036,7 @@ export default function AdminPanel() {
               </div>
             </CardContent>
           </Card>
+          </div>
         )}
 
         </div>

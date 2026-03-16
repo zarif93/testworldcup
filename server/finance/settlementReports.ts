@@ -2,7 +2,7 @@
  * Settlement-based financial reporting. Real-money accounting (points as internal credit).
  *
  * Rules:
- * - Commission is always 12.5% (generated only after prize distribution).
+ * - Commission is per-competition (generated only after prize distribution).
  * - Cancelled competitions: full refunds; must not appear in reports.
  * - Locked (not settled): must not affect financial reports.
  * - Freeroll: no commission; tracked as site expense.

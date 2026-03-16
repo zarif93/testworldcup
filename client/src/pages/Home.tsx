@@ -425,7 +425,7 @@ export default function Home() {
     const custom = (byType.custom ?? []).map((t) => ({ ...t, _type: "custom" as const }));
     return [...football, ...lotto, ...chance, ...footballCustom, ...custom];
   })();
-  const typeLabel: Record<string, string> = { football: "מונדיאל", lotto: "לוטו", chance: "צ'אנס", football_custom: "כדורגל", custom: "מותאם" };
+  const typeLabel: Record<string, string> = { football: "מונדיאל", lotto: "לוטו", chance: "צ'אנס", football_custom: "תחרויות ספורט", custom: "מותאם" };
   /** Phase 36/38: Recommended tournament – API when authenticated, else first OPEN in list. */
   const recommendedTournament = allTournamentsList.find((t) => (t as { status?: string }).status === "OPEN") ?? allTournamentsList[0];
   const _recommendedId = recommendation?.tournamentId ?? recommendedTournament?.id;
@@ -579,7 +579,7 @@ export default function Home() {
             {heroBanner?.subtitle?.trim() || tagline || "תחרות ניחושי המונדיאל – פרסים ודירוג חי"}
           </p>
           <p className="text-slate-400 text-xs sm:text-sm mb-2 md:mb-3 max-w-xl mx-auto px-1 break-words">
-            {(heroBanner as { body?: string | null } | undefined)?.body?.trim() || (!heroBanner ? "הצטרף לתחרות – תתחרה על פרסים ודירוג. מונדיאל, לוטו, צ'אנס וכדורגל." : "")}
+            {(heroBanner as { body?: string | null } | undefined)?.body?.trim() || (!heroBanner ? "הצטרף לתחרות – תתחרה על פרסים ודירוג. מונדיאל, לוטו, צ'אנס ותחרויות ספורט." : "")}
           </p>
           {/* One compact live line: open count + participants + closing soonest */}
           {!isLoading && hasAny && openList.length > 0 && (
@@ -1143,9 +1143,9 @@ export default function Home() {
                 </div>
                 {(byType.chance ?? []).length === 0 && <p className="text-slate-500 text-sm text-center py-4">אין תחרויות</p>}
             </div>
-            {/* טור 4: תחרות כדורגל */}
+            {/* טור 4: תחרויות ספורט */}
             <div className="min-w-0 flex flex-col">
-                <h3 className="text-lg font-bold text-white mb-3 text-center break-words">תחרות כדורגל</h3>
+                <h3 className="text-lg font-bold text-white mb-3 text-center break-words">תחרויות ספורט</h3>
                 <div className="flex flex-col gap-4 min-w-0">
                   {(byType.footballCustom ?? []).map((t, i) => {
                     const styles = getTournamentStyles(t.amount);

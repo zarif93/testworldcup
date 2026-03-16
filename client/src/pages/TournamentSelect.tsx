@@ -102,7 +102,7 @@ export default function TournamentSelect() {
   const { data: firstParticipation } = trpc.user.getFirstParticipationStatus.useQuery(undefined, { enabled: isAuthenticated });
   type T = NonNullable<typeof tournamentStats>[number];
   const typeOrder: Record<string, number> = { football: 0, mondial: 0, lotto: 1, chance: 2, football_custom: 3 };
-  const typeLabel: Record<string, string> = { football: "מונדיאל", lotto: "לוטו", chance: "צ'אנס", football_custom: "כדורגל", mondial: "מונדיאל" };
+  const typeLabel: Record<string, string> = { football: "מונדיאל", lotto: "לוטו", chance: "צ'אנס", football_custom: "תחרויות ספורט", mondial: "מונדיאל" };
   const allTournaments: T[] = (() => {
     if (!tournamentStats?.length) return [];
     return [...tournamentStats].sort((a, b) => {
@@ -135,7 +135,7 @@ export default function TournamentSelect() {
     { key: "football", title: "מונדיאל – ניחושי משחקים" },
     { key: "lotto", title: "לוטו" },
     { key: "chance", title: "צ'אנס" },
-    { key: "football_custom", title: "תחרות כדורגל" },
+    { key: "football_custom", title: "תחרויות ספורט" },
   ];
 
   function getStatusInfo(tour: T): { label: string; color: string } {
@@ -250,7 +250,7 @@ export default function TournamentSelect() {
           🏆 טורנירים זמינים
         </h1>
         <p className="text-slate-400 text-center mb-6 md:mb-10 max-w-xl mx-auto text-sm sm:text-base px-1 break-words">
-          בחרו תחרות מהרשימה והשתתפו. מונדיאל, לוטו, צ'אנס או כדורגל – כל תחרות לפי כללים משלה.
+          בחרו תחרות מהרשימה והשתתפו. מונדיאל, לוטו, צ'אנס או תחרויות ספורט – כל תחרות לפי כללים משלה.
         </p>
         {/* Phase 36: First participation – encourage first-time join */}
         {isAuthenticated && firstParticipation && !firstParticipation.hasApprovedSubmission && hasAny && (
@@ -267,7 +267,7 @@ export default function TournamentSelect() {
         <div className="max-w-2xl mx-auto mb-6 md:mb-12 p-3 sm:p-6 rounded-2xl bg-slate-800/50 border border-slate-600/50 text-right min-w-0 overflow-hidden max-w-full">
           <h2 className="text-base sm:text-lg font-bold text-white mb-2 sm:mb-3 break-words">פרטים נוספים</h2>
           <ul className="text-slate-400 text-sm sm:text-base space-y-2 list-none break-words leading-relaxed">
-            <li><strong className="text-slate-300">בחירת תחרות:</strong> בחרו תחרות מהרשימה (מונדיאל, לוטו, צ'אנס או כדורגל) ולחצו עליה.</li>
+            <li><strong className="text-slate-300">בחירת תחרות:</strong> בחרו תחרות מהרשימה (מונדיאל, לוטו, צ'אנס או תחרויות ספורט) ולחצו עליה.</li>
             <li><strong className="text-slate-300">טופס והשתתפות:</strong> אחרי הלחיצה תגיעו לטופס לפי סוג התחרות. מלאו ושליחו.</li>
             <li><strong className="text-slate-300">אחרי שליחה:</strong> הטופס נבדק על ידי המערכת. אחרי אישור – ההשתתפות נספרת ואתם נכנסים לדירוג התחרות.</li>
             <li><strong className="text-slate-300">נעילה:</strong> תחרות עם סימן 🔒 סגורה להרשמה – לא ניתן לשלוח אליה טפסים.</li>
@@ -286,7 +286,7 @@ export default function TournamentSelect() {
           {!hasAny ? (
             <div className="w-full max-w-xl mx-auto p-6 md:p-8 rounded-2xl bg-slate-800/50 border border-slate-600/50 text-center">
               <p className="text-slate-300 font-medium mb-2">אין תחרויות כרגע</p>
-              <p className="text-slate-500 text-sm mb-4">כשיפתחו תחרויות חדשות הן יופיעו כאן. מונדיאל, לוטו, צ'אנס וכדורגל – כולן במקום אחד.</p>
+              <p className="text-slate-500 text-sm mb-4">כשיפתחו תחרויות חדשות הן יופיעו כאן. מונדיאל, לוטו, צ'אנס ותחרויות ספורט – כולן במקום אחד.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8 min-w-0 overflow-x-hidden">

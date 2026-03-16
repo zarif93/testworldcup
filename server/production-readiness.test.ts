@@ -226,9 +226,10 @@ describe("Security – IDOR והרשאות", () => {
     }
   });
   it("checkLoginRateLimit – מגביל אחרי 5 ניסיונות ל-IP", async () => {
-    const { checkLoginRateLimit } = await import("./_core/loginRateLimit");
+    const { checkLoginRateLimit, recordFailedLogin } = await import("./_core/loginRateLimit");
     const req = { ip: "127.0.0.99", headers: {} };
-    for (let i = 0; i < 5; i++) expect(checkLoginRateLimit(req)).toBe(true);
+    expect(checkLoginRateLimit(req)).toBe(true);
+    for (let i = 0; i < 5; i++) recordFailedLogin(req);
     expect(checkLoginRateLimit(req)).toBe(false);
   });
 });

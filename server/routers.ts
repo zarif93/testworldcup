@@ -45,6 +45,7 @@ import {
   setTournamentLocked,
   createTournament,
   deleteTournament,
+  updateTournamentCommission,
   isTournamentCompleted,
   refundTournamentParticipants,
   repairUnrefundedCancelledCompetitions,
@@ -98,7 +99,6 @@ import {
   getUserById,
   recordAgentCommission,
   hasCommissionForSubmission,
-  calcAgentCommission,
   getCustomFootballMatches,
   addCustomFootballMatch,
   updateCustomFootballMatchResult,
@@ -107,6 +107,14 @@ import {
   recalcCustomFootballPoints,
   getCustomFootballLeaderboard,
   getCustomFootballMatchById,
+  listTeamLibraryCategories,
+  getTeamLibraryCategoryById,
+  listTeamLibraryTeams,
+  createTeamLibraryTeam,
+  updateTeamLibraryTeam,
+  deleteTeamLibraryTeam,
+  getTeamLibraryTeamById,
+  searchTeamLibraryTeamsGlobal,
   getTournamentSettlementWinners,
   getTournamentSettlementPreview,
   getNearWinMessage,
@@ -263,6 +271,7 @@ const ADMIN_CODE_MSG = "גישה אסורה – אין הרשאות";
 
 /** Phase 12: Rate limits – submissions and leaderboard from _core/rateLimits. */
 import { checkSubmissionRateLimit, checkLeaderboardRateLimit } from "./_core/rateLimits";
+import { assertTeamLibraryScope } from "./teamLibraryScope";
 
 /** Idempotency: מפתח תקף 30 שניות למניעת כפילות בלחיצה כפולה */
 const idempotencyStore = new Map<string, { result: { success: boolean; pendingApproval: boolean }; at: number }>();
@@ -812,7 +821,7 @@ export const appRouter = router({
             type: "ENTRY_DEBIT",
             amountPoints: -cost,
             balanceAfter: result.balanceAfter,
-            metaJson: participationCommissionOpts ? { description: `השתתפות: ${(tournament as { name?: string }).name ?? input.tournamentId}`, commissionAgent: participationCommissionOpts.commissionAgent, commissionSite: Math.round(cost * 0.125) - (participationCommissionOpts.commissionAgent ?? 0) } : undefined,
+            metaJson: participationCommissionOpts ? { description: `השתתפות: ${(tournament as { name?: string }).name ?? input.tournamentId}`, commissionAgent: participationCommissionOpts.commissionAgent, commissionSite: participationCommissionOpts.commissionSite } : undefined,
           });
           return { newSubId: result.submissionId, balanceAfter: result.balanceAfter };
         };
@@ -836,7 +845,7 @@ export const appRouter = router({
               agentId: agentId ?? null,
               type: "Deposit",
               amount: cost,
-              siteProfit: Math.round(cost * 0.125) - (participationCommissionOpts?.commissionAgent ?? 0),
+              siteProfit: participationCommissionOpts?.commissionSite ?? 0,
               agentProfit: participationCommissionOpts?.commissionAgent ?? 0,
               transactionDate: new Date(),
               competitionStatusAtTime: (tournament as { status?: string }).status ?? "OPEN",
@@ -876,7 +885,7 @@ export const appRouter = router({
               agentId: agentId ?? null,
               type: "Deposit",
               amount: cost,
-              siteProfit: Math.round(cost * 0.125) - (participationCommissionOpts?.commissionAgent ?? 0),
+              siteProfit: participationCommissionOpts?.commissionSite ?? 0,
               agentProfit: participationCommissionOpts?.commissionAgent ?? 0,
               transactionDate: new Date(),
               competitionStatusAtTime: (tournament as { status?: string }).status ?? "OPEN",
@@ -926,7 +935,7 @@ export const appRouter = router({
               agentId: agentId ?? null,
               type: "Deposit",
               amount: cost,
-              siteProfit: Math.round(cost * 0.125) - (participationCommissionOpts?.commissionAgent ?? 0),
+              siteProfit: participationCommissionOpts?.commissionSite ?? 0,
               agentProfit: participationCommissionOpts?.commissionAgent ?? 0,
               transactionDate: new Date(),
               competitionStatusAtTime: (tournament as { status?: string }).status ?? "OPEN",
@@ -966,12 +975,12 @@ export const appRouter = router({
             agentId: (user as { agentId?: number })?.agentId ?? null,
             type: "Deposit",
             amount: cost,
-            siteProfit: Math.round(cost * 0.125) - (participationCommissionOpts?.commissionAgent ?? 0),
-            agentProfit: participationCommissionOpts?.commissionAgent ?? 0,
-            transactionDate: new Date(),
-            competitionStatusAtTime: (tournament as { status?: string }).status ?? "OPEN",
-          });
-        }
+siteProfit: participationCommissionOpts?.commissionSite ?? 0,
+              agentProfit: participationCommissionOpts?.commissionAgent ?? 0,
+              transactionDate: new Date(),
+              competitionStatusAtTime: (tournament as { status?: string }).status ?? "OPEN",
+            });
+          }
         const subIdDefault = typeof newSubId === "number" && newSubId > 0 ? newSubId : null;
         if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0 && agentId && participationCommissionOpts && subIdDefault != null && !(await hasCommissionForSubmission(subIdDefault))) {
           await recordAgentCommission({ agentId, submissionId: subIdDefault, userId: ctx.user.id, entryAmount: cost, commissionAmount: participationCommissionOpts.commissionAgent });
@@ -1618,7 +1627,11 @@ export const appRouter = router({
         const effectiveAgentId =
           user?.role === "agent" ? user.id : (user as { agentId?: number | null })?.agentId ?? null;
         if (effectiveAgentId != null && tournament && !(await hasCommissionForSubmission(input.id))) {
-          const commissionAmount = calcAgentCommission(tournament.amount, ENV.agentCommissionPercentOfFee);
+          const { getCommissionBasisPoints, getAgentShareBasisPoints } = await import("./finance");
+          const bps = getCommissionBasisPoints(tournament as { commissionPercentBasisPoints?: number | null; houseFeeRate?: number | null });
+          const agentShareBps = await getAgentShareBasisPoints(effectiveAgentId);
+          const commissionTotal = Math.floor((tournament.amount * bps) / 10_000);
+          const commissionAmount = Math.floor((commissionTotal * agentShareBps) / 10_000);
           await recordAgentCommission({
             agentId: effectiveAgentId,
             submissionId: input.id,
@@ -1869,6 +1882,18 @@ export const appRouter = router({
         }
         return { success: true };
       }),
+    updateTournamentCommission: adminProcedure.use(usePermission("competitions.edit"))
+      .input(z.object({ tournamentId: z.number().int().positive(), commissionPercent: z.number().min(0).max(100) }))
+      .mutation(async ({ input, ctx }) => {
+        await updateTournamentCommission(input.tournamentId, input.commissionPercent);
+        await insertAdminAuditLog({
+          performedBy: ctx.user!.id,
+          action: "Update Tournament Commission",
+          targetUserId: null,
+          details: { tournamentId: input.tournamentId, commissionPercent: input.commissionPercent, ip: getAuditIp(ctx) },
+        });
+        return { success: true };
+      }),
     hideTournamentFromHomepage: adminProcedure
       .input(z.object({ id: z.coerce.number() }))
       .mutation(async ({ input, ctx }) => {
@@ -1933,6 +1958,19 @@ export const appRouter = router({
         settledAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(),
         resultsFinalizedAt: z.union([z.string(), z.number(), z.date()]).nullable().optional(),
         guaranteedPrizeAmount: z.number().int().min(0).nullable().optional(),
+        /** Commission % (0–100). Decimal allowed. Omitted = 12.5%. */
+        commissionPercent: z.number().min(0).max(100).nullable().optional(),
+        /** תחרויות ספורט: מספר משחקים (1–30). יחד עם matches – יצירה בצעד אחד. */
+        numberOfGames: z.number().int().min(1).max(30).nullable().optional(),
+        /** תחרויות ספורט: רשימת משחקים (בית, אורח, תאריך, שעה; אופציונלי teamId מהספרייה). */
+        matches: z.array(z.object({
+          homeTeam: z.string().min(1),
+          awayTeam: z.string().min(1),
+          homeTeamId: z.number().int().positive().optional().nullable(),
+          awayTeamId: z.number().int().positive().optional().nullable(),
+          matchDate: z.string().optional().nullable(),
+          matchTime: z.string().optional().nullable(),
+        })).optional(),
       }))
       .mutation(async ({ input }) => {
         const legacyType = input.type ?? "football";
@@ -1995,12 +2033,37 @@ export const appRouter = router({
           const opensAt = toTs(input.opensAt);
           const closesAt = toTs(input.closesAt);
           if (opensAt == null || closesAt == null) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "בתחרות מונדיאל/כדורגל חובה לבחור תאריך פתיחה, שעת פתיחה ושעת סגירה" });
+            throw new TRPCError({ code: "BAD_REQUEST", message: "בתחרות מונדיאל/תחרויות ספורט חובה לבחור תאריך פתיחה, שעת פתיחה ושעת סגירה" });
           }
           if (closesAt <= opensAt) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "שעת הסגירה חייבת להיות אחרי שעת הפתיחה" });
           }
         }
+        if (input.type === "football_custom" && input.matches != null && input.matches.length > 0) {
+          const ng = input.numberOfGames;
+          if (ng == null || !Number.isInteger(ng) || ng < 1 || ng > 30) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "מספר משחקים חייב להיות בין 1 ל־30" });
+          }
+          if (input.matches.length !== ng) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `נדרשים בדיוק ${ng} משחקים (הוזנו ${input.matches.length})` });
+          }
+          for (let i = 0; i < input.matches.length; i++) {
+            const m = input.matches[i];
+            if (!(m.homeTeam?.trim()) || !(m.awayTeam?.trim())) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: `משחק ${i + 1}: חובה למלא קבוצה ביתית ואורחת` });
+            }
+            if (m.homeTeam.trim() === m.awayTeam.trim()) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: `משחק ${i + 1}: קבוצה ביתית ואורחת לא יכולות להיות אותו שם` });
+            }
+            if (!(m.matchDate?.trim()) || !(m.matchTime?.trim())) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: `משחק ${i + 1}: חובה למלא תאריך ושעה` });
+            }
+          }
+        }
+        const commissionPercentBasisPoints =
+          input.commissionPercent != null && Number.isFinite(input.commissionPercent)
+            ? Math.max(0, Math.min(10_000, Math.round(input.commissionPercent * 100)))
+            : undefined;
         const tournamentId = await createTournament({
           name: input.name,
           amount: input.amount,
@@ -2027,6 +2090,9 @@ export const appRouter = router({
           settledAt: input.settledAt ?? undefined,
           resultsFinalizedAt: input.resultsFinalizedAt ?? undefined,
           guaranteedPrizeAmount: input.guaranteedPrizeAmount ?? undefined,
+          commissionPercentBasisPoints,
+          numberOfGames: input.type === "football_custom" && input.numberOfGames != null && input.numberOfGames >= 1 && input.numberOfGames <= 30 ? input.numberOfGames : undefined,
+          matches: input.type === "football_custom" && input.matches != null && input.matches.length > 0 ? input.matches : undefined,
         });
         const { notifyLater } = await import("./notifications/createNotification");
         const { NOTIFICATION_TYPES } = await import("./notifications/types");
@@ -2305,6 +2371,8 @@ export const appRouter = router({
         name: z.string().min(1),
         description: z.string().optional().nullable(),
         amount: z.number().int().min(0).optional().nullable(),
+        /** Commission % (0–100). Overrides template default; omitted = 12.5%. */
+        commissionPercent: z.number().min(0).max(100).optional().nullable(),
         opensAt: z.union([z.string(), z.number(), z.date()]).optional().nullable(),
         closesAt: z.union([z.string(), z.number(), z.date()]).optional().nullable(),
         drawDate: z.string().optional().nullable(),
@@ -2326,12 +2394,16 @@ export const appRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: "צ'אנס דורש drawDate, drawTime" });
         }
         if ((tournamentType === "football" || tournamentType === "football_custom") && (input.opensAt == null || input.closesAt == null)) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "כדורגל/מונדיאל דורש opensAt ו-closesAt" });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "תחרויות ספורט/מונדיאל דורש opensAt ו-closesAt" });
+        }
+        if (input.commissionPercent != null && (input.commissionPercent < 0 || input.commissionPercent > 100)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "עמלת מנהל חייבת להיות בין 0 ל־100 (אחוז)" });
         }
         const tournamentId = await createTournamentFromTemplate(input.templateId, {
           name: input.name,
           description: input.description ?? undefined,
           amount: input.amount ?? undefined,
+          commissionPercent: input.commissionPercent ?? undefined,
           opensAt: input.opensAt ?? undefined,
           closesAt: input.closesAt ?? undefined,
           drawDate: input.drawDate ?? undefined,
@@ -2349,6 +2421,8 @@ export const appRouter = router({
         templateId: z.number(),
         name: z.string().min(1),
         description: z.string().optional(),
+        /** Commission % (0–100). Omitted = 12.5%. */
+        commissionPercent: z.number().min(0).max(100).optional().nullable(),
         opensAt: z.union([z.string(), z.number(), z.date()]).optional(),
         closesAt: z.union([z.string(), z.number(), z.date()]).optional(),
         drawCode: z.string().optional(),
@@ -2366,11 +2440,18 @@ export const appRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: "צ'אנס דורש drawDate, drawTime" });
         }
         if ((legacyType === "football" || legacyType === "football_custom") && (input.opensAt == null || input.closesAt == null)) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "כדורגל/מונדיאל דורש opensAt ו-closesAt" });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "תחרויות ספורט/מונדיאל דורש opensAt ו-closesAt" });
+        }
+        if (input.commissionPercent != null && (input.commissionPercent < 0 || input.commissionPercent > 100)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "עמלת מנהל חייבת להיות בין 0 ל־100 (אחוז)" });
         }
         const settlement = template.settlementConfigJson && typeof template.settlementConfigJson === "object"
           ? (template.settlementConfigJson as Record<string, unknown>)
           : {};
+        const commissionPercentBasisPoints =
+          input.commissionPercent != null && Number.isFinite(input.commissionPercent)
+            ? Math.max(0, Math.min(10_000, Math.round(input.commissionPercent * 100)))
+            : undefined;
         const payload = {
           name: input.name.trim(),
           amount: template.defaultEntryFee,
@@ -2389,6 +2470,7 @@ export const appRouter = router({
           drawCode: input.drawCode?.trim() || undefined,
           drawDate: input.drawDate?.trim(),
           drawTime: input.drawTime?.trim(),
+          commissionPercentBasisPoints,
         };
         if (legacyType === "lotto" && payload.drawDate && payload.drawTime) {
           (payload as Record<string, unknown>).closesAt = drawDateAndTimeToTimestamp(payload.drawDate, payload.drawTime);
@@ -2509,6 +2591,56 @@ export const appRouter = router({
     getCustomFootballMatches: adminProcedure
       .input(z.object({ tournamentId: z.number() }))
       .query(({ input }) => getCustomFootballMatches(input.tournamentId)),
+    /** Team library (football_custom / תחרויות ספורט only): scope guard enforced at backend */
+    listTeamLibraryCategories: adminProcedure
+      .input(z.object({ scope: z.literal("football_custom") }))
+      .query(({ input }) => {
+        assertTeamLibraryScope(input.scope);
+        return listTeamLibraryCategories();
+      }),
+    getTeamLibraryCategoryById: adminProcedure
+      .input(z.object({ scope: z.literal("football_custom"), categoryId: z.number() }))
+      .query(({ input }) => {
+        assertTeamLibraryScope(input.scope);
+        return getTeamLibraryCategoryById(input.categoryId);
+      }),
+    listTeamLibraryTeams: adminProcedure
+      .input(z.object({ scope: z.literal("football_custom"), categoryId: z.number(), search: z.string().optional() }))
+      .query(({ input }) => {
+        assertTeamLibraryScope(input.scope);
+        return listTeamLibraryTeams(input.categoryId, input.search);
+      }),
+    createTeamLibraryTeam: adminProcedure
+      .input(z.object({ scope: z.literal("football_custom"), categoryId: z.number(), name: z.string().min(1), displayOrder: z.number().optional() }))
+      .mutation(({ input }) => {
+        assertTeamLibraryScope(input.scope);
+        return createTeamLibraryTeam({ categoryId: input.categoryId, name: input.name, displayOrder: input.displayOrder });
+      }),
+    updateTeamLibraryTeam: adminProcedure
+      .input(z.object({ scope: z.literal("football_custom"), teamId: z.number(), name: z.string().min(1).optional(), displayOrder: z.number().optional(), isActive: z.boolean().optional() }))
+      .mutation(({ input }) => {
+        assertTeamLibraryScope(input.scope);
+        return updateTeamLibraryTeam(input.teamId, { name: input.name, displayOrder: input.displayOrder, isActive: input.isActive });
+      }),
+    deleteTeamLibraryTeam: adminProcedure
+      .input(z.object({ scope: z.literal("football_custom"), teamId: z.number() }))
+      .mutation(({ input }) => {
+        assertTeamLibraryScope(input.scope);
+        return deleteTeamLibraryTeam(input.teamId);
+      }),
+    getTeamLibraryTeamById: adminProcedure
+      .input(z.object({ scope: z.literal("football_custom"), teamId: z.number() }))
+      .query(({ input }) => {
+        assertTeamLibraryScope(input.scope);
+        return getTeamLibraryTeamById(input.teamId);
+      }),
+    /** Team library global search for picker (football_custom only). Returns team id, name, categoryName. */
+    searchTeamLibraryTeams: adminProcedure
+      .input(z.object({ scope: z.literal("football_custom"), search: z.string() }))
+      .query(({ input }) => {
+        assertTeamLibraryScope(input.scope);
+        return searchTeamLibraryTeamsGlobal(input.search);
+      }),
     /** Phase 2C: Resolved form/scoring/settlement schemas for a tournament (admin debug). */
     getTournamentResolvedSchemas: adminProcedure
       .input(z.object({ tournamentId: z.number() }))
@@ -2692,6 +2824,8 @@ export const appRouter = router({
         tournamentId: z.number(),
         homeTeam: z.string().min(1),
         awayTeam: z.string().min(1),
+        homeTeamId: z.number().int().positive().optional().nullable(),
+        awayTeamId: z.number().int().positive().optional().nullable(),
         matchDate: z.string().optional(),
         matchTime: z.string().optional(),
         displayOrder: z.number().optional(),
@@ -2712,6 +2846,8 @@ export const appRouter = router({
         matchId: z.number(),
         homeTeam: z.string().min(1).optional(),
         awayTeam: z.string().min(1).optional(),
+        homeTeamId: z.number().int().positive().optional().nullable(),
+        awayTeamId: z.number().int().positive().optional().nullable(),
         matchDate: z.string().optional().nullable(),
         matchTime: z.string().optional().nullable(),
       }))
@@ -3496,6 +3632,7 @@ export const appRouter = router({
       .input(z.object({ agentId: z.number().optional() }).optional().default({}))
       .query(async ({ input }) => {
         const agents = input?.agentId ? [await getUserById(input.agentId)].filter(Boolean) : await getAgents();
+        const { getAgentCommissionsByAgentIdWithTournamentCommission } = await import("./db");
         const reports: Array<{
           agentId: number;
           username: string | null;
@@ -3503,14 +3640,20 @@ export const appRouter = router({
           referredUsers: number;
           totalEntryAmount: number;
           totalCommission: number;
+          totalSiteCommission: number;
           commissions: Array<{ submissionId: number; userId: number; entryAmount: number; commissionAmount: number; createdAt: Date | null }>;
         }> = [];
         for (const agent of agents) {
           if (!agent || agent.role !== "agent") continue;
           const referred = await getUsersByAgentId(agent.id);
           const commissions = await getAgentCommissionsByAgentIdExistingOnly(agent.id);
+          const withBps = await getAgentCommissionsByAgentIdWithTournamentCommission(agent.id);
           const totalCommission = commissions.reduce((s, c) => s + c.commissionAmount, 0);
           const totalEntryAmount = commissions.reduce((s, c) => s + c.entryAmount, 0);
+          const totalSiteCommission = withBps.reduce(
+            (s, r) => s + (Math.floor((r.entryAmount * r.commissionPercentBasisPoints) / 10_000) - r.commissionAmount),
+            0
+          );
           reports.push({
             agentId: agent.id,
             username: agent.username,
@@ -3518,6 +3661,7 @@ export const appRouter = router({
             referredUsers: referred.length,
             totalEntryAmount,
             totalCommission,
+            totalSiteCommission,
             commissions: commissions.map((c) => ({
               submissionId: c.submissionId,
               userId: c.userId,

@@ -52,10 +52,10 @@ export default function AgentDashboard() {
   const utils = trpc.useUtils();
   const TOURNAMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
     { value: "", label: "כל הסוגים" },
-    { value: "football", label: "כדורגל" },
+    { value: "football", label: "מונדיאל" },
     { value: "lotto", label: "לוטו" },
     { value: "chance", label: "צ'אנס" },
-    { value: "football_custom", label: "כדורגל מותאם" },
+    { value: "football_custom", label: "תחרויות ספורט" },
   ];
 
   const { data: report, isLoading } = trpc.agent.getMyReport.useQuery(undefined, {

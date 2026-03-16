@@ -288,7 +288,7 @@ export default function PredictionForm() {
     const entries = isAuthenticated && myEntriesForTournament?.length ? myEntriesForTournament : [];
     const hasEntriesAlready = entries.length > 0;
     const latest = entries[0];
-    // במונדיאל/כדורגל: כשיש כבר כניסות, אל תמלא מהכניסה האחרונה — תציג טופס ריק (או sessionStorage) כדי שהמשתמש ימלא כניסה חדשה בלי דריסה
+    // במונדיאל/תחרויות ספורט: כשיש כבר כניסות, אל תמלא מהכניסה האחרונה — תציג טופס ריק (או sessionStorage) כדי שהמשתמש ימלא כניסה חדשה בלי דריסה
     const shouldPreloadFromLatest =
       latest &&
       latest.predictions &&

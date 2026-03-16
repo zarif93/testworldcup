@@ -5,9 +5,9 @@
 
 import { getFinancialEventsByUserFiltered } from "./financialEventService";
 import { getPlayerFinancialProfile } from "./playerFinanceService";
-import { computeCommissionFromEntry, computeReportCommissionSplit } from "./commissionService";
+import { getCommissionBasisPoints, computeCommissionFromEntry, computeReportCommissionSplit } from "./commissionService";
 import { getUserById, getTournamentById, getSubmissionById } from "../db";
-import { DEFAULT_COMMISSION_BASIS_POINTS, DEFAULT_AGENT_SHARE_BASIS_POINTS } from "./constants";
+import { DEFAULT_AGENT_SHARE_BASIS_POINTS } from "./constants";
 
 export interface PlayerReportSummary {
   totalParticipations: number;
@@ -190,7 +190,10 @@ export async function getPlayerReportDetailed(
     let totalCommission = entry.commissionAmount;
     let agentShare = entry.agentCommissionAmount;
     if (totalCommission === 0 && entryFee > 0) {
-      totalCommission = computeCommissionFromEntry(entryFee, DEFAULT_COMMISSION_BASIS_POINTS);
+      const tournament = await getTournamentById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found for report: " + tournamentId);
+      const bps = getCommissionBasisPoints(tournament as { id?: number; name?: string; commissionPercentBasisPoints?: number | null });
+      totalCommission = computeCommissionFromEntry(entryFee, bps);
       const split = computeReportCommissionSplit(totalCommission, DEFAULT_AGENT_SHARE_BASIS_POINTS);
       agentShare = split.agentCommission;
     }

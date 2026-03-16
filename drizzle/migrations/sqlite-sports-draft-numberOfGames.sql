@@ -1,0 +1,7 @@
+-- Migration: Add tournaments.numberOfGames for sports (single-step create with matches).
+-- Run manually if needed; initSqlite() also adds this column when missing.
+--
+--   ALTER TABLE tournaments ADD COLUMN numberOfGames INTEGER;
+--
+-- Existing rows keep numberOfGames = NULL. New football_custom can be created with
+-- numberOfGames + matches array in one request (competition + match rows together).

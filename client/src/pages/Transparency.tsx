@@ -11,7 +11,7 @@ import {
 import { Coins, Info, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 
 const FEE_EXPLANATION =
-  "12.5% מסכום הכניסה נלקח לטובת האתר, יתר הסכום מהווה את קופת הפרסים של הטורניר.";
+  "עמלת האתר מחושבת לפי אחוז העמלה של כל תחרות (ברירת מחדל 12.5%). יתר הסכום מהווה את קופת הפרסים של הטורניר.";
 
 function formatNis(n: number) {
   return `₪${n.toLocaleString("he-IL")}`;
@@ -89,7 +89,7 @@ export default function Transparency() {
                 <p className="text-2xl font-bold text-white">{formatNis(totalAmount)}</p>
               </div>
               <div>
-                <p className="text-slate-500 text-sm">עמלה (12.5%)</p>
+                <p className="text-slate-500 text-sm">עמלת אתר</p>
                 <p className="text-xl font-bold text-amber-400">{formatNis(totalFee)}</p>
               </div>
               <div>
@@ -165,7 +165,7 @@ export default function Transparency() {
                           </tr>
                           <tr>
                             <td className="py-1">
-                              עמלה 12.5%
+                              עמלת אתר
                               <TooltipProvider>
                                 <Tooltip>
                                   <TooltipTrigger asChild>

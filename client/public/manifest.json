@@ -1,7 +1,7 @@
 {
   "name": "WinMondial",
   "short_name": "WinMondial",
-  "description": "WinMondial – פלטפורמת תחרויות ניחושי כדורגל ומונדיאל. השתתף בתחרויות, נחש תוצאות ועקוב אחרי הדירוג והפרסים.",
+  "description": "WinMondial – פלטפורמת תחרויות ניחוש: מונדיאל, לוטו, צ'אנס ותחרויות ספורט. השתתף בתחרויות, נחש תוצאות ועקוב אחרי הדירוג והפרסים.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#020617",

@@ -1,6 +1,7 @@
 /**
  * Phase 5: Resolve settlement path (schema vs legacy) and return winners + prize amounts.
  * Safe fallback to legacy when schema settlement is not applicable or fails.
+ * Uses per-tournament commission (basis points) for prize pool calculation.
  */
 
 import type { CompetitionSettlementConfig } from "../schema/competitionSettlementConfig";
@@ -11,6 +12,7 @@ import type { ScoredSubmission } from "./types";
 import type { SchemaSettlementResult } from "./types";
 import type { SettlementSource } from "./types";
 import { logger } from "../_core/logger";
+import { getCommissionBasisPoints } from "../finance/commissionService";
 
 const SUPPORTED_LEGACY_TYPES = ["football", "football_custom", "lotto", "chance"] as const;
 
@@ -50,13 +52,14 @@ function shouldUseSchemaSettlement(
  * Returns winner submissions (full rows), prizePerWinner, and distributed total for use by doDistributePrizesBody.
  */
 export async function resolveSettlement(
-  tournament: TournamentRow & { amount?: number; id?: number },
+  tournament: TournamentRow & { amount?: number; id?: number; commissionPercentBasisPoints?: number | null; houseFeeRate?: number | null },
   submissions: SubmissionRow[]
 ): Promise<ResolvedSettlementResult> {
   const warnings: string[] = [];
   const tType = (tournament as { type?: string }).type ?? "football";
   const entryAmount = Number((tournament as { amount?: number }).amount ?? 0);
   const guaranteedPrize = Number((tournament as { guaranteedPrizeAmount?: number | null }).guaranteedPrizeAmount ?? 0) || 0;
+  const commissionBasisPoints = getCommissionBasisPoints(tournament);
 
   let config: CompetitionSettlementConfig;
   try {
@@ -65,7 +68,7 @@ export async function resolveSettlement(
     if (resolved.warnings.length > 0) warnings.push(...resolved.warnings);
   } catch (e) {
     warnings.push("Failed to resolve settlement config: " + String(e));
-    return legacySettlement(submissions, tType, entryAmount, warnings, guaranteedPrize);
+    return legacySettlement(submissions, tType, entryAmount, warnings, guaranteedPrize, commissionBasisPoints);
   }
 
   if (!shouldUseSchemaSettlement(tournament, config, submissions.length)) {
@@ -76,7 +79,7 @@ export async function resolveSettlement(
         submissionCount: submissions.length,
       });
     }
-    return legacySettlement(submissions, tType, entryAmount, warnings, guaranteedPrize);
+    return legacySettlement(submissions, tType, entryAmount, warnings, guaranteedPrize, commissionBasisPoints);
   }
 
   try {
@@ -91,6 +94,7 @@ export async function resolveSettlement(
       tournamentType: tType,
       entryAmount,
       guaranteedPrizeAmount: guaranteedPrize > 0 ? guaranteedPrize : undefined,
+      commissionBasisPoints,
     });
     const winnerSubmissions: WinnerSubmissionRow[] = schemaResult.winners.map((w) => {
       const s = submissions.find((sub) => sub.id === w.submissionId);
@@ -111,21 +115,23 @@ export async function resolveSettlement(
       tournamentId: tournament.id,
       error: String(e),
     });
-    return legacySettlement(submissions, tType, entryAmount, warnings, guaranteedPrize);
+    return legacySettlement(submissions, tType, entryAmount, warnings, guaranteedPrize, commissionBasisPoints);
   }
 }
 
-/** Phase 5: Compute legacy settlement only (for admin compare). No side effects. */
+/** Phase 5: Compute legacy settlement only (for admin compare). No side effects. commissionBasisPoints required (from competition). */
 export function getLegacySettlementResult(
   submissions: SubmissionRow[],
   tournamentType: string,
   entryAmount: number,
-  guaranteedPrizeAmount?: number
+  guaranteedPrizeAmount: number | undefined,
+  commissionBasisPoints: number
 ): { winnerSubmissions: SubmissionRow[]; prizePerWinner: number; distributed: number; prizePool: number } {
-  const r = legacySettlement(submissions, tournamentType, entryAmount, [], guaranteedPrizeAmount ?? 0);
+  const r = legacySettlement(submissions, tournamentType, entryAmount, [], guaranteedPrizeAmount ?? 0, commissionBasisPoints);
+  const total = submissions.length * entryAmount;
   const pool = (guaranteedPrizeAmount != null && guaranteedPrizeAmount > 0)
     ? guaranteedPrizeAmount
-    : Math.round(submissions.length * entryAmount * 0.875);
+    : total - Math.floor((total * commissionBasisPoints) / 10_000);
   return {
     winnerSubmissions: r.winnerSubmissions,
     prizePerWinner: r.prizePerWinner,
@@ -139,9 +145,11 @@ function legacySettlement(
   tType: string,
   entryAmount: number,
   existingWarnings: string[],
-  guaranteedPrizeAmount: number = 0
+  guaranteedPrizeAmount: number,
+  commissionBasisPoints: number
 ): ResolvedSettlementResult {
-  const calculatedPool = Math.round(submissions.length * entryAmount * 0.875);
+  const total = submissions.length * entryAmount;
+  const calculatedPool = total - Math.floor((total * commissionBasisPoints) / 10_000);
   const prizePool = (guaranteedPrizeAmount != null && guaranteedPrizeAmount > 0) ? guaranteedPrizeAmount : calculatedPool;
   let winnerSubmissions: SubmissionRow[];
   if (tType === "chance") {

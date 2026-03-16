@@ -25,7 +25,7 @@ This phase transformed the **competition experience** into a more engaging, game
 | **Countdown** | `.countdown-urgent` and `.is-less-than-hour` (amber/red + subtle pulse) when &lt;1h left | Increase perceived urgency without changing data. |
 | **Participation copy** | “X משתתפים כבר בתחרות” on cards; “הזדמנות לזכות בפרס – מלא טופס והצטרף תוך דקה” on detail | Social proof and clear benefit. |
 | **CTA wording** | “הצטרף עכשיו” on cards (replacing “השתתף”) | More action-oriented and emotionally engaging. |
-| **Type badge** | Small type label (מונדיאל / לוטו / צ'אנס / כדורגל) on cards | Faster scan and clarity. |
+| **Type badge** | Small type label (מונדיאל / לוטו / צ'אנס / תחרויות ספורט) on cards | Faster scan and clarity. |
 | **Prize prominence** | Prize as hero number (emerald, larger) on cards and in detail hero | Emphasize reward. |
 | **Detail hero** | Single hero block: entry, prize, countdown (with urgency), “why join” line | Clear hierarchy and one-place summary. |
 | **Progress (football)** | “X מתוך Y ניחושים” + progress bar above match list | Reduce cognitive load and show completion. |

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Lock, Trash2, Code, ListChecks } from "lucide-react";
+import { Lock, Trash2, Code, ListChecks, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
@@ -23,6 +23,8 @@ export interface TournamentRow {
   opensAt?: unknown;
   closesAt?: unknown;
   createdAt?: unknown;
+  /** Commission in basis points (1250 = 12.5%). For display and edit. */
+  commissionPercentBasisPoints?: number | null;
 }
 
 interface CompetitionsTableProps {
@@ -31,6 +33,8 @@ interface CompetitionsTableProps {
   submissionCountByTournamentId: Record<number, number> | Map<number, number>;
   onLock: (tournamentId: number, locked: boolean) => void;
   onDelete: (tournamentId: number, name: string) => void;
+  /** Edit commission (only when 0 participants). Receives current commission % 0–100. */
+  onEditCommission?: (tournamentId: number, tournamentName: string, currentCommissionPercent: number) => void;
   /** Phase 2C: optional debug – show resolved schema for this tournament */
   onViewSchema?: (tournamentId: number) => void;
   /** Phase 8: manage universal competition item sets/items for this tournament */
@@ -47,12 +51,16 @@ const STATUS_LABELS: Record<string, string> = {
   ARCHIVED: "בארכיון",
 };
 
+const basisPointsToPercent = (bps: number | null | undefined): number =>
+  bps != null && Number.isFinite(bps) ? bps / 100 : 12.5;
+
 export function CompetitionsTable({
   tournaments,
   typesFromApi,
   submissionCountByTournamentId,
   onLock,
   onDelete,
+  onEditCommission,
   onViewSchema,
   onViewItems,
   isLoading,
@@ -109,6 +117,7 @@ export function CompetitionsTable({
                   <TableHead className="text-slate-400">סוג</TableHead>
                   <TableHead className="text-slate-400">סטטוס</TableHead>
                   <TableHead className="text-slate-400">עלות</TableHead>
+                  <TableHead className="text-slate-400">עמלה %</TableHead>
                   <TableHead className="text-slate-400">משתתפים</TableHead>
                   <TableHead className="text-slate-400">תאריך</TableHead>
                   <TableHead className="text-slate-400 text-left">פעולות</TableHead>
@@ -128,6 +137,20 @@ export function CompetitionsTable({
                       {STATUS_LABELS[t.status ?? ""] ?? t.status ?? "—"}
                     </TableCell>
                     <TableCell className="text-slate-300">{t.amount} נק׳</TableCell>
+                    <TableCell className="text-slate-300">
+                      {basisPointsToPercent(t.commissionPercentBasisPoints)}%
+                      {onEditCommission && countFor(t.id) === 0 && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0 ml-1 text-slate-500 hover:text-amber-400"
+                          title="ערוך עמלה (רק לפני הרשמת משתתפים)"
+                          onClick={() => onEditCommission(t.id, t.name, basisPointsToPercent(t.commissionPercentBasisPoints))}
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </Button>
+                      )}
+                    </TableCell>
                     <TableCell className="text-slate-300">{countFor(t.id)}</TableCell>
                     <TableCell className="text-slate-300">{formatDate(t.createdAt ?? t.opensAt)}</TableCell>
                     <TableCell className="text-left">

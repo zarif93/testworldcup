@@ -50,39 +50,37 @@ const playerUser = {
   role: "user" as const,
 };
 
+/**
+ * Report export permissions aligned with current API (settlement CSV exports).
+ * Old PnL procedures (exportPnLSummaryCSV, exportPnLReportCSV, exportMyPlayerReport) were removed.
+ */
 describe("report export permissions", () => {
   it("admin can export admin report", async () => {
     const caller = appRouter.createCaller(createContext(adminUser as never));
-    const result = await caller.admin.exportPnLSummaryCSV({ from: undefined, to: undefined, tournamentType: undefined });
+    const result = await caller.admin.exportGlobalSettlementCSV({});
     expect(typeof result.csv).toBe("string");
     expect(result.csv.length).toBeGreaterThan(0);
   });
 
   it("agent cannot export admin report (403)", async () => {
     const caller = appRouter.createCaller(createContext(agentUser as never));
-    await expect(
-      caller.admin.exportPnLSummaryCSV({ from: undefined, to: undefined, tournamentType: undefined })
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.admin.exportGlobalSettlementCSV({})).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("player cannot export admin report (403)", async () => {
     const caller = appRouter.createCaller(createContext(playerUser as never));
-    await expect(
-      caller.admin.exportPnLSummaryCSV({ from: undefined, to: undefined, tournamentType: undefined })
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.admin.exportGlobalSettlementCSV({})).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("agent cannot export from agent export endpoints anymore (403)", async () => {
+  it("agent cannot call admin-only agent export (403)", async () => {
     const caller = appRouter.createCaller(createContext(agentUser as never));
-    await expect(
-      caller.agent.exportPnLReportCSV({ from: undefined, to: undefined, tournamentType: undefined, limit: 10 })
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.agent.exportCommissionReportCSV({})).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("player cannot export personal report via auth.exportMyPlayerReport (403)", async () => {
+  it("player cannot export admin player report (403)", async () => {
     const caller = appRouter.createCaller(createContext(playerUser as never));
     await expect(
-      caller.auth.exportMyPlayerReport({ from: undefined, to: undefined, tournamentType: undefined })
+      caller.admin.exportPlayerSettlementCSV({ userId: (playerUser as { id: number }).id })
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });

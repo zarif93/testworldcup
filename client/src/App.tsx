@@ -461,7 +461,7 @@ function Layout({ children }: { children: React.ReactNode }) {
       <section className="mb-10">
         <h3 className="text-white font-bold text-xl border-b border-slate-600 pb-1.5 mb-4">2. השתתפות בתחרויות</h3>
         <ul className="list-disc list-inside space-y-3 pr-5 mb-0">
-          <li>ניתן להשתתף בתחרויות: <strong className="text-white">מונדיאל</strong> (ניחושי משחקים), <strong className="text-white">לוטו</strong>, <strong className="text-white">צ'אנס</strong> ותחרויות כדורגל נוספות.</li>
+          <li>ניתן להשתתף בתחרויות: <strong className="text-white">מונדיאל</strong> (ניחושי משחקים), <strong className="text-white">לוטו</strong>, <strong className="text-white">צ'אנס</strong> ותחרויות ספורט.</li>
           <li>בכל תחרות מופיעים <strong className="text-amber-400/90">סכום ההשתתפות</strong> ו־<strong className="text-amber-400/90">קופת הפרסים</strong>.</li>
           <li>תחרות שמסומנת כ־🔒 <strong className="text-white">נעולה</strong> – לא ניתן לשלוח אליה טפסים חדשים.</li>
         </ul>

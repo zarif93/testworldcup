@@ -44,6 +44,7 @@ describe("prize distribution verification", () => {
       tournamentType: "football",
       entryAmount: 100,
       guaranteedPrizeAmount: prizePool,
+      commissionBasisPoints: 1250,
     });
 
     expect(result.winners).toHaveLength(3);
@@ -164,6 +165,7 @@ describe("prize distribution verification", () => {
       tournamentType: "football",
       entryAmount: 10,
       guaranteedPrizeAmount: prizePool,
+      commissionBasisPoints: 1250,
     });
     expect(result.prizePoolTotal).toBe(prizePool);
     expect(result.totalPrizeDistributed).toBeLessThanOrEqual(result.prizePoolTotal);
@@ -180,6 +182,7 @@ describe("prize distribution verification", () => {
     const result = settleTournamentBySchema(config, subs, {
       tournamentType: "football",
       entryAmount: 10,
+      commissionBasisPoints: 1250,
     });
     expect(result.totalPrizeDistributed).toBeLessThanOrEqual(result.prizePoolTotal);
   });
@@ -194,6 +197,7 @@ describe("prize distribution verification", () => {
       tournamentType: "football",
       entryAmount: 1,
       guaranteedPrizeAmount: prizePool,
+      commissionBasisPoints: 1250,
     });
     expect(result.prizePoolTotal).toBe(prizePool);
     expect(result.totalPrizeDistributed).toBeLessThanOrEqual(prizePool);
@@ -221,6 +225,7 @@ describe("prize distribution verification", () => {
       tournamentType: "chance",
       entryAmount: 100,
       guaranteedPrizeAmount: 100,
+      commissionBasisPoints: 1250,
     });
     expect(result.winners).toHaveLength(1);
     expect(result.winners[0].prizeAmount).toBe(100);

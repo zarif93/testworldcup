@@ -30,7 +30,7 @@ This phase improved the **public product experience** for an Israeli audience: h
 
 ## 3. Homepage Improvements
 
-- **Hero:** Stronger hierarchy; consistent mobile spacing (`pt-6 pb-8`). One-line explanation when no CMS hero: “תחרויות ניחושים עם פרסים – מונדיאל, לוטו, צ'אנס וכדורגל. בחר תחרות, מלא טופס והשתתף.” Optional use of `heroBanner.body` when present.
+- **Hero:** Stronger hierarchy; consistent mobile spacing (`pt-6 pb-8`). One-line explanation when no CMS hero: “תחרויות ניחושים עם פרסים – מונדיאל, לוטו, צ'אנס ותחרויות ספורט. בחר תחרות, מלא טופס והשתתף.” Optional use of `heroBanner.body` when present.
 - **Trust line:** Under hero (when no CMS banner): “שקיפות מלאה • תקנון ברור • איך זה עובד • שקיפות” with links to `/how-it-works` and `/transparency`.
 - **Primary CTA:** Unchanged logic; added hint below: “בחרו תחרות מהרשימה למטה או עיינו בכל התחרויות” with link to `/tournaments`.
 - **Competition discovery:** Mobile section title “תחרויות פתוחות עכשיו” set to `text-xl` and `mb-4`; grid gap `gap-3` for breathing room.

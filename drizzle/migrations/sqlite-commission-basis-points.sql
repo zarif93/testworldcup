@@ -1,0 +1,7 @@
+-- Migration: Ensure tournaments.commissionPercentBasisPoints exists and existing rows are backfilled.
+-- Canonical path: run via  npm run migrate:sqlite  (scripts/migrate-sqlite-commission.ts).
+-- Application will not start if this column is missing (no runtime ALTER).
+--
+-- Equivalent SQL (for manual run if needed):
+--   ALTER TABLE tournaments ADD COLUMN commissionPercentBasisPoints INTEGER NOT NULL DEFAULT 1250;
+--   UPDATE tournaments SET commissionPercentBasisPoints = 1250 WHERE commissionPercentBasisPoints IS NULL;

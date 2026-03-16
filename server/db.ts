@@ -461,12 +461,12 @@ async function initSqlite() {
     ["entryCostPoints", "INTEGER"],
     ["houseFeeRate", "INTEGER"],
     ["commissionPercent", "INTEGER"],
-    ["commissionPercentBasisPoints", "INTEGER DEFAULT 1250"],
     ["agentShareOfHouseFee", "INTEGER"],
     ["rulesJson", "TEXT"],
     ["createdBy", "INTEGER"],
     ["leagueId", "INTEGER"],
     ["customIdentifier", "TEXT"],
+    ["numberOfGames", "INTEGER"],
   ];
   for (const [col, typ] of optionalCols) {
     if (!tourColNames.has(col)) {
@@ -474,7 +474,15 @@ async function initSqlite() {
       console.log("[DB] Added column tournaments." + col);
     }
   }
-  // Repair: set status = OPEN only for tournaments that are clearly intended to be active (not deleted, not finalized).
+  const tourColsAfterLoop = sqlite.prepare("PRAGMA table_info(tournaments)").all() as Array<{ name: string }>;
+  const hasCommissionBps = tourColsAfterLoop.some((c) => c.name === "commissionPercentBasisPoints");
+  if (!hasCommissionBps) {
+    const msg =
+      "Schema outdated: tournaments.commissionPercentBasisPoints missing. Run migration before start: npm run migrate:sqlite or apply drizzle/migrations/sqlite-commission-basis-points.sql";
+    console.error("[DB] " + msg);
+    throw new Error(msg);
+  }
+  // Repair: set status = 'OPEN' only for tournaments that are clearly intended to be active (not deleted, not finalized).
   // Do not modify historical/finalized tournaments (settledAt/resultsFinalizedAt set).
   sqlite.prepare(
     `UPDATE tournaments SET status = 'OPEN' WHERE (status IS NULL OR status = '') AND deletedAt IS NULL AND settledAt IS NULL AND (resultsFinalizedAt IS NULL OR resultsFinalizedAt = 0)`
@@ -573,7 +581,7 @@ async function initSqlite() {
     const seedRows: Array<{ code: string; name: string; description: string; category: string; sortOrder: number; defaultHouseFeePercent: number; defaultAgentSharePercent: number; formSchemaJson: string; scoringConfigJson: string; settlementConfigJson: string }> = [
       {
         code: "football",
-        name: "מונדיאל / כדורגל",
+        name: "מונדיאל",
         description: "ניחוש תוצאה לכל משחק (1 / X / 2). משחקים מקובעים (מונדיאל 2026).",
         category: "sports",
         sortOrder: 10,
@@ -593,7 +601,7 @@ async function initSqlite() {
       },
       {
         code: "football_custom",
-        name: "כדורגל מותאם",
+        name: "תחרויות ספורט",
         description: "ניחוש תוצאה (1/X/2) למשחקים שהמנהל מגדיר.",
         category: "sports",
         sortOrder: 20,
@@ -1056,8 +1064,17 @@ async function initSqlite() {
     )
   `);
 
-  const { leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions } = await import("../drizzle/schema-sqlite");
-  const db = drizzle(sqlite, { schema: { users, tournaments, matches, submissions, agentCommissions, agentCommissionConfig, siteSettings, chanceDrawResults, lottoDrawResults, customFootballMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog, financialEvents, leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions } });
+  const { leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams } = await import("../drizzle/schema-sqlite");
+  const db = drizzle(sqlite, { schema: { users, tournaments, matches, submissions, agentCommissions, agentCommissionConfig, siteSettings, chanceDrawResults, lottoDrawResults, customFootballMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog, financialEvents, leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams } });
+
+  // Team library: schema is migration-only. Fail at startup if tables are missing.
+  const teamLibCategoriesExists = sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_library_categories'").get();
+  const teamLibTeamsExists = sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_library_teams'").get();
+  if (!teamLibCategoriesExists || !teamLibTeamsExists) {
+    throw new Error(
+      "Team library tables are missing. Run the migration before starting the app:  pnpm run migrate:team-library"
+    );
+  }
 
   // עדכון רשימת המשחקים מהקבוע – idempotent: INSERT OR IGNORE so concurrent inits (e.g. tests) don't hit UNIQUE on matchNumber
   for (const m of WORLD_CUP_2026_MATCHES) {
@@ -1078,7 +1095,7 @@ async function initSqlite() {
   const catCount = sqlite.prepare("SELECT COUNT(*) as c FROM tournament_template_categories").get() as { c: number };
   if (catCount.c === 0) {
     const categories: Array<[string, string, number]> = [
-      ["football", "כדורגל", 10],
+      ["football", "ספורט", 10],
       ["basketball", "כדורסל", 20],
       ["tennis", "טניס", 30],
       ["baseball", "בייסבול", 40],
@@ -1098,7 +1115,7 @@ async function initSqlite() {
     console.log("[DB] Seeded tournament template categories:", categories.length);
   } else {
     const categoryNamesHeb: Array<[string, string, string]> = [
-      ["football", "Football", "כדורגל"],
+      ["football", "Football", "ספורט"],
       ["basketball", "Basketball", "כדורסל"],
       ["tennis", "Tennis", "טניס"],
       ["baseball", "Baseball", "בייסבול"],
@@ -1113,14 +1130,15 @@ async function initSqlite() {
     const updCat = sqlite.prepare("UPDATE tournament_template_categories SET name = ? WHERE code = ? AND name = ?");
     for (const [code, oldName, newName] of categoryNamesHeb) updCat.run(newName, code, oldName);
   }
+
   const templateCount = sqlite.prepare("SELECT COUNT(*) as c FROM tournament_templates").get() as { c: number };
   if (templateCount.c === 0) {
     const now = Date.now();
     const templates: Array<{ name: string; category: string; description: string; config: object }> = [
       {
-        name: "כדורגל בסיסי",
+        name: "ספורט בסיסי",
         category: "football",
-        description: "תחרות כדורגל בסיסית – תוצאות משחקים, נקודות לכל תשובה נכונה.",
+        description: "תחרות ספורט בסיסית – תוצאות משחקים, נקודות לכל תשובה נכונה.",
         config: {
           tournamentType: "football",
           scoringModel: "points_per_correct",
@@ -1222,7 +1240,7 @@ async function initSqlite() {
     console.log("[DB] Seeded tournament templates:", templates.length);
   } else {
     const templateNamesHeb: Array<[string, string, string, string]> = [
-      ["football", "Football basic", "כדורגל בסיסי", "תחרות כדורגל בסיסית – תוצאות משחקים, נקודות לכל תשובה נכונה."],
+      ["football", "Football basic", "ספורט בסיסי", "תחרות ספורט בסיסית – תוצאות משחקים, נקודות לכל תשובה נכונה."],
       ["basketball", "Basketball basic", "כדורסל בסיסי", "תחרות כדורסל בסיסית – ניחוש מנצח או הפרש."],
       ["tennis", "Tennis basic", "טניס בסיסי", "תחרות טניס בסיסית – ניחוש מנצחי משחק."],
       ["lottery", "Lottery basic", "לוטו בסיסי", "לוטו בסיסי – בחירת מספרים, הגרלה בשעה קבועה."],
@@ -2225,7 +2243,7 @@ export async function deleteAllPointsLogsHistory(): Promise<void> {
 
 /** ניקוי מלא של האתר – מוחק את כל הנתונים ומשאיר רק סופר מנהל (Yoven! / Yoven).
  * 1. מחיקת משתמשים: כל השחקנים (user) וכל הסוכנים (agent) – נשארים רק מנהלים ששמם ב-SUPER_ADMIN_USERNAMES.
- * 2. מחיקת תחרויות: טורנירים, טפסים, תוצאות הגרלות (צ'אנס, לוטו, כדורגל מותאם), משחקי מונדיאל.
+ * 2. מחיקת תחרויות: טורנירים, טפסים, תוצאות הגרלות (צ'אנס, לוטו, תחרויות ספורט), משחקי מונדיאל.
  * 3. מחיקת נקודות והיסטוריה: point_transactions, point_transfer_log, עמלות, דוחות כספיים, audit.
  * 4. איפוס דוחות: עמלות, מאזנים – הכל נמחק עם הטבלאות לעיל.
  * 5. סופר מנהל שנשאר מקבל points=0 והרשאת unlimitedPoints=1, deletedAt=NULL, isBlocked=0.
@@ -2358,7 +2376,10 @@ async function doDistributePrizesBody(
   const winnerSubIds = new Set(winnerSubmissions.map((s) => s.id));
   const tType = (tournament as { type?: string }).type ?? "football";
   const participantCountForEvent = subs.length;
-  const prizePoolExpected = Math.round(participantCountForEvent * tAmount * 0.875);
+  const { getCommissionBasisPoints } = await import("./finance");
+  const commissionBps = getCommissionBasisPoints(tournament as { commissionPercentBasisPoints?: number | null; commissionPercent?: number | null; houseFeeRate?: number | null });
+  const totalPool = participantCountForEvent * tAmount;
+  const prizePoolExpected = totalPool - Math.floor((totalPool * commissionBps) / 10_000);
   const prizePool = tGuaranteed > 0 ? tGuaranteed : prizePoolExpected;
 
   await insertTournamentFinancialEvent(tournamentId, TOURNAMENT_FINANCIAL_EVENT_TYPES.SETTLEMENT_STARTED, {
@@ -2405,9 +2426,7 @@ async function doDistributePrizesBody(
   }
   const participantCount = subs.length;
   const totalParticipation = participantCount * tAmount;
-  const { getCommissionBasisPoints } = await import("./finance");
-  const commissionBasisPoints = getCommissionBasisPoints(tournament as { commissionPercentBasisPoints?: number | null; commissionPercent?: number | null; houseFeeRate?: number | null });
-  const fee = Math.floor((totalParticipation * commissionBasisPoints) / 10_000);
+  const fee = Math.floor((totalParticipation * commissionBps) / 10_000);
   const isFreeroll = totalParticipation === 0 && distributed > 0;
   await setTournamentResultsFinalized(tournamentId, {
     participantCount,
@@ -2452,7 +2471,7 @@ async function doDistributePrizesBody(
   const settlementParams = {
     tournamentId,
     tournamentName,
-    commissionBasisPoints,
+    commissionBasisPoints: commissionBps,
     totalPool: totalParticipation,
     platformCommission: fee,
     prizePerWinner,
@@ -2509,7 +2528,9 @@ export async function getSettlementComparison(tournamentId: number): Promise<{
     strongHit: (s as { strongHit?: boolean }).strongHit,
   }));
   const { getLegacySettlementResult } = await import("./settlement/resolveSettlement");
-  const legacyResult = getLegacySettlementResult(submissionRows, tType, entryAmount, guaranteedPrize > 0 ? guaranteedPrize : undefined);
+  const { getCommissionBasisPoints } = await import("./finance");
+  const comparisonBps = getCommissionBasisPoints(tournament as { commissionPercentBasisPoints?: number | null; houseFeeRate?: number | null });
+  const legacyResult = getLegacySettlementResult(submissionRows, tType, entryAmount, guaranteedPrize > 0 ? guaranteedPrize : undefined, comparisonBps);
   const legacyWinnerIds = legacyResult.winnerSubmissions.map((s) => s.id).sort((a, b) => a - b);
   let schemaResult: Awaited<ReturnType<typeof import("./settlement/settleTournamentBySchema").settleTournamentBySchema>> | null = null;
   try {
@@ -2523,6 +2544,7 @@ export async function getSettlementComparison(tournamentId: number): Promise<{
         tournamentType: tType,
         entryAmount,
         guaranteedPrizeAmount: guaranteedPrize > 0 ? guaranteedPrize : undefined,
+        commissionBasisPoints: comparisonBps,
       });
     }
   } catch {
@@ -3487,11 +3509,55 @@ export async function getAgentCommissionsByAgentIdWithDateRange(
   return { rows, totalCommission };
 }
 
-/** חישוב סכום עמלה: אחוז מהעמלת האתר (12.5% מהתפוס). */
-export function calcAgentCommission(entryAmount: number, agentPercentOfFee: number): number {
-  const FEE = 12.5;
-  const fee = entryAmount * (FEE / 100);
-  return Math.round(fee * (agentPercentOfFee / 100));
+/** Agent commissions with tournament commission (for computing site fee per competition). */
+export async function getAgentCommissionsByAgentIdWithTournamentCommission(agentId: number): Promise<Array<{
+  submissionId: number;
+  userId: number;
+  entryAmount: number;
+  commissionAmount: number;
+  createdAt: Date | null;
+  commissionPercentBasisPoints: number;
+}>> {
+  const { agentCommissions, submissions, tournaments } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({
+      submissionId: agentCommissions.submissionId,
+      userId: agentCommissions.userId,
+      entryAmount: agentCommissions.entryAmount,
+      commissionAmount: agentCommissions.commissionAmount,
+      createdAt: agentCommissions.createdAt,
+      commissionPercentBasisPoints: tournaments.commissionPercentBasisPoints,
+      houseFeeRate: tournaments.houseFeeRate,
+    })
+    .from(agentCommissions)
+    .innerJoin(submissions, eq(agentCommissions.submissionId, submissions.id))
+    .innerJoin(tournaments, eq(submissions.tournamentId, tournaments.id))
+    .where(eq(agentCommissions.agentId, agentId))
+    .orderBy(desc(agentCommissions.createdAt));
+  const { getCommissionBasisPoints } = await import("./finance");
+  return rows.map((r) => ({
+    submissionId: r.submissionId,
+    userId: r.userId,
+    entryAmount: r.entryAmount,
+    commissionAmount: r.commissionAmount,
+    createdAt: r.createdAt,
+    commissionPercentBasisPoints: getCommissionBasisPoints({
+      commissionPercentBasisPoints: r.commissionPercentBasisPoints,
+      houseFeeRate: r.houseFeeRate,
+    }),
+  }));
+}
+
+/** Agent share of commission: (entryAmount * commissionBasisPoints/10000) * (agentPercentOfFee/100). commissionBasisPoints required (from getCommissionBasisPoints(tournament)). */
+export function calcAgentCommission(
+  entryAmount: number,
+  agentPercentOfFee: number,
+  commissionBasisPoints: number
+): number {
+  const totalCommission = Math.floor((entryAmount * commissionBasisPoints) / 10_000);
+  return Math.floor((totalCommission * agentPercentOfFee) / 100);
 }
 
 export async function getTournaments() {
@@ -3731,6 +3797,33 @@ export async function updateTournamentStatus(tournamentId: number, status: strin
     .where(eq(tournaments.id, tournamentId))
     .returning({ id: tournaments.id });
   return result.length > 0;
+}
+
+/**
+ * Update competition commission (admin only).
+ * Policy: Commission may be changed only when the competition has zero approved submissions.
+ * Once any participant has joined, commission is locked to preserve financial consistency.
+ */
+export async function updateTournamentCommission(tournamentId: number, commissionPercent: number): Promise<void> {
+  const tournament = await getTournamentById(tournamentId);
+  if (!tournament) throw new Error("Tournament not found");
+  const subs = await getSubmissionsByTournament(tournamentId);
+  const approvedCount = subs.filter((s) => s.status === "approved").length;
+  if (approvedCount > 0) {
+    throw new Error("לא ניתן לשנות עמלה לאחר שמשתתפים נרשמו לתחרות. העמלה ננעלת עם ההרשמה הראשונה.");
+  }
+  const pct = Number(commissionPercent);
+  if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+    throw new Error("עמלת מנהל חייבת להיות בין 0 ל־100 (אחוז).");
+  }
+  const bps = Math.max(0, Math.min(10_000, Math.round(pct * 100)));
+  const { tournaments } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(tournaments)
+    .set({ commissionPercentBasisPoints: bps } as typeof tournaments.$inferInsert)
+    .where(eq(tournaments.id, tournamentId));
 }
 
 /** שמירה לצמיתות – רשומה כספית בעת חלוקת פרסים או החזר. לא נמחקת אוטומטית. */
@@ -6042,7 +6135,10 @@ export async function verifyPrizePoolIntegrity(tournamentId: number): Promise<{
   const tAmount = Number((tournament as { amount?: number }).amount ?? 0);
   const tGuaranteed = Number((tournament as { guaranteedPrizeAmount?: number | null }).guaranteedPrizeAmount ?? 0) || 0;
   const participantCount = subs.length;
-  const prizePoolExpected = tGuaranteed > 0 ? tGuaranteed : Math.round(participantCount * tAmount * 0.875);
+  const { getCommissionBasisPoints } = await import("./finance");
+  const totalForIntegrity = participantCount * tAmount;
+  const bpsIntegrity = getCommissionBasisPoints(tournament as { commissionPercentBasisPoints?: number | null; houseFeeRate?: number | null });
+  const prizePoolExpected = tGuaranteed > 0 ? tGuaranteed : totalForIntegrity - Math.floor((totalForIntegrity * bpsIntegrity) / 10_000);
   const { pointTransactions } = await getSchema();
   const db = await getDb();
   if (!db) return { ok: true, prizePoolExpected, totalDistributed: 0, delta: prizePoolExpected, participantCount };
@@ -6278,6 +6374,8 @@ export type CreateTournamentFromTemplateOverrides = {
   name: string;
   description?: string | null;
   amount?: number | null;
+  /** Commission % (0–100). Overrides template default; omitted = 12.5%. */
+  commissionPercent?: number | null;
   opensAt?: string | number | Date | null;
   closesAt?: string | number | Date | null;
   drawDate?: string | null;
@@ -6344,6 +6442,10 @@ export async function createTournamentFromTemplate(
     : defaultEntry;
   const name = typeof overrides.name === "string" ? overrides.name.trim() : "";
   if (!name && !template.name) throw new Error("Tournament name is required (template has no default name)");
+  const commissionPercentBasisPoints =
+    overrides.commissionPercent != null && Number.isFinite(overrides.commissionPercent) && overrides.commissionPercent >= 0 && overrides.commissionPercent <= 100
+      ? Math.max(0, Math.min(10_000, Math.round(overrides.commissionPercent * 100)))
+      : undefined;
   const payload = {
     name: name || template.name,
     amount,
@@ -6358,6 +6460,7 @@ export async function createTournamentFromTemplate(
     maxParticipants: overrides.maxParticipants ?? undefined,
     rulesJson: overrides.rulesJson ?? undefined,
     initialStatus: "OPEN" as const,
+    commissionPercentBasisPoints,
   };
   return createTournament(payload);
 }
@@ -6394,6 +6497,12 @@ export async function createTournament(data: {
   guaranteedPrizeAmount?: number | null;
   /** Initial lifecycle status. Must be OPEN or DRAFT. Default OPEN so new tournaments are visible. */
   initialStatus?: "OPEN" | "DRAFT" | null;
+  /** Commission in basis points (0–10000). Optional; omitted = default 1250 (12.5%). */
+  commissionPercentBasisPoints?: number | null;
+  /** תחרויות ספורט: מספר משחקים (1–30). כשמועבר matches – נוצרות שורות בהתאם ב־custom_football_matches. */
+  numberOfGames?: number | null;
+  /** תחרויות ספורט: רשימת משחקים ליצירה במקביל לתחרות (צעד אחד). */
+  matches?: Array<{ homeTeam: string; awayTeam: string; matchDate?: string | null; matchTime?: string | null }> | null;
 }): Promise<number> {
   const { validateCreateTournamentPayload } = await import("./tournamentCreateValidator");
   const validation = validateCreateTournamentPayload({
@@ -6409,10 +6518,13 @@ export async function createTournament(data: {
     maxParticipants: data.maxParticipants,
     guaranteedPrizeAmount: data.guaranteedPrizeAmount,
     visibility: data.visibility,
+    commissionPercent: data.commissionPercentBasisPoints != null ? data.commissionPercentBasisPoints / 100 : undefined,
+    numberOfGames: data.numberOfGames ?? undefined,
   });
   if (!validation.valid) throw new Error(validation.message);
   const typeVal = validation.normalizedType;
-  const { tournaments } = await getSchema();
+  const schema = await getSchema();
+  const { tournaments, customFootballMatches } = schema;
   const db = await getDb();
   if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const amountNum = Number(data.amount);
@@ -6455,6 +6567,34 @@ export async function createTournament(data: {
   if (data.minParticipants != null && data.minParticipants >= 0) row.minParticipants = data.minParticipants;
   if (data.rulesJson != null) row.rulesJson = typeof data.rulesJson === "string" ? data.rulesJson : JSON.stringify(data.rulesJson);
   if (data.guaranteedPrizeAmount != null && data.guaranteedPrizeAmount > 0) row.guaranteedPrizeAmount = data.guaranteedPrizeAmount;
+  if (data.commissionPercentBasisPoints != null && Number.isFinite(data.commissionPercentBasisPoints)) {
+    const bps = Math.max(0, Math.min(10_000, Math.floor(data.commissionPercentBasisPoints)));
+    row.commissionPercentBasisPoints = bps;
+  }
+  const numGames = data.numberOfGames != null ? Number(data.numberOfGames) : null;
+  const matches = data.matches ?? null;
+  if (typeVal === "football_custom" && matches != null && matches.length > 0) {
+    if (numGames == null || !Number.isInteger(numGames) || numGames < 1 || numGames > 30) {
+      throw new Error("מספר משחקים חייב להיות בין 1 ל־30");
+    }
+    if (matches.length !== numGames) {
+      throw new Error(`נדרשים בדיוק ${numGames} משחקים (הוזנו ${matches.length})`);
+    }
+    for (let i = 0; i < matches.length; i++) {
+      const m = matches[i];
+      const home = (m.homeTeam ?? "").trim();
+      const away = (m.awayTeam ?? "").trim();
+      const date = (m.matchDate ?? "").trim();
+      const time = (m.matchTime ?? "").trim();
+      if (!home || !away) throw new Error(`משחק ${i + 1}: חובה למלא קבוצה ביתית ואורחת`);
+      if (home === away) throw new Error(`משחק ${i + 1}: קבוצה ביתית ואורחת לא יכולות להיות אותו שם`);
+      if (!date || !time) throw new Error(`משחק ${i + 1}: חובה למלא תאריך ושעה`);
+    }
+    row.numberOfGames = numGames;
+    row.status = "OPEN";
+  } else if (typeVal === "football_custom" && numGames != null && Number.isInteger(numGames) && numGames >= 1 && numGames <= 30) {
+    row.numberOfGames = numGames;
+  }
   const startsAtVal = toTimestamp(data.startsAt);
   if (startsAtVal != null) row.startsAt = startsAtVal;
   const endsAtVal = toTimestamp(data.endsAt);
@@ -6471,6 +6611,45 @@ export async function createTournament(data: {
   if (settledAtVal != null) row.settledAt = new Date(settledAtVal);
   const resultsFinalizedVal = toTimestamp(data.resultsFinalizedAt);
   if (resultsFinalizedVal != null) row.resultsFinalizedAt = new Date(resultsFinalizedVal);
+
+  const hasSportsMatches = typeVal === "football_custom" && data.matches != null && data.matches.length > 0;
+
+  if (hasSportsMatches) {
+    // Single transaction: tournament + all match rows. If any insert fails, entire operation rolls back.
+    const id = await db.transaction(async (tx) => {
+      const [inserted] = await tx.insert(tournaments).values(row as typeof tournaments.$inferInsert).returning({ id: tournaments.id });
+      const tournamentId = inserted?.id;
+      if (tournamentId == null) throw new Error("Failed to get tournament id after insert");
+      for (let i = 0; i < data.matches!.length; i++) {
+        const m = data.matches![i];
+        await tx.insert(customFootballMatches).values({
+          tournamentId,
+          homeTeam: (m.homeTeam ?? "").trim(),
+          awayTeam: (m.awayTeam ?? "").trim(),
+          homeTeamId: (m as { homeTeamId?: number | null }).homeTeamId ?? null,
+          awayTeamId: (m as { awayTeamId?: number | null }).awayTeamId ?? null,
+          matchDate: (m.matchDate ?? "").trim() || null,
+          matchTime: (m.matchTime ?? "").trim() || null,
+          displayOrder: i,
+        });
+      }
+      return tournamentId;
+    });
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[createTournament] created", data.matches!.length, "match rows for football_custom tournament", id, "(single transaction)");
+    }
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[createTournament] created", JSON.stringify({
+        id,
+        type: row.type ?? typeVal,
+        status: row.status,
+        opensAt: row.opensAt != null ? String(row.opensAt) : null,
+        closesAt: row.closesAt != null ? String(row.closesAt) : null,
+      }));
+    }
+    return id;
+  }
+
   const [inserted] = await db.insert(tournaments).values(row as typeof tournaments.$inferInsert).returning({ id: tournaments.id });
   const id = inserted?.id;
   if (id == null) throw new Error("Failed to get tournament id after insert");
@@ -6816,8 +6995,6 @@ export async function deleteTournament(id: number): Promise<{ refundedCount: num
   return { refundedCount, totalRefunded, refundedUserIds, amountPerUser: refundedCount > 0 ? Math.floor(totalRefunded / refundedCount) : 0 };
 }
 
-const FEE_PERCENT = 12.5;
-
 export type TournamentTransparencyRow = {
   tournamentId: number;
   name: string;
@@ -6836,11 +7013,12 @@ export type FinancialTransparency = {
   totalPrizePool: number;
 };
 
-/** חישוב שקיפות כספית: טפסים מאושרים נספרים בקופה (אישור = נחשב כתשלום) */
+/** חישוב שקיפות כספית: טפסים מאושרים נספרים בקופה (אישור = נחשב כתשלום). Uses per-tournament commission. */
 export async function getFinancialTransparency(): Promise<FinancialTransparency> {
   const subs = await getAllSubmissions();
   const tournaments = await getTournaments();
   const paid = subs.filter((s) => s.status === "approved");
+  const { getCommissionBasisPoints } = await import("./finance");
 
   let totalAmount = 0;
   let totalFee = 0;
@@ -6848,7 +7026,8 @@ export async function getFinancialTransparency(): Promise<FinancialTransparency>
   const byTournament: TournamentTransparencyRow[] = tournaments.map((t) => {
     const participants = paid.filter((s) => s.tournamentId === t.id).length;
     const total = participants * t.amount;
-    const fee = Math.round(total * (FEE_PERCENT / 100));
+    const bps = getCommissionBasisPoints(t as { commissionPercentBasisPoints?: number | null; houseFeeRate?: number | null });
+    const fee = Math.floor((total * bps) / 10_000);
     const prizePool = total - fee;
     totalAmount += total;
     totalFee += fee;
@@ -6880,6 +7059,8 @@ export type AdminFinancialRow = {
   isFinalized: boolean;
   participantCount: number;
   totalParticipation: number;
+  /** Commission in basis points (1250 = 12.5%). For display. */
+  commissionBasisPoints: number;
   fee: number;
   prizeDistributed: number;
   winnerCount: number;
@@ -6887,11 +7068,12 @@ export type AdminFinancialRow = {
   dataCleanedAt: Date | null;
 };
 
-/** דוח כספי למנהל – כל התחרויות כולל סגורות, עם צילום כספי לתחרויות שנסיימו */
+/** דוח כספי למנהל – כל התחרויות כולל סגורות, עם צילום כספי לתחרויות שנסיימו. Uses per-tournament commission. */
 export async function getAdminFinancialReport(): Promise<AdminFinancialRow[]> {
   const subs = await getAllSubmissions();
   const paid = subs.filter((s) => s.status === "approved");
   const tournaments = await getTournaments();
+  const { getCommissionBasisPoints } = await import("./finance");
 
   return tournaments.map((t) => {
     const cast = t as {
@@ -6905,6 +7087,7 @@ export async function getAdminFinancialReport(): Promise<AdminFinancialRow[]> {
       type?: string;
     };
     const isFinalized = cast.resultsFinalizedAt != null;
+    const bpsForRow = getCommissionBasisPoints(t as { commissionPercentBasisPoints?: number | null; houseFeeRate?: number | null });
     if (isFinalized && cast.financialParticipantCount != null) {
       return {
         tournamentId: t.id,
@@ -6914,6 +7097,7 @@ export async function getAdminFinancialReport(): Promise<AdminFinancialRow[]> {
         isFinalized: true,
         participantCount: cast.financialParticipantCount ?? 0,
         totalParticipation: cast.financialTotalParticipation ?? 0,
+        commissionBasisPoints: bpsForRow,
         fee: cast.financialFee ?? 0,
         prizeDistributed: cast.financialPrizeDistributed ?? 0,
         winnerCount: cast.financialWinnerCount ?? 0,
@@ -6923,7 +7107,8 @@ export async function getAdminFinancialReport(): Promise<AdminFinancialRow[]> {
     }
     const participants = paid.filter((s) => s.tournamentId === t.id).length;
     const total = participants * t.amount;
-    const fee = Math.round(total * (FEE_PERCENT / 100));
+    const bps = getCommissionBasisPoints(t as { commissionPercentBasisPoints?: number | null; houseFeeRate?: number | null });
+    const fee = Math.floor((total * bps) / 10_000);
     const prizePool = total - fee;
     return {
       tournamentId: t.id,
@@ -6933,6 +7118,7 @@ export async function getAdminFinancialReport(): Promise<AdminFinancialRow[]> {
       isFinalized: false,
       participantCount: participants,
       totalParticipation: total,
+      commissionBasisPoints: bps,
       fee,
       prizeDistributed: prizePool,
       winnerCount: 0,
@@ -6979,6 +7165,7 @@ function getBannerUrlFromRulesJson(rulesJson: unknown): string | null {
 export async function getTournamentPublicStats(activeOnly = true): Promise<TournamentPublicStat[]> {
   const subs = await getAllSubmissions();
   const tournaments = activeOnly ? await getActiveTournaments() : await getTournaments();
+  const { getCommissionBasisPoints } = await import("./finance");
   if (process.env.NODE_ENV !== "production" && tournaments.length > 0) {
     console.log("[getTournamentPublicStats] raw tournaments", JSON.stringify({
       activeOnly,
@@ -6994,7 +7181,8 @@ export async function getTournamentPublicStats(activeOnly = true): Promise<Tourn
     const guaranteed = (t as { guaranteedPrizeAmount?: number | null }).guaranteedPrizeAmount;
     const isFreeRoll = amount === 0;
     const total = participants * amount;
-    const fee = Math.round(total * (FEE_PERCENT / 100));
+    const bps = getCommissionBasisPoints(t as { commissionPercentBasisPoints?: number | null; houseFeeRate?: number | null });
+    const fee = Math.floor((total * bps) / 10_000);
     const calculatedPrize = total - fee;
     const prizePool = (guaranteed != null && guaranteed > 0) ? guaranteed : (isFreeRoll ? 0 : calculatedPrize);
     const rulesJson = (t as { rulesJson?: unknown }).rulesJson;
@@ -7895,9 +8083,13 @@ export async function getChanceLeaderboard(tournamentId: number): Promise<{
   if (cached && cached.expiresAt > Date.now()) return cached.data as Awaited<ReturnType<typeof getChanceLeaderboard>>;
   const subs = (await getSubmissionsByTournament(tournamentId)).filter((s) => s.status === "approved");
   const tournament = await getTournamentById(tournamentId);
+  if (!tournament) throw new Error("Tournament not found: " + tournamentId);
   const drawResult = await getChanceDrawResult(tournamentId);
-  const guaranteed = tournament ? Number((tournament as { guaranteedPrizeAmount?: number | null }).guaranteedPrizeAmount ?? 0) || 0 : 0;
-  const calculatedPool = Math.round(subs.length * (tournament?.amount ?? 0) * 0.875);
+  const guaranteed = Number((tournament as { guaranteedPrizeAmount?: number | null }).guaranteedPrizeAmount ?? 0) || 0;
+  const { getCommissionBasisPoints } = await import("./finance");
+  const totalChance = subs.length * (tournament?.amount ?? 0);
+  const bpsChance = getCommissionBasisPoints(tournament as { id?: number; name?: string; commissionPercentBasisPoints?: number | null });
+  const calculatedPool = totalChance - Math.floor((totalChance * bpsChance) / 10_000);
   const prizePool = guaranteed > 0 ? guaranteed : calculatedPool;
   const maxPoints = subs.length ? Math.max(...subs.map((s) => s.points)) : 0;
   const winners = subs.filter((s) => s.points === maxPoints);
@@ -8019,9 +8211,13 @@ export async function getLottoLeaderboard(tournamentId: number): Promise<{
   if (cached && cached.expiresAt > Date.now()) return cached.data as Awaited<ReturnType<typeof getLottoLeaderboard>>;
   const subs = (await getSubmissionsByTournament(tournamentId)).filter((s) => s.status === "approved");
   const tournament = await getTournamentById(tournamentId);
+  if (!tournament) throw new Error("Tournament not found: " + tournamentId);
   const drawResult = await getLottoDrawResult(tournamentId);
-  const guaranteed = tournament ? Number((tournament as { guaranteedPrizeAmount?: number | null }).guaranteedPrizeAmount ?? 0) || 0 : 0;
-  const calculatedPool = Math.round(subs.length * (tournament?.amount ?? 0) * 0.875);
+  const guaranteed = Number((tournament as { guaranteedPrizeAmount?: number | null }).guaranteedPrizeAmount ?? 0) || 0;
+  const { getCommissionBasisPoints } = await import("./finance");
+  const totalLotto = subs.length * (tournament?.amount ?? 0);
+  const bpsLotto = getCommissionBasisPoints(tournament as { id?: number; name?: string; commissionPercentBasisPoints?: number | null });
+  const calculatedPool = totalLotto - Math.floor((totalLotto * bpsLotto) / 10_000);
   const prizePool = guaranteed > 0 ? guaranteed : calculatedPool;
   // דירוג לוטו מבוסס על הניקוד הכולל (כולל נקודה על המספר החזק אם נפגע).
   const score = (s: { points: number }) => s.points;
@@ -8060,7 +8256,7 @@ export async function getLottoLeaderboard(tournamentId: number): Promise<{
   return result;
 }
 
-// ——— תחרות כדורגל (משחקים מוגדרים ידנית) ———
+// ——— תחרויות ספורט (משחקים מוגדרים ידנית) ———
 
 export type CustomFootballMatchRow = {
   id: number;
@@ -8096,6 +8292,8 @@ export async function addCustomFootballMatch(data: {
   tournamentId: number;
   homeTeam: string;
   awayTeam: string;
+  homeTeamId?: number | null;
+  awayTeamId?: number | null;
   matchDate?: string | null;
   matchTime?: string | null;
   displayOrder?: number;
@@ -8107,6 +8305,8 @@ export async function addCustomFootballMatch(data: {
     tournamentId: data.tournamentId,
     homeTeam: data.homeTeam.trim(),
     awayTeam: data.awayTeam.trim(),
+    homeTeamId: data.homeTeamId ?? null,
+    awayTeamId: data.awayTeamId ?? null,
     matchDate: data.matchDate?.trim() || null,
     matchTime: data.matchTime?.trim() || null,
     displayOrder: data.displayOrder ?? 0,
@@ -8120,13 +8320,22 @@ export async function updateCustomFootballMatchResult(matchId: number, homeScore
   await db.update(customFootballMatches).set({ homeScore, awayScore, updatedAt: new Date() }).where(eq(customFootballMatches.id, matchId));
 }
 
-export async function updateCustomFootballMatch(matchId: number, data: { homeTeam?: string; awayTeam?: string; matchDate?: string | null; matchTime?: string | null }) {
+export async function updateCustomFootballMatch(matchId: number, data: {
+  homeTeam?: string;
+  awayTeam?: string;
+  homeTeamId?: number | null;
+  awayTeamId?: number | null;
+  matchDate?: string | null;
+  matchTime?: string | null;
+}) {
   const { customFootballMatches } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (data.homeTeam !== undefined) set.homeTeam = data.homeTeam.trim();
   if (data.awayTeam !== undefined) set.awayTeam = data.awayTeam.trim();
+  if (data.homeTeamId !== undefined) set.homeTeamId = data.homeTeamId ?? null;
+  if (data.awayTeamId !== undefined) set.awayTeamId = data.awayTeamId ?? null;
   if (data.matchDate !== undefined) set.matchDate = data.matchDate?.trim() || null;
   if (data.matchTime !== undefined) set.matchTime = data.matchTime?.trim() || null;
   await db.update(customFootballMatches).set(set).where(eq(customFootballMatches.id, matchId));
@@ -8145,6 +8354,113 @@ export async function getCustomFootballMatchById(matchId: number) {
   if (!db) return undefined;
   const r = await db.select().from(customFootballMatches).where(eq(customFootballMatches.id, matchId)).limit(1);
   return r[0];
+}
+
+// ---------- Team library (football_custom / תחרויות ספורט only) ----------
+export type TeamLibraryCategoryRow = { id: number; name: string; slug: string; displayOrder: number; isActive: boolean; createdAt: Date | null; updatedAt: Date | null };
+export type TeamLibraryTeamRow = { id: number; categoryId: number; name: string; normalizedName: string; displayOrder: number; isActive: boolean; createdAt: Date | null };
+
+function normalizeTeamNameForSearch(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export async function listTeamLibraryCategories(): Promise<TeamLibraryCategoryRow[]> {
+  const { teamLibraryCategories } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(teamLibraryCategories).where(eq(teamLibraryCategories.isActive, true)).orderBy(asc(teamLibraryCategories.displayOrder), asc(teamLibraryCategories.id));
+  return rows as TeamLibraryCategoryRow[];
+}
+
+export async function getTeamLibraryCategoryById(categoryId: number) {
+  const { teamLibraryCategories } = await getSchema();
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db.select().from(teamLibraryCategories).where(eq(teamLibraryCategories.id, categoryId)).limit(1);
+  return r[0] as TeamLibraryCategoryRow | undefined;
+}
+
+export async function listTeamLibraryTeams(categoryId: number, search?: string): Promise<TeamLibraryTeamRow[]> {
+  const { teamLibraryTeams } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq(teamLibraryTeams.categoryId, categoryId), eq(teamLibraryTeams.isActive, true)];
+  if (search != null && search.trim() !== "") {
+    const term = `%${search.trim().toLowerCase().replace(/\s+/g, " ")}%`;
+    conditions.push(like(teamLibraryTeams.normalizedName, term));
+  }
+  const rows = await db.select().from(teamLibraryTeams).where(and(...conditions)).orderBy(asc(teamLibraryTeams.displayOrder), asc(teamLibraryTeams.id));
+  return rows as TeamLibraryTeamRow[];
+}
+
+export async function createTeamLibraryTeam(data: { categoryId: number; name: string; displayOrder?: number }) {
+  const { teamLibraryTeams } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const name = data.name.trim();
+  const normalizedName = normalizeTeamNameForSearch(name);
+  const [row] = await db.insert(teamLibraryTeams).values({
+    categoryId: data.categoryId,
+    name,
+    normalizedName,
+    displayOrder: data.displayOrder ?? 0,
+    isActive: true,
+  }).returning({ id: teamLibraryTeams.id });
+  return row!.id as number;
+}
+
+export async function updateTeamLibraryTeam(teamId: number, data: { name?: string; displayOrder?: number; isActive?: boolean }) {
+  const { teamLibraryTeams } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const set: Record<string, unknown> = {};
+  if (data.name !== undefined) {
+    set.name = data.name.trim();
+    set.normalizedName = normalizeTeamNameForSearch(data.name);
+  }
+  if (data.displayOrder !== undefined) set.displayOrder = data.displayOrder;
+  if (data.isActive !== undefined) set.isActive = data.isActive;
+  if (Object.keys(set).length === 0) return;
+  await db.update(teamLibraryTeams).set(set).where(eq(teamLibraryTeams.id, teamId));
+}
+
+export async function deleteTeamLibraryTeam(teamId: number) {
+  const { teamLibraryTeams } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(teamLibraryTeams).where(eq(teamLibraryTeams.id, teamId));
+}
+
+export async function getTeamLibraryTeamById(teamId: number) {
+  const { teamLibraryTeams } = await getSchema();
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db.select().from(teamLibraryTeams).where(eq(teamLibraryTeams.id, teamId)).limit(1);
+  return r[0] as TeamLibraryTeamRow | undefined;
+}
+
+/** Search team library across all categories (for picker). Returns team id, name, categoryId, categoryName. */
+export type TeamLibrarySearchHit = { id: number; name: string; categoryId: number; categoryName: string };
+export async function searchTeamLibraryTeamsGlobal(search: string): Promise<TeamLibrarySearchHit[]> {
+  const { teamLibraryTeams, teamLibraryCategories } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  const q = (search ?? "").trim();
+  if (q === "") return [];
+  const term = `%${q.toLowerCase().replace(/\s+/g, " ")}%`;
+  const rows = await db
+    .select({
+      id: teamLibraryTeams.id,
+      name: teamLibraryTeams.name,
+      categoryId: teamLibraryTeams.categoryId,
+      categoryName: teamLibraryCategories.name,
+    })
+    .from(teamLibraryTeams)
+    .innerJoin(teamLibraryCategories, eq(teamLibraryTeams.categoryId, teamLibraryCategories.id))
+    .where(and(eq(teamLibraryTeams.isActive, true), eq(teamLibraryCategories.isActive, true), like(teamLibraryTeams.normalizedName, term)))
+    .orderBy(asc(teamLibraryTeams.displayOrder), asc(teamLibraryTeams.id))
+    .limit(25);
+  return rows as TeamLibrarySearchHit[];
 }
 
 export async function recalcCustomFootballPoints(tournamentId: number) {
@@ -8184,8 +8500,12 @@ export async function getCustomFootballLeaderboard(tournamentId: number): Promis
 }> {
   const subs = (await getSubmissionsByTournament(tournamentId)).filter((s) => s.status === "approved");
   const tournament = await getTournamentById(tournamentId);
-  const guaranteed = tournament ? Number((tournament as { guaranteedPrizeAmount?: number | null }).guaranteedPrizeAmount ?? 0) || 0 : 0;
-  const calculatedPool = Math.round(subs.length * (tournament?.amount ?? 0) * 0.875);
+  if (!tournament) throw new Error("Tournament not found: " + tournamentId);
+  const guaranteed = Number((tournament as { guaranteedPrizeAmount?: number | null }).guaranteedPrizeAmount ?? 0) || 0;
+  const { getCommissionBasisPoints } = await import("./finance");
+  const totalCustom = subs.length * (tournament?.amount ?? 0);
+  const bpsCustom = getCommissionBasisPoints(tournament as { id?: number; name?: string; commissionPercentBasisPoints?: number | null });
+  const calculatedPool = totalCustom - Math.floor((totalCustom * bpsCustom) / 10_000);
   const prizePool = guaranteed > 0 ? guaranteed : calculatedPool;
   const maxPoints = subs.length ? Math.max(...subs.map((s) => s.points), 0) : 0;
   const winners = subs.filter((s) => s.points === maxPoints && maxPoints > 0);

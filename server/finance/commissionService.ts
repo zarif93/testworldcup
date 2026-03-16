@@ -1,33 +1,60 @@
 /**
  * Commission resolution – basis points, floor rounding, residue to platform.
  * Agent share: per-agent override from agent_commission_config, else default 5000 bps.
+ * PRODUCTION: No silent commission defaults. Competition must have commissionPercentBasisPoints set (schema default or explicit).
  */
 
 import { getSchema, getDb } from "../db";
 import { eq } from "drizzle-orm";
-import { DEFAULT_COMMISSION_BASIS_POINTS, DEFAULT_AGENT_SHARE_BASIS_POINTS, BASIS_POINTS_PER_PERCENT, floorPoints } from "./constants";
+import { DEFAULT_AGENT_SHARE_BASIS_POINTS, floorPoints } from "./constants";
+import { logError } from "../_core/logger";
 
 const TEN_THOUSAND = 10_000;
 
-/** Effective commission basis points for a tournament (commissionPercentBasisPoints or legacy houseFeeRate*100, else default) */
-export function getCommissionBasisPoints(tournament: {
-  commissionPercentBasisPoints?: number | null;
-  commissionPercent?: number | null;
-  houseFeeRate?: number | null;
-}): number {
-  if (tournament.commissionPercentBasisPoints != null && Number.isFinite(tournament.commissionPercentBasisPoints))
-    return Math.max(0, Math.floor(tournament.commissionPercentBasisPoints));
-  const legacy = tournament.commissionPercent ?? tournament.houseFeeRate ?? 12.5;
-  return Math.max(0, Math.floor(Number(legacy) * BASIS_POINTS_PER_PERCENT)) || DEFAULT_COMMISSION_BASIS_POINTS;
+/** Thrown when a competition has no commission defined. Fail-fast for real-money integrity. */
+export class MissingCommissionError extends Error {
+  constructor(
+    public readonly context: { tournamentId?: number; competitionName?: string }
+  ) {
+    super(
+      `Commission not defined for competition. Set commissionPercentBasisPoints (e.g. run migrations). ${JSON.stringify(context)}`
+    );
+    this.name = "MissingCommissionError";
+  }
 }
 
-/** Platform commission from total pool (floor). Residue stays with platform. */
-export function computePlatformCommission(totalPool: number, commissionBasisPoints: number = DEFAULT_COMMISSION_BASIS_POINTS): number {
+/**
+ * Effective commission basis points for a tournament.
+ * Only schema default or explicit DB value is allowed. No runtime fallback.
+ * @throws MissingCommissionError if commissionPercentBasisPoints is null/undefined
+ */
+export function getCommissionBasisPoints(tournament: {
+  id?: number;
+  name?: string;
+  commissionPercentBasisPoints?: number | null;
+}): number {
+  const bps = tournament.commissionPercentBasisPoints;
+  if (bps != null && Number.isFinite(bps)) {
+    return Math.max(0, Math.floor(bps));
+  }
+  const err = new MissingCommissionError({
+    tournamentId: tournament.id,
+    competitionName: tournament.name ?? undefined,
+  });
+  logError("getCommissionBasisPoints", err, {
+    tournamentId: tournament.id,
+    commissionPercentBasisPoints: bps,
+  });
+  throw err;
+}
+
+/** Platform commission from total pool (floor). Residue stays with platform. commissionBasisPoints required. */
+export function computePlatformCommission(totalPool: number, commissionBasisPoints: number): number {
   return floorPoints((totalPool * commissionBasisPoints) / TEN_THOUSAND);
 }
 
-/** Prize pool after commission */
-export function computePrizePool(totalPool: number, commissionBasisPoints: number = DEFAULT_COMMISSION_BASIS_POINTS): number {
+/** Prize pool after commission. commissionBasisPoints required. */
+export function computePrizePool(totalPool: number, commissionBasisPoints: number): number {
   return totalPool - computePlatformCommission(totalPool, commissionBasisPoints);
 }
 
@@ -55,8 +82,8 @@ export function computePlatformNetCommission(platformCommission: number, agentCo
   return platformCommission - agentCommissionTotal;
 }
 
-/** Total commission from a single paid entry (12.5% = 1250 bps). Use for reports and display. */
-export function computeCommissionFromEntry(entryAmount: number, commissionBasisPoints: number = DEFAULT_COMMISSION_BASIS_POINTS): number {
+/** Total commission from a single paid entry. commissionBasisPoints required (from tournament). */
+export function computeCommissionFromEntry(entryAmount: number, commissionBasisPoints: number): number {
   return floorPoints((entryAmount * commissionBasisPoints) / TEN_THOUSAND);
 }
 

@@ -42,6 +42,7 @@ function toTs(v: string | number | Date | null | undefined): number | null {
   }
 }
 
+/** Commission percentage 0–100 (stored in DB as basis points 0–10000). Optional; omitted means default 12.5%. */
 export type CreateTournamentPayload = {
   name?: string | null;
   amount?: number;
@@ -57,6 +58,10 @@ export type CreateTournamentPayload = {
   visibility?: string | null;
   startDate?: string | null;
   endDate?: string | null;
+  /** Commission % (0–100). Decimal allowed (e.g. 12.5). Omitted = 12.5%. */
+  commissionPercent?: number | null;
+  /** תחרויות ספורט: מספר משחקים (1–30). חובה כשמשתמשים ב־initialStatus DRAFT. */
+  numberOfGames?: number | null;
 };
 
 export type ValidateCreateTournamentResult =
@@ -114,6 +119,13 @@ export function validateCreateTournamentPayload(data: CreateTournamentPayload): 
     }
   }
 
+  if (data.commissionPercent != null && typeof data.commissionPercent === "number") {
+    const pct = Number(data.commissionPercent);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      return { valid: false, message: "עמלת מנהל חייבת להיות בין 0 ל־100 (אחוז)" };
+    }
+  }
+
   switch (normalizedType) {
     case "lotto": {
       if (!data.drawCode?.trim()) {
@@ -142,7 +154,7 @@ export function validateCreateTournamentPayload(data: CreateTournamentPayload): 
       const opensAt = toTs(data.opensAt);
       const closesAt = toTs(data.closesAt);
       if (opensAt == null || closesAt == null) {
-        return { valid: false, message: "בתחרות מונדיאל/כדורגל חובה לבחור תאריך פתיחה, שעת פתיחה ושעת סגירה" };
+        return { valid: false, message: "בתחרות מונדיאל/תחרויות ספורט חובה לבחור תאריך פתיחה, שעת פתיחה ושעת סגירה" };
       }
       if (closesAt <= opensAt) {
         return { valid: false, message: "שעת הסגירה חייבת להיות אחרי שעת הפתיחה" };

@@ -94,7 +94,7 @@ export async function resolveLegacyCustomMatchesAsCompetitionItems(
     id: `legacy:custom:${tournamentId}`,
     tournamentId,
     title: "משחקים מותאמים",
-    description: "משחקי כדורגל – מקור legacy",
+    description: "משחקי תחרויות ספורט – מקור legacy",
     itemType: "football_match",
     sourceType: SOURCE_LEGACY,
     sourceLabel: "legacy_custom_matches",

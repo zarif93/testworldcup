@@ -145,6 +145,8 @@ export const tournaments = sqliteTable("tournaments", {
   archivedAt: integer("archivedAt", { mode: "timestamp" }),
   /** מחיקה רכה – תחרות שמנהל "מחק" (לא מוצגת ברשימות; נתונים פיננסיים נשמרים) */
   deletedAt: integer("deletedAt", { mode: "timestamp" }),
+  /** תחרויות ספורט: מספר משחקים (1–30). מוגדר בעת יצירה; יוצר N שורות ב־custom_football_matches. */
+  numberOfGames: integer("numberOfGames"),
   /** צילום כספי בעת סיום – נשמר לצמיתות לדוחות מנהל */
   financialParticipantCount: integer("financialParticipantCount"),
   financialTotalParticipation: integer("financialTotalParticipation"),
@@ -343,7 +345,7 @@ export const lottoDrawResults = sqliteTable("lotto_draw_results", {
 export type LottoDrawResult = typeof lottoDrawResults.$inferSelect;
 export type InsertLottoDrawResult = typeof lottoDrawResults.$inferInsert;
 
-/** גלובלי: קבוצות לפי ענף (כדורגל, טניס וכו') – לשימוש במשחקים ובטורנירים */
+/** גלובלי: קבוצות לפי ענף (ספורט, טניס וכו') – לשימוש במשחקים ובטורנירים */
 export const teams = sqliteTable("teams", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
@@ -370,7 +372,33 @@ export const players = sqliteTable("players", {
 export type Player = typeof players.$inferSelect;
 export type InsertPlayer = typeof players.$inferInsert;
 
-/** משחקים בתחרות כדורגל (מנהל מגדיר ידנית – לא מונדיאל). homeTeam/awayTeam תאימות לאחור כשחסר teamId */
+/** ספריית קבוצות – קטגוריות ליגה (תחרויות ספורט / football_custom בלבד). */
+export const teamLibraryCategories = sqliteTable("team_library_categories", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  displayOrder: integer("displayOrder").default(0).notNull(),
+  isActive: integer("isActive", { mode: "boolean" }).default(true).notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  updatedAt: integer("updatedAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+export type TeamLibraryCategory = typeof teamLibraryCategories.$inferSelect;
+export type InsertTeamLibraryCategory = typeof teamLibraryCategories.$inferInsert;
+
+/** ספריית קבוצות – קבוצות בתוך קטגוריה (תחרויות ספורט / football_custom בלבד). */
+export const teamLibraryTeams = sqliteTable("team_library_teams", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  categoryId: integer("categoryId").notNull().references(() => teamLibraryCategories.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  normalizedName: text("normalizedName").notNull(),
+  displayOrder: integer("displayOrder").default(0).notNull(),
+  isActive: integer("isActive", { mode: "boolean" }).default(true).notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+export type TeamLibraryTeam = typeof teamLibraryTeams.$inferSelect;
+export type InsertTeamLibraryTeam = typeof teamLibraryTeams.$inferInsert;
+
+/** משחקים בתחרות ספורט (מנהל מגדיר ידנית – לא מונדיאל). homeTeam/awayTeam תאימות לאחור כשחסר teamId */
 export const customFootballMatches = sqliteTable("custom_football_matches", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   tournamentId: integer("tournamentId").notNull(),

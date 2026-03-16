@@ -6,8 +6,8 @@
 export type LegacyCompetitionType = "football" | "football_custom" | "lotto" | "chance" | "custom";
 
 export const LEGACY_TYPE_LABELS: Record<string, string> = {
-  football: "מונדיאל / כדורגל",
-  football_custom: "כדורגל מותאם",
+  football: "מונדיאל",
+  football_custom: "תחרויות ספורט",
   lotto: "לוטו",
   chance: "צ'אנס",
   custom: "מותאם",

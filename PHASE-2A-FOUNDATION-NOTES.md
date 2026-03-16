@@ -46,8 +46,8 @@ This document describes what was added in Phase 2A and how backward compatibilit
 
 | code            | name                | category | form_schema / scoring (summary) |
 |-----------------|---------------------|----------|----------------------------------|
-| football        | מונדיאל / כדורגל   | sports   | 1/X/2 per match, matchSource world_cup; 3 pts per correct |
-| football_custom | כדורגל מותאם      | sports   | 1/X/2 per match, matchSource custom; 3 pts per correct |
+| football        | מונדיאל            | sports   | 1/X/2 per match, matchSource world_cup; 3 pts per correct |
+| football_custom | תחרויות ספורט     | sports   | 1/X/2 per match, matchSource custom; 3 pts per correct |
 | lotto           | לוטו                | lottery  | 6 numbers 1–37, strong 1–7; 1 pt per number + 1 for strong |
 | chance          | צ'אנס               | cards    | 4 suits, cards 7–A; compare per suit |
 

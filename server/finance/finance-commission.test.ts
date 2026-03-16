@@ -18,7 +18,7 @@ import {
   computePlatformNetCommission,
   computeCommissionFromEntry,
 } from "./commissionService";
-import { floorPoints, DEFAULT_COMMISSION_BASIS_POINTS, DEFAULT_AGENT_SHARE_BASIS_POINTS } from "./constants";
+import { floorPoints, DEFAULT_AGENT_SHARE_BASIS_POINTS } from "./constants";
 import { appendFinancialEvent } from "./financialEventService";
 import { recordSettlementFinancialEvents, recordSettlementFinancialEventsWithTx, recordRefundFinancialEvent } from "./recordFinancialEvents";
 import { getFinancialEventsByTournament, getFinancialEventsByUser } from "./financialEventService";
@@ -32,13 +32,10 @@ describe("commission basis points calculation", () => {
     expect(getCommissionBasisPoints({ commissionPercentBasisPoints: 1000 })).toBe(1000);
   });
 
-  it("falls back to legacy commissionPercent (percent to basis points)", () => {
-    expect(getCommissionBasisPoints({ commissionPercent: 12.5 })).toBe(1250);
-    expect(getCommissionBasisPoints({ commissionPercent: 10 })).toBe(1000);
-  });
-
-  it("falls back to default when missing", () => {
-    expect(getCommissionBasisPoints({})).toBe(DEFAULT_COMMISSION_BASIS_POINTS);
+  it("throws when commission not defined (no silent default)", () => {
+    expect(() => getCommissionBasisPoints({})).toThrow(/Commission not defined/);
+    expect(() => getCommissionBasisPoints({ commissionPercentBasisPoints: null })).toThrow(/Commission not defined/);
+    expect(() => getCommissionBasisPoints({ commissionPercentBasisPoints: undefined })).toThrow(/Commission not defined/);
   });
 
   it("computePlatformCommission uses floor", () => {
@@ -63,7 +60,7 @@ describe("commission basis points calculation", () => {
   });
 
   it("computeCommissionFromEntry: FreeRoll (0 amount) yields 0 commission", () => {
-    expect(computeCommissionFromEntry(0, DEFAULT_COMMISSION_BASIS_POINTS)).toBe(0);
+    expect(computeCommissionFromEntry(0, 1250)).toBe(0);
     expect(computeCommissionFromEntry(0, 1000)).toBe(0);
   });
 

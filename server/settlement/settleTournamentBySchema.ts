@@ -8,27 +8,35 @@ import type { SchemaSettlementResult } from "./types";
 import { SETTLEMENT_ENGINE_VERSION } from "./types";
 import { rankSubmissions, buildTieGroups, selectWinnersBySchema } from "./selectWinnersBySchema";
 import { distributePrizesBySchema } from "./distributePrizesBySchema";
+import { computePrizePool as computePrizePoolFromFinance } from "../finance/commissionService";
 
-/** Prize pool formula: 87.5% of (participant count * entry amount), matching legacy. */
-export function computePrizePool(participantCount: number, entryAmount: number): number {
-  return Math.round(participantCount * entryAmount * 0.875);
+/** Prize pool = total pool minus platform commission. commissionBasisPoints required (from competition). */
+export function computePrizePool(
+  participantCount: number,
+  entryAmount: number,
+  commissionBasisPoints: number
+): number {
+  const totalPool = participantCount * entryAmount;
+  return computePrizePoolFromFinance(totalPool, commissionBasisPoints);
 }
 
 /**
  * Run schema-based settlement: rank, select winners, distribute.
  * Returns structured result; does not persist or call addUserPoints.
  * When guaranteedPrizeAmount > 0, it is used as prize pool (freeroll / site-funded).
+ * commissionBasisPoints must be provided (from competition; no runtime default).
  */
 export function settleTournamentBySchema(
   config: CompetitionSettlementConfig,
   submissions: ScoredSubmission[],
-  options: { tournamentType: string; entryAmount: number; guaranteedPrizeAmount?: number }
+  options: { tournamentType: string; entryAmount: number; guaranteedPrizeAmount?: number; commissionBasisPoints: number }
 ): SchemaSettlementResult {
   const warnings: string[] = [];
+  const bps = options.commissionBasisPoints;
   const prizePoolTotal =
     (options.guaranteedPrizeAmount != null && options.guaranteedPrizeAmount > 0)
       ? options.guaranteedPrizeAmount
-      : computePrizePool(submissions.length, options.entryAmount);
+      : computePrizePool(submissions.length, options.entryAmount, bps);
   const ranked = rankSubmissions(submissions, options.tournamentType);
   const tieGroups = buildTieGroups(ranked);
   const winnersWithRank = selectWinnersBySchema(config, ranked);
