@@ -336,6 +336,7 @@ export function SettlementReportsSection({ onBack }: Props) {
                       <TableRow className="border-slate-700 bg-slate-800/95">
                         <TableHead className="text-slate-300 text-right font-semibold">תחרות</TableHead>
                         <TableHead className="text-slate-300 text-right font-semibold">השתתפות</TableHead>
+                        <TableHead className="text-slate-300 text-right font-semibold">החזר</TableHead>
                         <TableHead className="text-slate-300 text-right font-semibold">זכיות</TableHead>
                         <TableHead className="text-slate-300 text-right font-semibold">עמלה</TableHead>
                         <TableHead className="text-slate-300 text-right font-semibold">תוצאה</TableHead>
@@ -346,6 +347,7 @@ export function SettlementReportsSection({ onBack }: Props) {
                         <TableRow key={i} className="border-slate-700">
                           <TableCell className="text-slate-200 text-right">{r.competition}</TableCell>
                           <TableCell className="text-slate-300 text-right tabular-nums">{formatNum(r.entry)}</TableCell>
+                          <TableCell className="text-slate-300 text-right tabular-nums">{formatNum(r.refund ?? 0)}</TableCell>
                           <TableCell className="text-slate-300 text-right tabular-nums">{formatNum(r.winnings)}</TableCell>
                           <TableCell className="text-slate-300 text-right tabular-nums">{formatNum(r.commission)}</TableCell>
                           <TableCell className={`text-right tabular-nums font-medium ${r.result >= 0 ? "text-emerald-400" : "text-red-400"}`}>

@@ -32,10 +32,13 @@ export interface SettlementFilter {
 }
 
 // —— Player Report (settled only) ——
-// Competition | Entry | Winnings | Commission | Result. Final signed balance. Entity report only.
+// Competition | Entry (net) | Refund | Winnings | Commission | Result. Entity report only.
 export interface PlayerSettlementRow {
   competition: string;
+  /** Net participation for this row: entryFee − refund (used for result = winnings − entry). */
   entry: number;
+  /** Refund applied to this row (so entry + refund = original entryFee when refund > 0). */
+  refund: number;
   winnings: number;
   commission: number;
   result: number;
@@ -54,7 +57,12 @@ export interface PlayerSettlementReport {
   to: string | null;
 }
 
-/** Only SETTLED competitions. Locked/cancelled/deleted excluded. Result = winnings − entry − commission. */
+/** Player PnL per row: winnings − entry. Commission is system revenue, not player loss. Exported for tests. */
+export function playerSettlementRowResult(winnings: number, entry: number): number {
+  return winnings - entry;
+}
+
+/** Only SETTLED competitions. Locked/cancelled/deleted excluded. Result = winnings − entry (player PnL; commission is system revenue, not player loss). */
 export async function getPlayerSettlementReport(
   userId: number,
   filter?: SettlementFilter
@@ -76,10 +84,11 @@ export async function getPlayerSettlementReport(
     if (!info || isExcludedFromReport(info) || !isSettledForReport(info.status)) continue; // only settled (SETTLED/PRIZES_DISTRIBUTED/ARCHIVED) in reports
     const entry = r.entryFee - r.refund;
     const commission = r.totalCommission ?? 0;
-    const result = r.winnings - entry - commission;
+    const result = playerSettlementRowResult(r.winnings, entry);
     rows.push({
       competition: r.tournamentName,
       entry,
+      refund: r.refund,
       winnings: r.winnings,
       commission,
       result,

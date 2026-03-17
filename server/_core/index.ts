@@ -133,6 +133,39 @@ async function startServer() {
       res.status(503).send("not ready");
     }
   });
+  // Debug: player settlement report (development only) – GET /debug/player-settlement/:playerId
+  if (process.env.NODE_ENV !== "production") {
+    app.get("/debug/player-settlement/:playerId", async (req, res) => {
+      try {
+        const playerId = parseInt(req.params.playerId, 10);
+        if (Number.isNaN(playerId)) {
+          res.status(400).json({ error: "Invalid playerId" });
+          return;
+        }
+        const { getPlayerSettlementReport } = await import("../finance/settlementReports");
+        const report = await getPlayerSettlementReport(playerId);
+        if (!report) {
+          res.status(404).json({ error: "Report not found (user or no data)" });
+          return;
+        }
+        res.json({
+          userId: report.userId,
+          username: report.username,
+          rows: report.rows.map((r) => ({
+            competition: r.competition,
+            entry: r.entry,
+            refund: r.refund,
+            winnings: r.winnings,
+            commission: r.commission,
+            result: r.result,
+          })),
+          finalResult: report.summary.finalResult,
+        });
+      } catch (e) {
+        res.status(500).json({ error: String(e) });
+      }
+    });
+  }
   app.use(
     (req, res, next) => {
       const origin = req.headers.origin;

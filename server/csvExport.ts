@@ -53,10 +53,10 @@ function signed(value: number): string {
   return value >= 0 ? `+${value}` : `${value}`;
 }
 
-/** Player report: settled only. Competition | Entry | Winnings | Commission | Result. Final signed balance. */
+/** Player report: settled only. Competition | Entry (net) | Refund | Winnings | Commission | Result. */
 export function settlementPlayerReportToCsv(report: {
   username: string | null;
-  rows: Array<{ competition: string; entry: number; winnings: number; commission: number; result: number }>;
+  rows: Array<{ competition: string; entry: number; refund: number; winnings: number; commission: number; result: number }>;
   summary: { finalResult: number };
   from: string | null;
   to: string | null;
@@ -67,9 +67,9 @@ export function settlementPlayerReportToCsv(report: {
   lines.push("");
   lines.push(rowToCsvLine(["תוצאה סופית", signed(report.summary.finalResult)]));
   lines.push("");
-  lines.push(rowToCsvLine(["תחרות", "השתתפות", "זכיות", "עמלה", "תוצאה"]));
+  lines.push(rowToCsvLine(["תחרות", "השתתפות", "החזר", "זכיות", "עמלה", "תוצאה"]));
   for (const r of report.rows) {
-    lines.push(rowToCsvLine([r.competition, r.entry, r.winnings, r.commission, signed(r.result)]));
+    lines.push(rowToCsvLine([r.competition, r.entry, r.refund, r.winnings, r.commission, signed(r.result)]));
   }
   return BOM + lines.join("\r\n");
 }
