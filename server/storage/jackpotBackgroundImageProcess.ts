@@ -5,7 +5,7 @@
  */
 
 import sharp from "sharp";
-import { validateJackpotBackgroundBuffer } from "./jackpotBackgroundValidate";
+import { validateJackpotBackgroundBuffer, validateJackpotBackgroundFile } from "./jackpotBackgroundValidate";
 
 const MIN_WIDTH = 1200;
 const MAX_WIDTH = 1920;
@@ -94,5 +94,72 @@ export async function processJackpotBackgroundImage(
   } catch {
     /* sharp failed at runtime: store original without processing, do not crash */
     return { ok: true, result: fallbackResult(inputBuffer) };
+  }
+}
+
+/**
+ * Process from file path: streams from disk via sharp, does not load full image into memory.
+ * Same output as processJackpotBackgroundImage; use for multipart uploads.
+ */
+export async function processJackpotBackgroundImageFromFile(
+  inputPath: string,
+  mimeType: string
+): Promise<{ ok: true; result: ProcessedJackpotImage } | { ok: false; error: string }> {
+  const validation = await validateJackpotBackgroundFile(inputPath, mimeType);
+  if (!validation.ok) return validation;
+
+  try {
+    const meta = await sharp(inputPath).metadata();
+    if (meta.width == null || meta.height == null) return { ok: false, error: "לא ניתן לקרוא מידות התמונה." };
+    if (meta.width < MIN_WIDTH) return { ok: false, error: `רוחב מינימלי ${MIN_WIDTH}px.` };
+
+    const full = await sharp(inputPath)
+      .resize(MAX_WIDTH, undefined, { withoutEnlargement: true, fit: "inside" })
+      .webp({ quality: 85 })
+      .rotate()
+      .toBuffer();
+
+    const thumb = await sharp(inputPath)
+      .resize(THUMB_WIDTH, undefined, { withoutEnlargement: true })
+      .webp({ quality: 60 })
+      .toBuffer();
+
+    const mobile = await sharp(inputPath)
+      .resize(MOBILE_MAX_WIDTH, undefined, { withoutEnlargement: true, fit: "inside" })
+      .webp({ quality: 80 })
+      .rotate()
+      .toBuffer();
+
+    const width = (meta.width ?? 0) > MAX_WIDTH ? MAX_WIDTH : (meta.width ?? 0);
+    const height = meta.height ?? 0;
+
+    let meanLuminance = 0.5;
+    try {
+      const onePixel = await sharp(full).resize(1, 1).raw().toBuffer();
+      if (onePixel.length >= 3) {
+        const r = onePixel[0]! / 255;
+        const g = onePixel[1]! / 255;
+        const b = onePixel[2]! / 255;
+        meanLuminance = Math.min(1, Math.max(0, 0.299 * r + 0.587 * g + 0.114 * b));
+      }
+    } catch {
+      /* keep default */
+    }
+
+    return {
+      ok: true,
+      result: {
+        fullBuffer: full,
+        thumbBuffer: thumb,
+        mobileBuffer: mobile,
+        width,
+        height,
+        meanLuminance,
+      },
+    };
+  } catch {
+    const { readFile } = await import("fs/promises");
+    const buf = await readFile(inputPath);
+    return { ok: true, result: fallbackResult(buf) };
   }
 }

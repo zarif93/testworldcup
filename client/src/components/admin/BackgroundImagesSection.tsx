@@ -20,9 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-
-const MAX_SIZE_BYTES = 8 * 1024 * 1024; // 8MB
-const ACCEPT = "image/jpeg,image/png,image/gif,image/webp";
+import { getUploadErrorMessage, validateImageFile, uploadImage, MAX_SITE_BACKGROUND_BYTES, ACCEPT_IMAGES } from "@/lib/uploadUtils";
 
 type BackgroundImage = {
   id: number;
@@ -66,18 +64,19 @@ export function BackgroundImagesSection() {
   const fileRef = useRef<HTMLInputElement>(null);
   const utils = trpc.useUtils();
   const { data: images, isLoading } = trpc.admin.listSiteBackgroundImages.useQuery();
-  const uploadMut = trpc.admin.uploadSiteBackgroundImage.useMutation({
-    onSuccess: () => {
-      setUploading(false);
+  const doUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      await uploadImage({ type: "site-background", file, activate: activateAfterUpload });
       utils.admin.listSiteBackgroundImages.invalidate();
       utils.settings.getActiveBackground.invalidate();
       toast.success("תמונת הרקע הועלתה");
-    },
-    onError: (e) => {
+    } catch (e) {
+      toast.error(getUploadErrorMessage(e));
+    } finally {
       setUploading(false);
-      toast.error(e.message);
-    },
-  });
+    }
+  };
   const setActiveMut = trpc.admin.setActiveSiteBackground.useMutation({
     onSuccess: () => {
       utils.admin.listSiteBackgroundImages.invalidate();
@@ -115,27 +114,12 @@ export function BackgroundImagesSection() {
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.match(/^image\/(jpeg|png|gif|webp)$/i)) {
-      toast.error("נא לבחור קובץ תמונה (JPEG, PNG, GIF, WebP)");
+    const validation = validateImageFile(file, MAX_SITE_BACKGROUND_BYTES, ACCEPT_IMAGES);
+    if (!validation.ok) {
+      toast.error(validation.error);
       return;
     }
-    if (file.size > MAX_SIZE_BYTES) {
-      toast.error("גודל מקסימלי 8MB");
-      return;
-    }
-    setUploading(true);
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const base64 = dataUrl.replace(/^data:[^;]+;base64,/, "");
-      uploadMut.mutate({
-        fileBase64: base64,
-        originalName: file.name,
-        mimeType: file.type,
-        activate: activateAfterUpload,
-      });
-    };
-    reader.readAsDataURL(file);
+    doUpload(file);
     e.target.value = "";
   };
 
@@ -153,7 +137,7 @@ export function BackgroundImagesSection() {
           <input
             ref={fileRef}
             type="file"
-            accept={ACCEPT}
+            accept={ACCEPT_IMAGES}
             className="hidden"
             onChange={handleFile}
           />

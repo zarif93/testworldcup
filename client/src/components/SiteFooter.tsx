@@ -1,10 +1,12 @@
 /**
- * Global site footer – company name, copyright, CMS page links (when published), legal, social, contact.
+ * Global site footer – company name, copyright, CMS page links (when published), legal, contact.
+ * Social links (Instagram, Facebook) use hard-coded URLs shared with floating buttons.
  */
 
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { FileText, Mail, Phone, MapPin, Instagram, Facebook, HelpCircle, UserPlus, Shield } from "lucide-react";
+import { FileText, Mail, Phone, MapPin, Instagram, Facebook, HelpCircle, Shield } from "lucide-react";
+import { SOCIAL_INSTAGRAM_URL, SOCIAL_FACEBOOK_URL } from "@/components/FloatingSocialButtons";
 
 const CMS_FOOTER_SLUGS = ["about", "contact", "faq", "terms", "privacy"] as const;
 const CMS_SLUG_LABELS: Record<string, { label: string; icon?: React.ReactNode }> = {
@@ -39,14 +41,11 @@ export function SiteFooter() {
 
   const companyName = (s?.["footer.company_name"] ?? s?.["brand.site_name"] ?? "WinMondial").trim();
   const copyrightText = (s?.["footer.copyright_text"] ?? "").trim();
-  const instagram = (s?.["social.instagram"] ?? "").trim();
-  const facebook = (s?.["social.facebook"] ?? "").trim();
-  const telegram = (s?.["social.telegram"] ?? "").trim();
   const email = (s?.["contact.email"] ?? "").trim();
   const phone = (s?.["contact.phone"] ?? "").trim();
   const address = (s?.["contact.address"] ?? "").trim();
 
-  const hasSocial = instagram || facebook || telegram;
+  const hasSocial = true;
   const hasContact = email || phone || address;
 
   const go = (path: string) => {
@@ -87,13 +86,8 @@ export function SiteFooter() {
             {hasSocial && <span className="text-slate-600 w-px h-4 hidden md:inline" />}
             {hasSocial && (
               <div className="flex items-center gap-0.5">
-                {instagram && <SocialIcon href={instagram} label="Instagram"><Instagram className="w-4 h-4" /></SocialIcon>}
-                {facebook && <SocialIcon href={facebook} label="Facebook"><Facebook className="w-4 h-4" /></SocialIcon>}
-                {telegram && (
-                  <a href={telegram} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-amber-400 transition p-1.5 rounded-lg hover:bg-slate-800/50" aria-label="Telegram">
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
-                  </a>
-                )}
+                <SocialIcon href={SOCIAL_INSTAGRAM_URL} label="Instagram"><Instagram className="w-4 h-4" /></SocialIcon>
+                <SocialIcon href={SOCIAL_FACEBOOK_URL} label="Facebook"><Facebook className="w-4 h-4" /></SocialIcon>
               </div>
             )}
           </div>

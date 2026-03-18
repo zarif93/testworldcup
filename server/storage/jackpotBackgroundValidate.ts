@@ -35,3 +35,25 @@ export function validateJackpotBackgroundBuffer(
   if (!checkMagic(buf)) return { ok: false, error: "תוכן הקובץ לא תואם לתמונה." };
   return { ok: true };
 }
+
+/** Validate by file path (for multipart uploads): size + magic bytes only, no full read. */
+export async function validateJackpotBackgroundFile(
+  filePath: string,
+  mimeType: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const fs = await import("fs/promises");
+  const stat = await fs.stat(filePath).catch(() => null);
+  if (!stat || !stat.isFile()) return { ok: false, error: "הקובץ לא נמצא." };
+  if (stat.size === 0) return { ok: false, error: "הקובץ ריק." };
+  if (stat.size > MAX_BYTES) return { ok: false, error: "גודל מקסימלי 8MB." };
+  if (!ALLOWED_MIMES.includes(mimeType)) return { ok: false, error: "סוג קובץ לא נתמך. אפשר רק: JPEG, PNG, GIF, WebP." };
+  const fd = await fs.open(filePath, "r");
+  try {
+    const buf = Buffer.alloc(12);
+    await fd.read(buf, 0, 12, 0);
+    if (!checkMagic(buf)) return { ok: false, error: "תוכן הקובץ לא תואם לתמונה." };
+  } finally {
+    await fd.close();
+  }
+  return { ok: true };
+}

@@ -6,7 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { useAuth } from "./contexts/AuthContext";
-import { Loader2, Trophy, LayoutGrid, LogOut, LogIn, Coins, Menu, MessageCircle, FileText, Gem, Bell, Share2, Home as HomeIcon, HelpCircle, TrendingUp, Users } from "lucide-react";
+import { Loader2, Trophy, LayoutGrid, LogOut, LogIn, Coins, Menu, MessageCircle, FileText, Gem, Bell, Share2, Home as HomeIcon, HelpCircle, TrendingUp, Users, Instagram, Facebook } from "lucide-react";
 import { toast } from "sonner";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,6 +17,7 @@ import { UserNotificationsBell } from "./components/UserNotificationsBell";
 import { PointsSocketSync } from "./components/PointsSocketSync";
 import { MobileBottomNav } from "./components/MobileBottomNav";
 import { SiteFooter } from "./components/SiteFooter";
+import { FloatingSocialButtons, SOCIAL_INSTAGRAM_URL, SOCIAL_FACEBOOK_URL } from "./components/FloatingSocialButtons";
 import { trpc } from "@/lib/trpc";
 
 const Home = lazy(() => import("./pages/Home"));
@@ -256,11 +257,11 @@ function MobileDrawerMenu({
   const ctaLabel = ctaPrimaryText?.trim() || "תחרויות";
   const ctaPath = (ctaPrimaryUrl?.trim() && ctaPrimaryUrl.startsWith("/") ? ctaPrimaryUrl.trim() : "/tournaments") || "/tournaments";
 
-  const rowClass = "flex items-center gap-3 w-full min-h-[44px] px-3 py-2.5 rounded-xl text-right transition-colors";
+  const rowClass = "flex items-center gap-2.5 w-full min-h-[44px] px-2.5 py-2 rounded-xl text-right transition-colors";
   const rowLabel = "flex-1 min-w-0 text-sm font-medium";
   const iconClass = "w-5 h-5 shrink-0 text-slate-400";
-  const sectionSpacing = "space-y-1";
-  const sectionGap = "pt-6";
+  const sectionSpacing = "space-y-0.5";
+  const sectionGap = "pt-3";
 
   const inviteAction = () => {
     if (typeof window === "undefined") return;
@@ -286,11 +287,11 @@ function MobileDrawerMenu({
 
   return (
     <div className="flex flex-col h-full text-right" dir="rtl">
-      {/* User / account */}
+      {/* User / account – compact */}
       {user && (
-        <div className="pb-4 border-b border-slate-700/80">
-          <p className="text-slate-400 text-xs font-medium mb-1">מחובר כעת</p>
-          <p className="text-white font-semibold truncate" aria-label="מחובר כעת">
+        <div className="pb-2 border-b border-slate-700/80">
+          <p className="text-slate-500 text-[11px] font-medium mb-0.5">מחובר כעת</p>
+          <p className="text-white font-semibold text-sm truncate" aria-label="מחובר כעת">
             {user.name || user.username || `#${user.id}`}
           </p>
         </div>
@@ -317,17 +318,17 @@ function MobileDrawerMenu({
           </button>
         </div>
 
-        {/* Points highlight (logged-in) */}
+        {/* Points highlight (logged-in) – compact */}
         {user && (
           <div className={sectionGap}>
             <button
               type="button"
               onClick={() => go("/points")}
-              className="flex items-center gap-3 w-full min-h-[48px] px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-right hover:bg-amber-500/15 transition"
+              className="flex items-center gap-2.5 w-full min-h-[44px] px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-right hover:bg-amber-500/15 transition"
               aria-label="נקודות שלי"
             >
               <span className="flex-1 min-w-0 text-sm font-semibold text-amber-400/95">נקודות שלי</span>
-              <span className="text-base font-bold tabular-nums text-amber-400" aria-hidden>{pointsLabel}</span>
+              <span className="text-sm font-bold tabular-nums text-amber-400" aria-hidden>{pointsLabel}</span>
               <Gem className="w-5 h-5 shrink-0 text-amber-400/90" aria-hidden />
             </button>
           </div>
@@ -356,16 +357,43 @@ function MobileDrawerMenu({
               <FileText className={iconClass} aria-hidden />
             </button>
           )}
-          <a
-            href={waUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`${rowClass} text-[#25D366] hover:bg-slate-800/50`}
-            aria-label="וואטסאפ"
-          >
-            <span className={rowLabel}>וואטסאפ</span>
-            <MessageCircle className="w-5 h-5 shrink-0" aria-hidden />
-          </a>
+        </div>
+
+        {/* Follow Us – horizontal row, WhatsApp dominant, compact */}
+        <div className={sectionGap}>
+          <p className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider pb-1.5 pr-0.5" aria-hidden>
+            עקבו אחרינו
+          </p>
+          <div className="flex flex-row gap-1.5">
+            <a
+              href={waUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-[1.2] min-w-0 items-center justify-center gap-1 min-h-[44px] px-2 py-2 rounded-xl bg-[#25D366]/15 border border-[#25D366]/40 text-[#25D366] hover:bg-[#25D366]/25 transition touch-target"
+              aria-label="וואטסאפ – צור קשר"
+            >
+              <MessageCircle className="w-5 h-5 shrink-0" aria-hidden />
+              <span className="text-xs font-semibold truncate">וואטסאפ</span>
+            </a>
+            <a
+              href={SOCIAL_INSTAGRAM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-1 min-w-0 items-center justify-center min-h-[44px] p-2 rounded-xl bg-slate-800/60 border border-slate-600/50 text-slate-200 hover:bg-slate-700/60 transition touch-target"
+              aria-label="אינסטגרם"
+            >
+              <Instagram className="w-5 h-5 shrink-0 text-slate-400" aria-hidden />
+            </a>
+            <a
+              href={SOCIAL_FACEBOOK_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-1 min-w-0 items-center justify-center min-h-[44px] p-2 rounded-xl bg-slate-800/60 border border-slate-600/50 text-slate-200 hover:bg-slate-700/60 transition touch-target"
+              aria-label="פייסבוק"
+            >
+              <Facebook className="w-5 h-5 shrink-0 text-slate-400" aria-hidden />
+            </a>
+          </div>
         </div>
 
         {/* User-only: notifications, invite */}
@@ -384,21 +412,21 @@ function MobileDrawerMenu({
 
         {/* Admin / Agent */}
         {user?.role === "admin" && (
-          <button type="button" onClick={() => go("/admin")} className={`${rowClass} text-amber-400 hover:bg-amber-500/10 mt-4`} aria-label="ניהול">
+          <button type="button" onClick={() => go("/admin")} className={`${rowClass} text-amber-400 hover:bg-amber-500/10 mt-2`} aria-label="ניהול">
             <span className={rowLabel}>ניהול</span>
             <LayoutGrid className="w-5 h-5 shrink-0 text-amber-400/90" aria-hidden />
           </button>
         )}
         {user?.role === "agent" && (
-          <button type="button" onClick={() => go("/agent")} className={`${rowClass} text-emerald-400 hover:bg-emerald-500/10 mt-4`} aria-label="לוח סוכן">
+          <button type="button" onClick={() => go("/agent")} className={`${rowClass} text-emerald-400 hover:bg-emerald-500/10 mt-2`} aria-label="לוח סוכן">
             <span className={rowLabel}>לוח סוכן</span>
             <Users className="w-5 h-5 shrink-0 text-emerald-400/90" aria-hidden />
           </button>
         )}
       </nav>
 
-      {/* Logout / Auth at bottom */}
-      <div className="pt-4 mt-auto border-t border-slate-700/80 space-y-2">
+      {/* Logout / Auth at bottom – compact */}
+      <div className="pt-3 mt-auto border-t border-slate-700/80 space-y-1">
         {user ? (
           <button
             type="button"
@@ -576,7 +604,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                 </button>
               </SheetTrigger>
               <SheetContent side="left" className="w-[min(100vw-2rem,300px)] max-w-[300px] bg-slate-900 border-slate-700 text-white p-0 flex flex-col overflow-hidden">
-                <div className="pt-14 px-4 pb-4 flex flex-col h-full min-h-0">
+                <div className="pt-11 px-3 pb-3 flex flex-col h-full min-h-0">
                   <MobileDrawerMenu
                     setLocation={setLocation}
                     user={user}
@@ -606,17 +634,7 @@ function Layout({ children }: { children: React.ReactNode }) {
       <main className="flex-1 pb-safe-nav md:pb-0 min-w-0 w-full max-w-full overflow-x-hidden py-3 md:py-4 md:container md:mx-auto">{children}</main>
       <SiteFooter />
       <MobileBottomNav isAdmin={user?.role === "admin"} isAgent={user?.role === "agent"} />
-      {/* כפתור וואטסאפ צף – מובייל בלבד, מעל הסרגל התחתון */}
-      <a
-        href={whatsappUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="md:hidden fixed z-[38] flex items-center justify-center w-11 h-11 rounded-full bg-[#25D366] text-white shadow-lg shadow-black/25 hover:bg-[#20bd5a] active:scale-95 transition-all duration-200"
-        style={{ bottom: "calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 10px)", right: "14px" }}
-        aria-label="צור קשר בוואטסאפ"
-      >
-        <MessageCircle className="w-5 h-5" strokeWidth={2.5} />
-      </a>
+      <FloatingSocialButtons whatsappUrl={whatsappUrl} />
       </div>
     </div>
   );

@@ -604,3 +604,64 @@
   0%, 100% { opacity: 0.65; transform: translate(-50%, -50%) scale(1); filter: blur(45px); }
   50% { opacity: 0.9; transform: translate(-50%, -50%) scale(1.12); filter: blur(55px); }
 }
+
+/* ─── Floating social buttons – betting/jackpot style ─── */
+@keyframes floating-social-enter {
+  0% {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes floating-social-bounce {
+  0%, 100% { transform: scale(1); }
+  35% { transform: scale(1.06); }
+  65% { transform: scale(0.97); }
+  100% { transform: scale(1); }
+}
+@media (min-width: 768px) {
+  @keyframes floating-social-enter {
+    0% {
+      opacity: 0;
+      transform: translateX(12px) translateY(-50%);
+    }
+    100% {
+      opacity: 1;
+      transform: translateX(0) translateY(-50%);
+    }
+  }
+}
+@keyframes floating-social-whatsapp-pulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(37, 211, 102, 0.35), 0 0 40px rgba(37, 211, 102, 0.15), 0 4px 20px rgba(0, 0, 0, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(37, 211, 102, 0.48), 0 0 52px rgba(37, 211, 102, 0.22), 0 4px 20px rgba(0, 0, 0, 0.35);
+  }
+}
+.animate-floating-social-enter {
+  animation: floating-social-enter 0.5s ease-out forwards;
+}
+.animate-floating-social-bounce {
+  animation: floating-social-bounce 0.55s ease-out 0.45s both;
+}
+.animate-floating-social-whatsapp-pulse {
+  animation: floating-social-whatsapp-pulse 2.5s ease-in-out infinite;
+}
+.floating-social-buttons {
+  position: fixed;
+  z-index: 55;
+  right: 0.75rem;
+  bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 14px);
+}
+@media (min-width: 768px) {
+  .floating-social-buttons {
+    right: 1rem;
+    bottom: auto;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+}

@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { getUploadErrorMessage, validateImageFile, uploadImage, MAX_MEDIA_ASSET_BYTES, ACCEPT_IMAGES } from "@/lib/uploadUtils";
 
 type Asset = { id: number; filename: string; originalName: string; url: string; mimeType: string };
 
@@ -27,19 +28,20 @@ export function MediaPickerModal({
   const fileRef = useRef<HTMLInputElement>(null);
   const utils = trpc.useUtils();
   const { data: assets, isLoading } = trpc.admin.listMediaAssets.useQuery(undefined, { enabled: open });
-  const uploadMut = trpc.admin.uploadMediaAsset.useMutation({
-    onSuccess: (data) => {
-      setUploading(false);
+  const doUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      const data = await uploadImage({ type: "media", file });
       utils.admin.listMediaAssets.invalidate();
       onSelect(data.url);
       onClose();
       toast.success("התמונה הועלתה ונבחרה");
-    },
-    onError: (e) => {
+    } catch (e) {
+      toast.error(getUploadErrorMessage(e));
+    } finally {
       setUploading(false);
-      toast.error(e.message);
-    },
-  });
+    }
+  };
   const deleteMut = trpc.admin.deleteMediaAsset.useMutation({
     onSuccess: () => { utils.admin.listMediaAssets.invalidate(); toast.success("נמחק"); },
     onError: (e) => toast.error(e.message),
@@ -48,22 +50,12 @@ export function MediaPickerModal({
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("נא לבחור קובץ תמונה (JPEG, PNG, GIF, WebP)");
+    const validation = validateImageFile(file, MAX_MEDIA_ASSET_BYTES, ACCEPT_IMAGES);
+    if (!validation.ok) {
+      toast.error(validation.error);
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("גודל מקסימלי 5MB");
-      return;
-    }
-    setUploading(true);
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const base64 = dataUrl.replace(/^data:[^;]+;base64,/, "");
-      uploadMut.mutate({ fileBase64: base64, originalName: file.name, mimeType: file.type });
-    };
-    reader.readAsDataURL(file);
+    doUpload(file);
     e.target.value = "";
   };
 

@@ -102,6 +102,11 @@ async function startServer() {
     fs.mkdirSync(jackpotBackgroundsDir, { recursive: true });
     logger.info("Created uploads/jackpot-backgrounds directory", { jackpotBackgroundsDir });
   }
+  const uploadTempDir = path.join(uploadsDir, "temp");
+  if (!fs.existsSync(uploadTempDir)) {
+    fs.mkdirSync(uploadTempDir, { recursive: true });
+    logger.info("Created uploads/temp directory for multipart uploads", { uploadTempDir });
+  }
 
   import("sharp")
     .then((m) => { console.log("sharp loaded:", !!m?.default); })
@@ -121,6 +126,7 @@ async function startServer() {
     referrerPolicy: { policy: "strict-origin-when-cross-origin" },
     hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
   }));
+  // JSON body limit for API; image uploads use multipart POST /api/upload (16MB multer limit)
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   app.get("/ping", (_req, res) => {
@@ -204,6 +210,8 @@ async function startServer() {
   app.use("/uploads", express.static(uploadsDir));
   registerOAuthRoutes(app);
   registerChatRoutes(app);
+  const { registerUploadRoutes } = await import("../upload/routes");
+  registerUploadRoutes(app);
   app.use(
     "/api/trpc",
     createExpressMiddleware({
@@ -226,7 +234,14 @@ async function startServer() {
     if (res.headersSent) return next(err);
     if (!req.path.startsWith("/api")) return next(err);
     const message = err instanceof Error ? err.message : "Unknown error";
-    res.status(500).set("Content-Type", "application/json").json({ success: false, message, error: String(err) });
+    const isPayloadTooLarge =
+      message.toLowerCase().includes("payload") && message.toLowerCase().includes("large") ||
+      (err as { status?: number }).status === 413;
+    const status = isPayloadTooLarge ? 413 : 500;
+    const jsonMessage = isPayloadTooLarge
+      ? "הקובץ גדול מדי להעלאה. נסה קובץ קטן יותר או פורמט WebP."
+      : message;
+    res.status(status).set("Content-Type", "application/json").json({ success: false, message: jsonMessage });
   });
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {

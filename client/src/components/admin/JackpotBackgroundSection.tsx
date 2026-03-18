@@ -22,9 +22,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-
-const MAX_SIZE_BYTES = 8 * 1024 * 1024; // 8MB
-const ACCEPT = "image/jpeg,image/png,image/gif,image/webp";
+import { getUploadErrorMessage, validateImageFile, uploadImage, MAX_JACKPOT_BACKGROUND_BYTES, ACCEPT_IMAGES } from "@/lib/uploadUtils";
 
 type JackpotBgImage = {
   id: number;
@@ -84,18 +82,19 @@ export function JackpotBackgroundSection() {
   const fileRef = useRef<HTMLInputElement>(null);
   const utils = trpc.useUtils();
   const { data: images, isLoading } = trpc.admin.listJackpotBackgroundImages.useQuery();
-  const uploadMut = trpc.admin.uploadJackpotBackgroundImage.useMutation({
-    onSuccess: () => {
-      setUploading(false);
+  const doUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      await uploadImage({ type: "jackpot-background", file, activate: activateAfterUpload });
       utils.admin.listJackpotBackgroundImages.invalidate();
       utils.settings.getActiveJackpotBackground.invalidate();
       toast.success("תמונת רקע הג׳קפוט הועלתה");
-    },
-    onError: (e) => {
+    } catch (e) {
+      toast.error(getUploadErrorMessage(e));
+    } finally {
       setUploading(false);
-      toast.error(e.message);
-    },
-  });
+    }
+  };
   const setActiveMut = trpc.admin.setActiveJackpotBackground.useMutation({
     onSuccess: () => {
       utils.admin.listJackpotBackgroundImages.invalidate();
@@ -180,27 +179,12 @@ export function JackpotBackgroundSection() {
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.match(/^image\/(jpeg|png|gif|webp)$/i)) {
-      toast.error("נא לבחור קובץ תמונה (JPEG, PNG, GIF, WebP)");
+    const validation = validateImageFile(file, MAX_JACKPOT_BACKGROUND_BYTES, ACCEPT_IMAGES);
+    if (!validation.ok) {
+      toast.error(validation.error);
       return;
     }
-    if (file.size > MAX_SIZE_BYTES) {
-      toast.error("גודל מקסימלי 8MB");
-      return;
-    }
-    setUploading(true);
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const base64 = dataUrl.replace(/^data:[^;]+;base64,/, "");
-      uploadMut.mutate({
-        fileBase64: base64,
-        originalName: file.name,
-        mimeType: file.type,
-        activate: activateAfterUpload,
-      });
-    };
-    reader.readAsDataURL(file);
+    doUpload(file);
     e.target.value = "";
   };
 
@@ -234,7 +218,7 @@ export function JackpotBackgroundSection() {
       <CardContent className="space-y-6">
         <div>
           <Label className="text-slate-400">העלאת תמונת רקע לג׳קפוט (רוחב מינימלי 1200px, אוטומטית WebP)</Label>
-          <input ref={fileRef} type="file" accept={ACCEPT} className="hidden" onChange={handleFile} />
+          <input ref={fileRef} type="file" accept={ACCEPT_IMAGES} className="hidden" onChange={handleFile} />
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <Button
               type="button"

@@ -7777,9 +7777,6 @@ export const PUBLIC_SITE_SETTINGS_KEYS = [
   "cta.primary_url",
   "cta.secondary_text",
   "cta.secondary_url",
-  "social.instagram",
-  "social.facebook",
-  "social.telegram",
   "footer.company_name",
   "footer.copyright_text",
   "legal.terms_page_slug",
@@ -7797,9 +7794,6 @@ const DEFAULT_PUBLIC_SETTINGS: Record<(typeof PUBLIC_SITE_SETTINGS_KEYS)[number]
   "cta.primary_url": "/tournaments",
   "cta.secondary_text": "",
   "cta.secondary_url": "",
-  "social.instagram": "",
-  "social.facebook": "",
-  "social.telegram": "",
   "footer.company_name": "WinMondial",
   "footer.copyright_text": "",
   "legal.terms_page_slug": "",
@@ -8164,6 +8158,46 @@ export async function createMediaAsset(data: {
   return { id: row!.id, url: row!.url };
 }
 
+/** Multipart upload: file at tempPath. Move to uploads/, insert row. No full-file buffer. */
+export async function createMediaAssetFromFile(data: {
+  tempPath: string;
+  originalName: string;
+  mimeType: string;
+  altText?: string | null;
+  category?: string | null;
+}): Promise<{ id: number; url: string }> {
+  const { join } = await import("path");
+  const { stat, rename, mkdir } = await import("fs/promises");
+  const { existsSync } = await import("fs");
+  const { mediaAssets } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (!ALLOWED_IMAGE_TYPES.includes(data.mimeType)) throw new Error("Invalid file type. Allowed: JPEG, PNG, GIF, WebP.");
+  const st = await stat(data.tempPath).catch(() => null);
+  if (!st || !st.isFile()) throw new Error("File not found.");
+  if (st.size > MAX_MEDIA_SIZE_BYTES) throw new Error("File too large. Max 5MB.");
+  if (st.size === 0) throw new Error("Empty file.");
+  const ext = (data.originalName && data.originalName.includes(".")) ? data.originalName.replace(/^.*\./, "").toLowerCase() : "jpg";
+  const safeExt = ["jpg", "jpeg", "png", "gif", "webp"].includes(ext) ? ext : "jpg";
+  const { nanoid } = await import("nanoid");
+  const filename = `${nanoid(12)}.${safeExt}`;
+  const uploadsDir = join(process.cwd(), "uploads");
+  if (!existsSync(uploadsDir)) await mkdir(uploadsDir, { recursive: true });
+  const filePath = join(uploadsDir, filename);
+  await rename(data.tempPath, filePath);
+  const url = `/uploads/${filename}`;
+  const [row] = await db.insert(mediaAssets).values({
+    filename,
+    originalName: data.originalName || filename,
+    mimeType: data.mimeType,
+    sizeBytes: st.size,
+    url,
+    altText: data.altText ?? null,
+    category: data.category ?? null,
+  }).returning({ id: mediaAssets.id, url: mediaAssets.url });
+  return { id: row!.id, url: row!.url };
+}
+
 export async function deleteMediaAsset(id: number): Promise<void> {
   const { mediaAssets } = await getSchema();
   const db = await getDb();
@@ -8284,6 +8318,63 @@ export async function createSiteBackgroundImage(data: {
     url,
     isActive,
     sizeBytes: buf.length,
+    width,
+    height,
+    uploadedBy: data.uploadedBy ?? null,
+  }).returning({ id: siteBackgroundImages.id, url: siteBackgroundImages.url });
+  return { id: row!.id, url: row!.url };
+}
+
+/** Multipart upload: file already on disk (tempPath). Move to final path, read metadata with sharp from path, no full-file buffer. */
+export async function createSiteBackgroundImageFromFile(data: {
+  tempPath: string;
+  originalName: string;
+  mimeType: string;
+  activate?: boolean;
+  uploadedBy?: number | null;
+}): Promise<{ id: number; url: string }> {
+  const { join } = await import("path");
+  const { stat, rename, mkdir, unlink } = await import("fs/promises");
+  const { existsSync } = await import("fs");
+  const { siteBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (!BACKGROUND_ALLOWED_TYPES.includes(data.mimeType)) throw new Error("סוג קובץ לא נתמך. אפשר רק: JPEG, PNG, GIF, WebP.");
+  const st = await stat(data.tempPath).catch(() => null);
+  if (!st || !st.isFile()) throw new Error("הקובץ לא נמצא.");
+  if (st.size > BACKGROUND_MAX_BYTES) throw new Error("הקובץ גדול מדי. מקסימום 8MB.");
+  if (st.size === 0) throw new Error("הקובץ ריק.");
+  const ext = (data.originalName && data.originalName.includes(".")) ? data.originalName.replace(/^.*\./, "").toLowerCase() : "jpg";
+  const safeExt = ["jpg", "jpeg", "png", "gif", "webp"].includes(ext) ? ext : "jpg";
+  const { nanoid } = await import("nanoid");
+  const filename = `${nanoid(12)}.${safeExt}`;
+  const uploadsDir = join(process.cwd(), "uploads", BACKGROUND_SUBDIR);
+  if (!existsSync(uploadsDir)) await mkdir(uploadsDir, { recursive: true });
+  const filePath = join(uploadsDir, filename);
+  await rename(data.tempPath, filePath);
+  const url = `/uploads/${BACKGROUND_SUBDIR}/${filename}`;
+  let width: number | null = null;
+  let height: number | null = null;
+  try {
+    const sharp = await import("sharp").catch(() => null);
+    if (sharp) {
+      const meta = await sharp.default(filePath).metadata();
+      if (meta.width != null) width = meta.width;
+      if (meta.height != null) height = meta.height;
+    }
+  } catch {
+    // ignore
+  }
+  const isActive = data.activate === true;
+  if (isActive) {
+    await db.update(siteBackgroundImages).set({ isActive: false, updatedAt: new Date() });
+  }
+  const [row] = await db.insert(siteBackgroundImages).values({
+    filename,
+    originalName: data.originalName || filename,
+    url,
+    isActive,
+    sizeBytes: st.size,
     width,
     height,
     uploadedBy: data.uploadedBy ?? null,
@@ -8412,6 +8503,54 @@ export async function createJackpotBackgroundImage(data: {
   if (!db) throw new Error("Database not available");
   const buf = Buffer.from(data.fileBase64, "base64");
   const processed = await processJackpotBackgroundImage(buf, data.mimeType);
+  if (!processed.ok) throw new Error(processed.error);
+  const { fullBuffer, thumbBuffer, mobileBuffer, meanLuminance } = processed.result;
+  const { nanoid } = await import("nanoid");
+  const base = nanoid(12);
+  const fullKey = `${base}.webp`;
+  const thumbKey = `${base}_thumb.webp`;
+  const mobileKey = `${base}_mobile.webp`;
+  const url = await jackpotBackgroundStorage.save(fullKey, fullBuffer);
+  const thumbnailUrl = await jackpotBackgroundStorage.save(thumbKey, thumbBuffer);
+  const mobileUrl = await jackpotBackgroundStorage.save(mobileKey, mobileBuffer);
+  const maxOrder = await db.select({ maxOrder: sql<number>`COALESCE(MAX(${jackpotBackgroundImages.displayOrder}), 0)` }).from(jackpotBackgroundImages).then((r) => (r[0] as { maxOrder: number } | undefined)?.maxOrder ?? 0);
+  const displayOrder = maxOrder + 1;
+  const isActive = data.activate === true;
+  if (isActive) {
+    await db.update(jackpotBackgroundImages).set({ isActive: false });
+  }
+  const luminanceStored = Math.round(meanLuminance * 1000);
+  const [row] = await db.insert(jackpotBackgroundImages).values({
+    filename: fullKey,
+    thumbnailFilename: thumbKey,
+    mobileFilename: mobileKey,
+    url,
+    thumbnailUrl,
+    mobileUrl,
+    isActive,
+    displayOrder,
+    meanLuminance: luminanceStored,
+  }).returning({
+    id: jackpotBackgroundImages.id,
+    url: jackpotBackgroundImages.url,
+    thumbnailUrl: jackpotBackgroundImages.thumbnailUrl,
+  });
+  return { id: row!.id, url: row!.url, thumbnailUrl: row!.thumbnailUrl ?? row!.url };
+}
+
+/** Multipart upload: file at tempPath. Process with sharp from path (stream from disk), save outputs, insert row. */
+export async function createJackpotBackgroundImageFromFile(data: {
+  tempPath: string;
+  originalName: string;
+  mimeType: string;
+  activate?: boolean;
+}): Promise<{ id: number; url: string; thumbnailUrl: string }> {
+  const { jackpotBackgroundStorage } = await import("./storage/jackpotBackgroundStorage");
+  const { processJackpotBackgroundImageFromFile } = await import("./storage/jackpotBackgroundImageProcess");
+  const { jackpotBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const processed = await processJackpotBackgroundImageFromFile(data.tempPath, data.mimeType);
   if (!processed.ok) throw new Error(processed.error);
   const { fullBuffer, thumbBuffer, mobileBuffer, meanLuminance } = processed.result;
   const { nanoid } = await import("nanoid");

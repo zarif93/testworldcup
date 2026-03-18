@@ -191,18 +191,15 @@ import {
   updateSiteAnnouncement,
   deleteSiteAnnouncement,
   listMediaAssets,
-  createMediaAsset,
   deleteMediaAsset,
   updateMediaAsset,
   listSiteBackgroundImages,
   getActiveSiteBackground,
-  createSiteBackgroundImage,
   setActiveSiteBackground,
   deactivateSiteBackground,
   deleteSiteBackgroundImage,
   listJackpotBackgroundImages,
   getActiveJackpotBackground,
-  createJackpotBackgroundImage,
   setActiveJackpotBackground,
   deleteJackpotBackgroundImage,
   duplicateJackpotBackgroundImage,
@@ -2956,22 +2953,6 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
       }),
 
     listSiteBackgroundImages: adminProcedure.use(usePermission("settings.manage")).query(() => listSiteBackgroundImages()),
-    uploadSiteBackgroundImage: adminProcedure.use(usePermission("settings.manage"))
-      .input(z.object({
-        fileBase64: z.string().min(1),
-        originalName: z.string().min(1),
-        mimeType: z.string().min(1),
-        activate: z.boolean().optional(),
-      }))
-      .mutation(async ({ ctx, input }) => {
-        return createSiteBackgroundImage({
-          fileBase64: input.fileBase64,
-          originalName: input.originalName,
-          mimeType: input.mimeType,
-          activate: input.activate,
-          uploadedBy: ctx.user?.id ?? null,
-        });
-      }),
     setActiveSiteBackground: adminProcedure.use(usePermission("settings.manage"))
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
@@ -2992,28 +2973,6 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
       }),
 
     listJackpotBackgroundImages: adminProcedure.use(usePermission("settings.manage")).query(() => listJackpotBackgroundImages()),
-    uploadJackpotBackgroundImage: adminProcedure.use(usePermission("settings.manage"))
-      .input(z.object({
-        fileBase64: z.string().min(1),
-        originalName: z.string().min(1),
-        mimeType: z.string().min(1),
-        activate: z.boolean().optional(),
-      }))
-      .mutation(async ({ ctx, input }) => {
-        const result = await createJackpotBackgroundImage({
-          fileBase64: input.fileBase64,
-          originalName: input.originalName,
-          mimeType: input.mimeType,
-          activate: input.activate,
-        });
-        const ip = (ctx as { req?: { ip?: string; socket?: { remoteAddress?: string } } }).req?.ip ?? (ctx as { req?: { socket?: { remoteAddress?: string } } }).req?.socket?.remoteAddress ?? "";
-        await insertAdminAuditLog({
-          performedBy: ctx.user?.id ?? 0,
-          action: "jackpot_bg_upload",
-          details: { entityType: "jackpot_background", entityId: result.id, ip },
-        });
-        return result;
-      }),
     setActiveJackpotBackground: adminProcedure.use(usePermission("settings.manage"))
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
@@ -3192,14 +3151,6 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
     deleteSiteAnnouncement: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number() })).mutation(async ({ input }) => { await deleteSiteAnnouncement(input.id); return { success: true }; }),
 
     listMediaAssets: adminProcedure.use(usePermission("cms.view")).input(z.object({ category: z.string().nullable().optional() }).optional()).query(({ input }) => listMediaAssets(input?.category ?? null)),
-    uploadMediaAsset: adminProcedure.use(usePermission("cms.edit")).input(z.object({ fileBase64: z.string().min(1), originalName: z.string().min(1), mimeType: z.string().min(1), altText: z.string().nullable().optional(), category: z.string().nullable().optional() })).mutation(async ({ input }) => {
-      try {
-        return await createMediaAsset(input);
-      } catch (e) {
-        const message = e instanceof Error ? e.message : "העלאת המדיה נכשלה";
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message });
-      }
-    }),
     deleteMediaAsset: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number() })).mutation(async ({ input }) => { await deleteMediaAsset(input.id); return { success: true }; }),
     updateMediaAsset: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number(), altText: z.string().nullable().optional(), category: z.string().nullable().optional() })).mutation(async ({ input }) => { const { id, ...data } = input; await updateMediaAsset(id, data); return { success: true }; }),
 

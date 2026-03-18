@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { UPLOAD_FILE_TOO_LARGE_MSG } from "@/lib/uploadUtils";
 import { UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
@@ -71,10 +72,11 @@ async function trpcSafeFetch(input: RequestInfo | URL, init?: RequestInit): Prom
       contentType,
       responsePreview: preview,
     });
+    if (res.status === 413 || text.toLowerCase().includes("413") || text.toLowerCase().includes("entity too large")) {
+      throw new Error(UPLOAD_FILE_TOO_LARGE_MSG);
+    }
     if (text.startsWith("<")) {
-      throw new Error(
-        `השרת החזיר דף HTML במקום JSON (ייתכן שהבקשה לא מגיעה ל-API). קוד: ${res.status}. תחילת תגובה: ${preview.replace(/\s+/g, " ").slice(0, 80)}...`
-      );
+      throw new Error(UPLOAD_FILE_TOO_LARGE_MSG);
     }
     throw new Error(
       `תגובה לא תקינה מהשרת (קוד ${res.status}). תחילת תגובה: ${preview.replace(/\s+/g, " ").slice(0, 80)}...`
@@ -85,10 +87,13 @@ async function trpcSafeFetch(input: RequestInfo | URL, init?: RequestInit): Prom
     JSON.parse(text);
   } catch {
     console.error("[tRPC] Invalid JSON", { requestUrl: url, status: res.status, responsePreview: preview });
+    if (res.status === 413) throw new Error(UPLOAD_FILE_TOO_LARGE_MSG);
     throw new Error(
       `השרת החזיר תגובה שלא ניתן לפרסר כ-JSON (קוד ${res.status}). תחילת תגובה: ${preview.replace(/\s+/g, " ").slice(0, 80)}...`
     );
   }
+
+  if (res.status === 413) throw new Error(UPLOAD_FILE_TOO_LARGE_MSG);
 
   return new Response(text, {
     status: res.status,

@@ -1,6 +1,7 @@
 /**
- * Phase 12: Global site settings – contact, CTA, social, footer, legal, brand.
- * Guarded by settings.manage; section visible only when user has permission.
+ * Global site settings – contact, CTA, footer, legal, brand.
+ * Guarded by settings.manage. Field-by-field explanations for admin.
+ * Social networks removed – floating buttons use hard-coded URLs.
  */
 
 import { useState, useEffect } from "react";
@@ -13,58 +14,127 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { BackgroundImagesSection } from "./BackgroundImagesSection";
 
-const SETTINGS_GROUPS: { group: string; label: string; keys: { key: string; label: string; placeholder?: string }[] }[] = [
+type FieldConfig = {
+  key: string;
+  label: string;
+  placeholder?: string;
+  /** Hebrew: purpose + where it appears */
+  help?: string;
+};
+
+const SETTINGS_GROUPS: { group: string; label: string; keys: FieldConfig[] }[] = [
   {
     group: "contact",
     label: "פרטי קשר",
     keys: [
-      { key: "contact.whatsapp", label: "מספר וואטסאפ (ללא +)", placeholder: "972538099212" },
-      { key: "contact.phone", label: "טלפון", placeholder: "" },
-      { key: "contact.email", label: "אימייל", placeholder: "" },
-      { key: "contact.address", label: "כתובת", placeholder: "" },
+      {
+        key: "contact.whatsapp",
+        label: "מספר וואטסאפ (ללא +)",
+        placeholder: "972538099212",
+        help: "משמש כמספר הקשר הראשי בוואטסאפ. מופיע בכפתור הצף, בתפריט המובייל ובפוטר. שינוי מעדכן את כל קישורי הוואטסאפ באתר באופן גלובלי.",
+      },
+      {
+        key: "contact.phone",
+        label: "טלפון",
+        placeholder: "",
+        help: "טלפון ליצירת קשר. מופיע בקטע צור קשר ובפוטר (אם מוזן).",
+      },
+      {
+        key: "contact.email",
+        label: "אימייל",
+        placeholder: "",
+        help: "אימייל ליצירת קשר. מופיע בפוטר ובקטעי צור קשר.",
+      },
+      {
+        key: "contact.address",
+        label: "כתובת",
+        placeholder: "",
+        help: "כתובת פיזית. מופיעה בפוטר (אם מוזנת).",
+      },
     ],
   },
   {
     group: "cta",
     label: "כפתורי CTA ראשיים",
     keys: [
-      { key: "cta.primary_text", label: "טקסט כפתור ראשי", placeholder: "בחר טורניר" },
-      { key: "cta.primary_url", label: "קישור כפתור ראשי", placeholder: "/tournaments" },
-      { key: "cta.secondary_text", label: "טקסט כפתור משני", placeholder: "" },
-      { key: "cta.secondary_url", label: "קישור כפתור משני", placeholder: "" },
-    ],
-  },
-  {
-    group: "social",
-    label: "רשתות חברתיות",
-    keys: [
-      { key: "social.instagram", label: "Instagram URL", placeholder: "https://..." },
-      { key: "social.facebook", label: "Facebook URL", placeholder: "https://..." },
-      { key: "social.telegram", label: "Telegram URL", placeholder: "https://..." },
+      {
+        key: "cta.primary_text",
+        label: "טקסט כפתור ראשי",
+        placeholder: "בחר טורניר",
+        help: "טקסט הכפתור הראשי באתר. מופיע בהירו, בבאנרים ראשיים ובעמודי נחיתה. דוגמה: \"בחר טורניר\" מפנה ל־/tournaments.",
+      },
+      {
+        key: "cta.primary_url",
+        label: "קישור כפתור ראשי",
+        placeholder: "/tournaments",
+        help: "כתובת (URL) אליה מוביל הכפתור הראשי. מופיע בניווט, בהירו ובסרגלי CTA במובייל.",
+      },
+      {
+        key: "cta.secondary_text",
+        label: "טקסט כפתור משני",
+        placeholder: "",
+        help: "טקסט לכפתור משני (אם בשימוש). מופיע באזורים שבהם מוגדר CTA משני.",
+      },
+      {
+        key: "cta.secondary_url",
+        label: "קישור כפתור משני",
+        placeholder: "",
+        help: "קישור לכפתור המשני (אם בשימוש).",
+      },
     ],
   },
   {
     group: "footer",
     label: "פוטר",
     keys: [
-      { key: "footer.company_name", label: "שם החברה", placeholder: "WinMondial" },
-      { key: "footer.copyright_text", label: "טקסט זכויות יוצרים", placeholder: "" },
+      {
+        key: "footer.company_name",
+        label: "כותרת פוטר (שם החברה)",
+        placeholder: "WinMondial",
+        help: "התווית הראשית בפוטר ובאזור זכויות יוצרים. מופיעה ככותרת הפוטר וברצועת התחתית.",
+      },
+      {
+        key: "footer.copyright_text",
+        label: "טקסט זכויות יוצרים",
+        placeholder: "",
+        help: "טקסט זכויות יוצרים. מופיע בפוטר מתחת לשם החברה.",
+      },
     ],
   },
   {
     group: "legal",
     label: "משפטי / דפים",
     keys: [
-      { key: "legal.terms_page_slug", label: "Slug דף תקנון", placeholder: "terms" },
-      { key: "legal.privacy_page_slug", label: "Slug דף פרטיות", placeholder: "privacy" },
+      {
+        key: "legal.terms_page_slug",
+        label: "Slug דף תקנון",
+        placeholder: "terms",
+        help: "מזהה (slug) דף התקנון מתוך דפי ה־CMS. מופיע בקישורי הפוטר, בעמוד ההרשמה ובאזורי תאימות.",
+      },
+      {
+        key: "legal.privacy_page_slug",
+        label: "Slug דף פרטיות",
+        placeholder: "privacy",
+        help: "מזהה (slug) דף הפרטיות מתוך דפי ה־CMS. מופיע בפוטר, בהרשמה ובקישורי משפטיים.",
+      },
     ],
   },
   {
     group: "brand",
     label: "מיתוג",
     keys: [
-      { key: "brand.site_name", label: "שם האתר", placeholder: "WinMondial" },
-      { key: "brand.tagline", label: "סלוגן", placeholder: "תחרות ניחושי המונדיאל הגדולה" },
+      {
+        key: "brand.site_name",
+        label: "שם האתר",
+        placeholder: "WinMondial",
+        help: "זהות האתר הגלובלית. מופיע בכותרת הניווט, ב-title של דפים, בתגיות meta, בלשונית הדפדפן ובמסכי התחברות/הרשמה.",
+      },
+      {
+        key: "brand.tagline",
+        label: "סלוגן",
+        placeholder: "תחרות ניחושי המונדיאל הגדולה",
+        help: "סלוגן השיווקי הראשי. מופיע בהירו, במסכי התחברות והרשמה, בבאנרים ובעמודי נחיתה.",
+      },
     ],
   },
 ];
@@ -78,9 +148,6 @@ const DEFAULTS: Record<string, string> = {
   "cta.primary_url": "/tournaments",
   "cta.secondary_text": "",
   "cta.secondary_url": "",
-  "social.instagram": "",
-  "social.facebook": "",
-  "social.telegram": "",
   "footer.company_name": "WinMondial",
   "footer.copyright_text": "",
   "legal.terms_page_slug": "",
@@ -138,17 +205,26 @@ export function SettingsSection() {
         </Button>
       </div>
 
+      <p className="text-slate-400 text-sm">
+        שינויים כאן חלים על כל האתר. כל שדה מלווה בהסבר היכן הוא מופיע בממשק.
+      </p>
+
       {SETTINGS_GROUPS.map(({ group, label, keys }) => (
         <Card key={group} className="bg-slate-800/50 border-slate-700">
           <CardHeader>
             <h3 className="text-lg font-bold text-white">{label}</h3>
           </CardHeader>
           <CardContent className="space-y-4">
-            {keys.map(({ key, label: fieldLabel, placeholder }) => (
-              <div key={key}>
-                <Label className="text-slate-400 text-sm">{fieldLabel}</Label>
+            {keys.map(({ key, label: fieldLabel, placeholder, help }) => (
+              <div key={key} className="space-y-1">
+                <Label className="text-slate-300 text-sm font-medium">{fieldLabel}</Label>
+                {help && (
+                  <p className="text-slate-500 text-xs leading-relaxed" title={help}>
+                    {help}
+                  </p>
+                )}
                 <Input
-                  className="bg-slate-800 text-white border-slate-600 mt-1"
+                  className="bg-slate-800 text-white border-slate-600 mt-0.5"
                   value={values[key] ?? ""}
                   onChange={(e) => handleChange(key, e.target.value)}
                   placeholder={placeholder}
