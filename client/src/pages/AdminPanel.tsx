@@ -65,6 +65,7 @@ import { SchemaDebugModal } from "@/components/admin/SchemaDebugModal";
 import { CompetitionItemsManageModal } from "@/components/admin/CompetitionItemsManageModal";
 import { CmsSection } from "@/components/admin/CmsSection";
 import { SettingsSection } from "@/components/admin/SettingsSection";
+import { JackpotSection } from "@/components/admin/JackpotSection";
 import { MediaManagerSection } from "@/components/admin/MediaManagerSection";
 import { NotificationsSection } from "@/components/admin/NotificationsSection";
 import { AnalyticsDashboardSection } from "@/components/admin/AnalyticsDashboardSection";
@@ -74,7 +75,7 @@ import { SettlementReportsSection } from "@/components/admin/SettlementReportsSe
 import { TeamLibrarySection } from "@/components/admin/TeamLibrarySection";
 import { TeamPicker } from "@/components/admin/TeamPicker";
 
-type AdminSection = "dashboard" | "analytics" | "ops" | "finance" | "autoFill" | "submissions" | "competitions" | "agents" | "players" | "admins" | "roles" | "cms" | "media" | "notifications" | "payments" | "settings";
+type AdminSection = "dashboard" | "analytics" | "ops" | "finance" | "autoFill" | "submissions" | "competitions" | "agents" | "players" | "admins" | "roles" | "cms" | "media" | "notifications" | "payments" | "settings" | "jackpot";
 type CompetitionSubType = "lotto" | "chance" | "mondial" | "football_custom" | null;
 
 export default function AdminPanel() {
@@ -917,6 +918,7 @@ export default function AdminPanel() {
     { id: "notifications" as const, label: "התראות", icon: <Bell className="w-5 h-5" /> },
     ...(canViewSubmissions ? [{ id: "payments" as const, label: "תשלומים", icon: <CreditCard className="w-5 h-5" /> }] : []),
     ...(canManageSettings ? [{ id: "settings" as const, label: "הגדרות אתר", icon: <Settings className="w-5 h-5" /> }] : []),
+    ...(canManageSettings ? [{ id: "jackpot" as const, label: "ג׳קפוט", icon: <Trophy className="w-5 h-5" /> }] : []),
   ];
 
   return (
@@ -3217,6 +3219,10 @@ export default function AdminPanel() {
 
         {section === "settings" && canManageSettings && (
           <SettingsSection />
+        )}
+
+        {section === "jackpot" && canManageSettings && (
+          <JackpotSection />
         )}
 
         {section === "admins" && !user?.isSuperAdmin && (

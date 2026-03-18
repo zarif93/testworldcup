@@ -130,6 +130,7 @@ import {
   getPointsLogsForAdmin,
   getUserPoints,
   validateTournamentEntry,
+  getEntryCostBreakdown,
   USE_SQLITE,
   executeParticipationWithLock,
   insertLedgerTransaction,
@@ -406,6 +407,18 @@ const cmsPublicRouter = router({
 /** Phase 12: Public site settings – global config for frontend (contact, CTA, brand, etc.) */
 const settingsPublicRouter = router({
   getPublic: publicProcedure.query(() => getPublicSiteSettings()),
+  /** Public Jackpot banner: current balance, next draw, ticket step (no auth required). */
+  getJackpotBanner: publicProcedure.query(async () => {
+    const { getJackpotSettings } = await import("./jackpot");
+    return getJackpotSettings();
+  }),
+  /** Public last jackpot winners for homepage (no auth). */
+  getJackpotLastDraws: publicProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(10).optional() }).optional())
+    .query(async ({ input }) => {
+      const { getJackpotLastDrawsPublic } = await import("./jackpot");
+      return getJackpotLastDrawsPublic(input?.limit ?? 5);
+    }),
 });
 
 export const appRouter = router({
@@ -566,6 +579,12 @@ export const appRouter = router({
       if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
       return getMyCompetitionSummary(ctx.user.id);
     }),
+    /** Jackpot progress widget: 7-day approved play, ticket count, amount until next ticket, countdown to draw. */
+    getJackpotProgress: protectedProcedure.query(async ({ ctx }) => {
+      if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+      const { getJackpotProgress: getProgress } = await import("./jackpot");
+      return getProgress(ctx.user.id);
+    }),
   }),
 
   tournaments: router({
@@ -606,6 +625,15 @@ export const appRouter = router({
       }
       return { ...t, bannerUrl };
     }),
+    /** Entry cost breakdown: base entry + Jackpot contribution (for registration UI). */
+    getEntryCostBreakdown: publicProcedure
+      .input(z.object({ tournamentId: z.number() }))
+      .query(async ({ input }) => {
+        const t = await getTournamentById(input.tournamentId);
+        if (!t) throw new TRPCError({ code: "NOT_FOUND" });
+        const entryFeeBase = Number((t as { entryCostPoints?: number }).entryCostPoints ?? (t as { amount?: number }).amount ?? 0);
+        return getEntryCostBreakdown(entryFeeBase);
+      }),
     /** Phase 3: Resolved form schema for prediction page (dynamic vs legacy form decision). */
     getResolvedFormSchema: publicProcedure
       .input(z.object({ tournamentId: z.number() }))
@@ -736,6 +764,8 @@ export const appRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: INSUFFICIENT_POINTS_MESSAGE });
         }
         const cost = validation.cost;
+        const entryFee = validation.entryFee;
+        const jackpotContribution = validation.jackpotContribution;
         const hasEnoughPoints = validation.allowed;
         const submissionStatus = hasEnoughPoints ? "approved" as const : "pending" as const;
         const paymentStatus = hasEnoughPoints ? "completed" as const : "pending" as const;
@@ -745,10 +775,10 @@ export const appRouter = router({
             ? ctx.user.id
             : ((user as { agentId?: number })?.agentId ?? null);
         let participationCommissionOpts: { commissionAgent: number; commissionSite: number; agentId: number | null } | undefined;
-        if (hasEnoughPoints && !hasUnlimitedPoints && cost > 0) {
+        if (hasEnoughPoints && !hasUnlimitedPoints && entryFee > 0) {
           const { getCommissionBasisPoints, getAgentShareBasisPoints } = await import("./finance");
           const bps = getCommissionBasisPoints(tournament as { commissionPercentBasisPoints?: number | null; houseFeeRate?: number | null });
-          const commissionTotal = Math.floor((cost * bps) / 10_000);
+          const commissionTotal = Math.floor((entryFee * bps) / 10_000);
           if (agentId) {
             const agentShareBps = await getAgentShareBasisPoints(agentId);
             const commissionAgent = Math.floor((commissionTotal * agentShareBps) / 10_000);
@@ -767,7 +797,7 @@ export const appRouter = router({
           }
           return true;
         };
-        const useTransactionalParticipation = hasEnoughPoints && !hasUnlimitedPoints && cost > 0;
+        const useTransactionalParticipation = cost > 0;
         const runParticipationWithLock = async (predictions: unknown, strongHit?: boolean | null) => {
           if (!useTransactionalParticipation) {
             const ok = await runDeduction();
@@ -782,15 +812,15 @@ export const appRouter = router({
               paymentStatus,
               strongHit: strongHit ?? undefined,
             });
-            if (submissionStatus === "approved" && newSubId > 0) {
+            if (submissionStatus === "approved" && newSubId > 0 && entryFee >= 0) {
               const { recordEntryFeeFinancialEvent } = await import("./finance/recordFinancialEvents");
               await recordEntryFeeFinancialEvent({
                 submissionId: newSubId,
                 tournamentId: input.tournamentId,
                 userId: ctx.user!.id,
                 agentId: agentId ?? null,
-                amountPoints: cost,
-                payloadJson: participationCommissionOpts && cost > 0
+                amountPoints: entryFee,
+                payloadJson: participationCommissionOpts && entryFee > 0
                   ? { commissionAmount: participationCommissionOpts.commissionAgent + participationCommissionOpts.commissionSite, agentCommissionAmount: participationCommissionOpts.commissionAgent }
                   : undefined,
               });
@@ -802,6 +832,9 @@ export const appRouter = router({
             username: ctx.user!.username || ctx.user!.name || "משתמש",
             tournamentId: input.tournamentId,
             cost,
+            entryFee,
+            jackpotContribution,
+            skipWalletDeduction: hasUnlimitedPoints,
             agentId: agentId ?? null,
             predictions,
             status: submissionStatus,
@@ -2879,6 +2912,51 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
         return { success: true };
       }),
 
+    getJackpotSettings: adminProcedure.use(usePermission("settings.manage")).query(async () => {
+      const { getJackpotSettings: getSettings } = await import("./jackpot");
+      return getSettings();
+    }),
+    setJackpotSettings: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.object({
+        enabled: z.boolean().optional(),
+        contributionBasisPoints: z.number().int().min(0).max(10000).optional(),
+        balancePoints: z.number().int().min(0).optional(),
+        ticketStepIls: z.number().int().min(1).optional(),
+        winnerPayoutPercent: z.number().int().min(0).max(100).optional(),
+        nextDrawAt: z.union([z.string().datetime(), z.date(), z.null()]).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { setJackpotSettings: setSettings } = await import("./jackpot");
+        await setSettings({
+          ...(input.enabled !== undefined && { enabled: input.enabled }),
+          ...(input.contributionBasisPoints !== undefined && { contributionBasisPoints: input.contributionBasisPoints }),
+          ...(input.balancePoints !== undefined && { balancePoints: input.balancePoints }),
+          ...(input.ticketStepIls !== undefined && { ticketStepIls: input.ticketStepIls }),
+          ...(input.winnerPayoutPercent !== undefined && { winnerPayoutPercent: input.winnerPayoutPercent }),
+          ...(input.nextDrawAt !== undefined && { nextDrawAt: input.nextDrawAt }),
+        });
+        return { success: true };
+      }),
+    runJackpotDraw: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.object({ drawTimestamp: z.union([z.string().datetime(), z.date()]).optional() }).optional())
+      .mutation(async ({ input }) => {
+        const { runJackpotDraw: runDraw } = await import("./jackpot");
+        const drawTimestamp = input?.drawTimestamp != null ? (typeof input.drawTimestamp === "string" ? new Date(input.drawTimestamp) : input.drawTimestamp) : new Date();
+        return runDraw(drawTimestamp, "manual");
+      }),
+    listJackpotDraws: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.object({ limit: z.number().int().min(1).max(100).optional(), offset: z.number().int().min(0).optional() }).optional())
+      .query(async ({ input }) => {
+        const { listJackpotDraws: listDraws } = await import("./jackpot");
+        return listDraws({ limit: input?.limit, offset: input?.offset });
+      }),
+    listJackpotDrawAudit: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.object({ limit: z.number().int().min(1).max(100).optional(), offset: z.number().int().min(0).optional() }).optional())
+      .query(async ({ input }) => {
+        const { listJackpotDrawAudit: listAudit } = await import("./jackpot");
+        return listAudit({ limit: input?.limit, offset: input?.offset });
+      }),
+
     // Phase 11: CMS (cms.view / cms.edit)
     listContentPages: adminProcedure.use(usePermission("cms.view")).query(() => listContentPages()),
     getContentPageById: adminProcedure.use(usePermission("cms.view")).input(z.object({ id: z.number() })).query(({ input }) => getContentPageById(input.id)),
@@ -2937,7 +3015,14 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
     deleteSiteAnnouncement: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number() })).mutation(async ({ input }) => { await deleteSiteAnnouncement(input.id); return { success: true }; }),
 
     listMediaAssets: adminProcedure.use(usePermission("cms.view")).input(z.object({ category: z.string().nullable().optional() }).optional()).query(({ input }) => listMediaAssets(input?.category ?? null)),
-    uploadMediaAsset: adminProcedure.use(usePermission("cms.edit")).input(z.object({ fileBase64: z.string().min(1), originalName: z.string().min(1), mimeType: z.string().min(1), altText: z.string().nullable().optional(), category: z.string().nullable().optional() })).mutation(async ({ input }) => createMediaAsset(input)),
+    uploadMediaAsset: adminProcedure.use(usePermission("cms.edit")).input(z.object({ fileBase64: z.string().min(1), originalName: z.string().min(1), mimeType: z.string().min(1), altText: z.string().nullable().optional(), category: z.string().nullable().optional() })).mutation(async ({ input }) => {
+      try {
+        return await createMediaAsset(input);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "העלאת המדיה נכשלה";
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message });
+      }
+    }),
     deleteMediaAsset: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number() })).mutation(async ({ input }) => { await deleteMediaAsset(input.id); return { success: true }; }),
     updateMediaAsset: adminProcedure.use(usePermission("cms.edit")).input(z.object({ id: z.number(), altText: z.string().nullable().optional(), category: z.string().nullable().optional() })).mutation(async ({ input }) => { const { id, ...data } = input; await updateMediaAsset(id, data); return { success: true }; }),
 

@@ -19,8 +19,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Trophy, Lock, X } from "lucide-react";
 import { getTournamentStyles } from "@/lib/tournamentStyles";
+import { JackpotHero } from "@/components/JackpotHero";
 import { NearWinBanner } from "@/components/NearWinBanner";
 import { RivalStatusBanner } from "@/components/RivalStatusBanner";
 import { StreakBanner } from "@/components/StreakBanner";
@@ -112,21 +118,6 @@ function formatPrizeLabel(prizePool: number): string {
   if (prizePool === 0) return "0 פרסים";
   const formatted = prizePool.toLocaleString("he-IL");
   return prizePool === 1 ? `₪${formatted} פרס` : `₪${formatted} פרסים`;
-}
-
-const HERO_URGENCY_LINES = [
-  "הפרס מחכה למובילים",
-  "תחרויות פתוחות – הצטרף כשמוכן",
-  "הקופה גדלה עם כל משתתף",
-];
-
-function HeroUrgencyLine() {
-  const [idx, setIdx] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setIdx((i) => (i + 1) % HERO_URGENCY_LINES.length), 4000);
-    return () => clearInterval(id);
-  }, []);
-  return <>{HERO_URGENCY_LINES[idx]}</>;
 }
 
 /** Phase 2: Top 3 leaderboard preview for one tournament – "מי מוביל עכשיו" */
@@ -343,12 +334,15 @@ export default function Home() {
   const justSubmitted = searchParams?.get("submitted") === "1";
   const now = useNow(1000);
   const [hideConfirmId, setHideConfirmId] = useState<number | null>(null);
+  const [jackpotHowItWorksOpen, setJackpotHowItWorksOpen] = useState(false);
+  const [jackpotProgressOpen, setJackpotProgressOpen] = useState(false);
   const { data: tournamentStats, isLoading, refetch, dataUpdatedAt } = trpc.tournaments.getPublicStats.useQuery(undefined, {
     refetchInterval: 15000,
   });
   const isDataFresh = dataUpdatedAt != null && Date.now() - dataUpdatedAt < 20000;
   const { data: firstParticipation } = trpc.user.getFirstParticipationStatus.useQuery(undefined, { enabled: isAuthenticated });
   const { data: mySummary } = trpc.user.getMyCompetitionSummary.useQuery(undefined, { enabled: isAuthenticated, staleTime: 60_000 });
+  const { data: jackpotProgress } = trpc.user.getJackpotProgress.useQuery(undefined, { enabled: isAuthenticated, staleTime: 30_000 });
   const { data: recommendation } = trpc.tournaments.getRecommendedTournamentForUser.useQuery(undefined, {
     enabled: isAuthenticated && !!(tournamentStats?.length),
     staleTime: 45_000,
@@ -362,6 +356,9 @@ export default function Home() {
   const { data: homepageCtaBlocks } = trpc.cms.getActiveHomepageSections.useQuery({ key: "homepage_cta" });
   const { data: cmsAnnouncements } = trpc.cms.getActiveAnnouncements.useQuery();
   const { data: siteSettings } = trpc.settings.getPublic.useQuery();
+  const { data: jackpotBanner } = trpc.settings.getJackpotBanner.useQuery(undefined, { staleTime: 60_000 });
+  const { data: jackpotLastDraws } = trpc.settings.getJackpotLastDraws.useQuery({ limit: 5 }, { staleTime: 60_000 });
+  const jackpotEnabled = jackpotBanner?.enabled !== false;
   const heroBanner = (cmsBanners && cmsBanners.length > 0) ? cmsBanners[0] : null;
   const promoBanner = (cmsBannersPromo && cmsBannersPromo.length > 0) ? cmsBannersPromo[0] : null;
   const secondaryBanner = (cmsBannersSecondary && cmsBannersSecondary.length > 0) ? cmsBannersSecondary[0] : null;
@@ -561,101 +558,35 @@ export default function Home() {
         </div>
       )}
 
-      {/* Hero – live state, one primary CTA, then hot/personal/list (Phase 8: conversion polish) */}
-      <section className="relative container mx-auto px-3 sm:px-4 pt-5 pb-2 md:pt-8 md:pb-4 text-center overflow-x-hidden max-w-full">
+      {/* Hero section – brand title only; optional background image; Jackpot and content follow */}
+      <section className="relative container mx-auto px-3 sm:px-4 pt-3 pb-2 md:pt-5 md:pb-4 text-center overflow-x-hidden max-w-full">
         {heroBanner?.imageUrl && (
-          <div className="absolute inset-0 overflow-hidden rounded-xl mx-auto max-w-5xl">
+          <div className="absolute inset-0 overflow-hidden rounded-xl mx-auto max-w-5xl" aria-hidden>
             <img src={heroBanner.imageUrl} alt="" className="w-full h-full object-cover opacity-30" />
           </div>
         )}
-        <div className="animate-fade-in min-w-0 relative z-10">
-          <div className="inline-flex items-center justify-center w-12 h-12 xs:w-14 xs:h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-amber-500/25 to-emerald-600/25 border border-amber-500/40 mb-2 md:mb-3 shadow-lg">
-            <Trophy className="w-6 h-6 xs:w-7 xs:h-7 sm:w-8 sm:h-8 text-amber-400 drop-shadow" />
-          </div>
-          <h1 className="text-xl xs:text-2xl min-[375px]:text-3xl sm:text-4xl md:text-5xl font-black text-white mb-1 md:mb-2 tracking-tight drop-shadow-sm px-1 break-words">
-            {heroBanner?.title?.trim() || siteName || "WinMondial"}
-          </h1>
-          <p className="text-sm xs:text-base sm:text-lg text-emerald-200/95 mb-1 max-w-2xl mx-auto font-semibold break-words">
-            {heroBanner?.subtitle?.trim() || tagline || "תחרות ניחושי המונדיאל – פרסים ודירוג חי"}
-          </p>
-          <p className="text-slate-400 text-xs sm:text-sm mb-2 md:mb-3 max-w-xl mx-auto px-1 break-words">
-            {(heroBanner as { body?: string | null } | undefined)?.body?.trim() || (!heroBanner ? "הצטרף לתחרות – תתחרה על פרסים ודירוג. מונדיאל, לוטו, צ'אנס ותחרויות ספורט." : "")}
-          </p>
-          {/* One compact live line: open count + participants + closing soonest */}
-          {!isLoading && hasAny && openList.length > 0 && (
-            <p className="text-slate-400 text-xs sm:text-sm mb-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5">
-              <span className="flex items-center gap-1.5 text-emerald-400/95 font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" aria-hidden />
-                {openList.length} תחרויות פתוחות
-              </span>
-              {totalActiveParticipants > 0 && (
-                <span className="tabular-nums text-slate-300">{totalActiveParticipants.toLocaleString("he-IL")} משתתפים פעילים</span>
-              )}
-              {closingSoonestTournament && (
-                <>
-                  <span className="text-slate-500">·</span>
-                  <button
-                    type="button"
-                    onClick={() => setLocation(`/predict/${closingSoonestTournament.id}`)}
-                    className="text-amber-400 hover:text-amber-300 font-medium underline underline-offset-1"
-                  >
-                    נסגרת הכי בקרוב: {closingSoonestTournament.displayName}
-                  </button>
-                </>
-              )}
-            </p>
-          )}
-        </div>
+        <h1 className="relative z-10 text-xl xs:text-2xl min-[375px]:text-3xl sm:text-4xl md:text-5xl font-black text-white mb-1 md:mb-2 tracking-tight drop-shadow-sm px-1 break-words">
+          {heroBanner?.title?.trim() || siteName || "WinMondial"}
+        </h1>
 
-        {/* Primary CTA – single clear join action */}
-        {!isLoading && (hasAny || heroBanner?.buttonUrl || ctaPrimaryUrl) && (
-          <div className="animate-slide-up mb-3 md:mb-4 relative z-10">
-            <Button
-              size="lg"
-              className="w-full max-w-xs sm:w-auto min-h-[44px] sm:min-h-[48px] bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white text-base sm:text-lg px-5 sm:px-8 py-3 sm:py-4 rounded-2xl shadow-lg hover:shadow-emerald-500/25 transition-all duration-300 btn-sport touch-target"
-              onClick={() => {
-                const url = heroBanner?.buttonUrl?.trim() || (ctaPrimaryUrl && ctaPrimaryUrl.startsWith("/") ? ctaPrimaryUrl : "");
-                setLocation(url || "/tournaments");
-              }}
-            >
-              <Trophy className="w-5 h-5 sm:w-6 sm:h-6 ml-2 text-amber-300 shrink-0" />
-              {heroBanner?.buttonText?.trim() || ctaPrimaryText || "הצטרף לתחרות – הזדמנות לנצח"}
-            </Button>
-            {hasAny && (
-              <>
-                <p className="text-amber-200/90 text-xs sm:text-sm font-medium mt-1.5 md:mt-2 animate-fade-in">
-                  <HeroUrgencyLine />
-                </p>
-                <p className="text-slate-500 text-xs mt-1">
-                  <button type="button" onClick={() => setLocation("/tournaments")} className="text-slate-400 hover:text-slate-300 font-medium underline underline-offset-1">כל התחרויות</button>
-                  {" · "}
-                  <button type="button" onClick={() => setLocation("/leaderboard")} className="text-slate-500 hover:text-slate-400 font-medium underline underline-offset-1">דירוג</button>
-                </p>
-              </>
-            )}
-            {/* Yellow promo – secondary CTA for logged-in users (rotating tournament) */}
-            {!isLoading && isAuthenticated && hasAny && openTournamentsForPromo.length > 0 && (
-              <div className="max-w-2xl mx-auto mt-3 mb-3 px-2 py-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-center">
-                <p className="text-amber-200 font-medium text-sm mb-2">
-                  {firstParticipation && !firstParticipation.hasApprovedSubmission
-                    ? (recommendedMessage || "זו ההזדמנות שלך – בחר תחרות והצטרף תוך דקה.")
-                    : "נסגרת בקרוב – כדאי להצטרף עכשיו"}
-                </p>
-                <Button
-                  size="lg"
-                  className="min-h-[44px] rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white font-semibold text-sm touch-target"
-                  onClick={() => setLocation(`/predict/${openTournamentsForPromo[promoIndex].id}`)}
-                >
-                  <Trophy className="w-4 h-4 ml-2 shrink-0" />
-                  <span key={openTournamentsForPromo[promoIndex].id} className="animate-fade-in">
-                    הצטרף לתחרות – {openTournamentsForPromo[promoIndex].displayName}
-                  </span>
-                </Button>
-                <p className="text-slate-500 text-[11px] mt-1.5">
-                  <button type="button" onClick={() => setLocation("/tournaments")} className="text-amber-400/90 hover:text-amber-400 underline">בחר תחרות אחרת</button>
-                </p>
-              </div>
-            )}
+        {/* Jackpot hero – same container as promo/secondary/cta banners (max-w-4xl) */}
+        {jackpotBanner != null && jackpotEnabled && (
+          <div className="max-w-4xl mx-auto px-3 mb-6 md:mb-8">
+            <JackpotHero
+              balancePoints={jackpotBanner.balancePoints ?? 0}
+              nextDrawAt={jackpotBanner.nextDrawAt}
+              onPlayNow={() => document.getElementById("tournaments")?.scrollIntoView({ behavior: "smooth" })}
+              onHowItWorks={() => setJackpotHowItWorksOpen(true)}
+              onProgress={() => setJackpotProgressOpen(true)}
+              showProgressButton={isAuthenticated}
+            />
+          </div>
+        )}
+
+        {/* Jackpot disabled notice – when settings exist but jackpot is off */}
+        {jackpotBanner != null && !jackpotEnabled && (
+          <div className="max-w-3xl mx-auto px-3 mb-3">
+            <p className="text-slate-500 text-sm text-center">הג׳קפוט כרגע מושבת.</p>
           </div>
         )}
 
@@ -723,9 +654,109 @@ export default function Home() {
               )}
               {mySummary.inTop10Any && (
                 <p className="text-emerald-400 text-xs font-medium mt-1">אתה בטופ 10</p>
+              )}
+            </div>
+          </div>
         )}
-        </div>
-      </div>
+
+        {isAuthenticated && !jackpotEnabled && jackpotBanner != null && (
+          <div className="max-w-2xl mx-auto px-2 mb-2">
+            <p className="text-slate-500 text-xs text-center">הג׳קפוט כרגע מושבת.</p>
+          </div>
+        )}
+
+        {/* Modals: Jackpot "איך עובד" and "ההתקדמות שלי" – content reused from former inline blocks */}
+        {jackpotBanner != null && jackpotEnabled && (
+          <>
+            <Dialog open={jackpotHowItWorksOpen} onOpenChange={setJackpotHowItWorksOpen}>
+              <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-lg max-h-[90vh] overflow-y-auto bg-slate-900 border-slate-600 text-right">
+                <DialogTitle className="text-amber-400 font-bold text-lg sr-only">איך עובד הג׳קפוט</DialogTitle>
+                <div className="rounded-xl border border-slate-600/60 bg-slate-800/50 p-4 sm:p-5 text-right">
+                  <h3 className="text-amber-400 font-bold text-lg mb-3">איך עובד הג׳קפוט</h3>
+                  <p className="text-slate-300 text-sm mb-2">
+                    כרטיסים: כל ₪{(jackpotBanner.ticketStepIls ?? 1000).toLocaleString("he-IL")} משחק מאושר = כרטיס אחד בהגרלה. ככל שמשחקים יותר – יותר כרטיסים.
+                  </p>
+                  <p className="text-slate-300 text-sm">ככל שמשחקים יותר – צוברים יותר סיכויי זכייה בג׳קפוט.</p>
+                  {jackpotLastDraws && jackpotLastDraws.length > 0 && (
+                    <div className="mt-4 pt-3 border-t border-slate-600/60">
+                      <h4 className="text-slate-200 font-semibold text-sm mb-2">הגרלות אחרונות — זוכים ופרסים</h4>
+                      {jackpotLastDraws[0] && (
+                        <div className="rounded-lg bg-slate-700/40 p-3 mb-3 text-right">
+                          <p className="text-slate-300 text-xs mb-0.5">הגרלה אחרונה</p>
+                          <p className="text-white font-semibold">{new Date(jackpotLastDraws[0].executedAt).toLocaleString("he-IL", { dateStyle: "medium", timeStyle: "short" })}</p>
+                          <p className="text-amber-400 font-bold mt-1">{jackpotLastDraws[0].winnerUsername} — ₪{jackpotLastDraws[0].payoutAmount.toLocaleString("he-IL")}</p>
+                          {(jackpotLastDraws[0].eligibleUsersCount != null || jackpotLastDraws[0].totalTicketsCount != null) && (
+                            <p className="text-slate-500 text-xs mt-1">
+                              {jackpotLastDraws[0].eligibleUsersCount != null && `${jackpotLastDraws[0].eligibleUsersCount} משתתפים`}
+                              {jackpotLastDraws[0].eligibleUsersCount != null && jackpotLastDraws[0].totalTicketsCount != null && " • "}
+                              {jackpotLastDraws[0].totalTicketsCount != null && `${jackpotLastDraws[0].totalTicketsCount} כרטיסים`}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      <ul className="text-slate-400 text-xs space-y-1 list-none">
+                        {jackpotLastDraws.map((d, i) => (
+                          <li key={i}>
+                            {d.winnerUsername} — ₪{d.payoutAmount.toLocaleString("he-IL")} ({new Date(d.executedAt).toLocaleDateString("he-IL")})
+                            {(d.eligibleUsersCount != null || d.totalTicketsCount != null) && (
+                              <span className="text-slate-500"> • {[d.eligibleUsersCount != null ? `${d.eligibleUsersCount} משתתפים` : null, d.totalTicketsCount != null ? `${d.totalTicketsCount} כרטיסים` : null].filter(Boolean).join(", ")}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
+            <Dialog open={jackpotProgressOpen} onOpenChange={setJackpotProgressOpen}>
+              <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto bg-slate-900 border-slate-600 text-right">
+                <DialogTitle className="text-amber-400 font-bold text-lg sr-only">ההתקדמות שלך עד ההגרלה הבאה</DialogTitle>
+                {jackpotProgress ? (
+                  <div className="rounded-xl border border-amber-500/30 bg-slate-800/60 px-4 py-3 text-right">
+                    <p className="text-amber-400 font-bold text-sm mb-2">ההתקדמות שלך עד ההגרלה הבאה</p>
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-2xl font-black text-amber-400 tabular-nums">{jackpotProgress.ticketCount}</span>
+                      <span className="text-slate-300 font-medium">כרטיסים בהגרלה</span>
+                    </div>
+                    {(() => {
+                      const step = jackpotBanner?.ticketStepIls ?? 1000;
+                      const remaining = jackpotProgress.amountUntilNextTicket;
+                      const filled = step > 0 ? Math.min(100, Math.round(((step - remaining) / step) * 100)) : 0;
+                      return (
+                        <div className="mt-3">
+                          <p className="text-slate-300 text-sm mb-1">
+                            {remaining < step ? (
+                              <>עוד <span className="font-bold text-amber-400 tabular-nums">{remaining} ₪</span> — וכרטיס נוסף בהגרלה</>
+                            ) : (
+                              <>עוד <span className="font-bold text-amber-400 tabular-nums">{remaining} ₪</span> עד לכרטיס הבא</>
+                            )}
+                          </p>
+                          <div className="h-2 rounded-full bg-slate-700/80 overflow-hidden" aria-hidden>
+                            <div
+                              className="h-full rounded-full bg-gradient-to-l from-amber-500/90 to-amber-400 transition-all duration-300"
+                              style={{ width: `${filled}%` }}
+                            />
+                          </div>
+                          <p className="text-slate-500 text-xs mt-1">היקף משחק: {jackpotProgress.approvedPlayVolume7d} ₪</p>
+                        </div>
+                      );
+                    })()}
+                    {jackpotProgress.nextDrawAt && new Date(jackpotProgress.nextDrawAt).getTime() > Date.now() && (
+                      <p className="text-slate-400 text-xs mt-2">
+                        הגרלה בעוד: <span className="font-mono text-amber-400">{formatRemainingHms(jackpotProgress.nextDrawAt)}</span>
+                      </p>
+                    )}
+                    {jackpotProgress.balancePoints > 0 && (
+                      <p className="text-slate-500 text-xs mt-0.5">פול נוכחי: {jackpotProgress.balancePoints} ₪</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-slate-400 text-sm py-4">טוען...</p>
+                )}
+              </DialogContent>
+            </Dialog>
+          </>
         )}
 
         {/* homepage_promo: promotional banner above tournaments section */}
@@ -775,6 +806,7 @@ export default function Home() {
             <Button variant="outline" onClick={() => setLocation("/tournaments")} className="min-h-[44px] rounded-xl border-slate-500 text-slate-300 hover:bg-slate-700/50">כל התחרויות</Button>
           </div>
         ) : (
+          <div id="tournaments" className="scroll-mt-4">
           <>
           {/* Mobile: open tournaments grid */}
           <div className="md:hidden max-w-6xl mx-auto mb-4 min-w-0 overflow-hidden px-2">
@@ -1308,6 +1340,7 @@ export default function Home() {
             </div>
           )}
           </>
+          </div>
         )}
 
         {/* homepage_secondary: secondary supporting banner + blocks lower on the page */}

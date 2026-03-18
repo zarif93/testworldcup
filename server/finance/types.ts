@@ -5,6 +5,7 @@
 
 export type FinancialEventType =
   | "ENTRY_FEE"
+  | "JACKPOT_CONTRIBUTION"
   | "PRIZE_PAYOUT"
   | "PLATFORM_COMMISSION"
   | "AGENT_COMMISSION"

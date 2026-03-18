@@ -12,6 +12,7 @@ export const BASIS_POINTS_PER_PERCENT = 100;
 /** Idempotency key patterns – must match FINANCE-DESIGN.md */
 export const IDEMPOTENCY = {
   entry: (submissionId: number) => `entry:${submissionId}`,
+  jackpotContribution: (submissionId: number) => `jackpot_contribution:${submissionId}`,
   settlementPlatform: (tournamentId: number) => `settlement:${tournamentId}:platform`,
   settlementAgent: (tournamentId: number, agentId: number) => `settlement:${tournamentId}:agent:${agentId}`,
   settlementPrize: (tournamentId: number, submissionId: number) => `settlement:${tournamentId}:prize:${submissionId}`,

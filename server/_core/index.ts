@@ -207,6 +207,13 @@ async function startServer() {
         : undefined,
     })
   );
+  // Ensure uncaught errors on API routes always return JSON (never HTML)
+  app.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) return next(err);
+    if (!req.path.startsWith("/api")) return next(err);
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(500).set("Content-Type", "application/json").json({ success: false, message, error: String(err) });
+  });
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
@@ -287,6 +294,24 @@ async function startServer() {
         }
       } catch (e) {
         logger.warn("Automation (retry) error", { error: String(e) });
+      }
+    }, 60 * 1000);
+    setInterval(async () => {
+      try {
+        const { getJackpotSettings, runJackpotDraw } = await import("../jackpot");
+        const settings = await getJackpotSettings();
+        if (!settings.nextDrawAt) return;
+        const now = Date.now();
+        const drawAt = settings.nextDrawAt.getTime();
+        if (drawAt > now) return;
+        const result = await runJackpotDraw(settings.nextDrawAt, "scheduled");
+        if (result.success) {
+          logger.info("Jackpot: scheduled draw executed", { drawId: result.drawId, winnerUserId: result.winnerUserId });
+        } else if (result.error && !result.error.includes("idempotency")) {
+          logger.warn("Jackpot: scheduled draw failed", { error: result.error });
+        }
+      } catch (e) {
+        logger.warn("Jackpot (scheduled) error", { error: String(e) });
       }
     }, 60 * 1000);
     setInterval(async () => {

@@ -493,7 +493,7 @@ export type InsertAgentCommissionConfig = typeof agentCommissionConfig.$inferIns
 export const financialEvents = sqliteTable("financial_events", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   eventType: text("eventType", {
-    enum: ["ENTRY_FEE", "PRIZE_PAYOUT", "PLATFORM_COMMISSION", "AGENT_COMMISSION", "REFUND", "ADJUSTMENT"],
+    enum: ["ENTRY_FEE", "JACKPOT_CONTRIBUTION", "PRIZE_PAYOUT", "PLATFORM_COMMISSION", "AGENT_COMMISSION", "REFUND", "ADJUSTMENT"],
   }).notNull(),
   tournamentId: integer("tournamentId"),
   userId: integer("userId"),
@@ -697,6 +697,47 @@ export const siteAnnouncements = sqliteTable("site_announcements", {
 });
 export type SiteAnnouncement = typeof siteAnnouncements.$inferSelect;
 export type InsertSiteAnnouncement = typeof siteAnnouncements.$inferInsert;
+
+// ---------- Jackpot: main draw entity + per-user snapshots ----------
+/** Main draw entity. One row per draw; lifecycle: pending → running → completed | failed. Idempotency by scheduled_for + status. */
+export const jackpotDraws = sqliteTable("jackpot_draws", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  scheduledFor: integer("scheduled_for", { mode: "timestamp" }).notNull(),
+  executedAt: integer("executed_at", { mode: "timestamp" }),
+  calculationWindowStart: integer("calculation_window_start", { mode: "timestamp" }).notNull(),
+  calculationWindowEnd: integer("calculation_window_end", { mode: "timestamp" }).notNull(),
+  ticketStepIls: integer("ticket_step_ils").notNull(),
+  winnerPayoutPercent: integer("winner_payout_percent").notNull(),
+  carryOverPercent: integer("carry_over_percent").notNull(),
+  totalPoolAtDraw: integer("total_pool_at_draw").notNull(),
+  eligibleUsersCount: integer("eligible_users_count").notNull(),
+  totalTicketsCount: integer("total_tickets_count").notNull(),
+  triggerType: text("trigger_type", { enum: ["scheduled", "manual"] }).notNull(),
+  status: text("status", { enum: ["pending", "running", "completed", "failed"] }).notNull().default("pending"),
+  winnerUserId: integer("winner_user_id"),
+  winnerUsername: text("winner_username"),
+  payoutAmount: integer("payout_amount"),
+  carryOverAmount: integer("carry_over_amount"),
+  errorMessage: text("error_message"),
+  createdAt: integer("createdAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  updatedAt: integer("updatedAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+export type JackpotDraw = typeof jackpotDraws.$inferSelect;
+export type InsertJackpotDraw = typeof jackpotDraws.$inferInsert;
+
+/** Per-user snapshot at draw time; references jackpot_draws.id for full traceability. */
+export const jackpotDrawSnapshots = sqliteTable("jackpot_draw_snapshots", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  drawId: integer("draw_id").notNull().references(() => jackpotDraws.id, { onDelete: "cascade" }),
+  userId: integer("userId").notNull(),
+  approvedPlayVolume: integer("approvedPlayVolume").notNull(),
+  ticketsCount: integer("ticketsCount").notNull(),
+  calculationWindowStart: integer("calculationWindowStart", { mode: "timestamp" }).notNull(),
+  calculationWindowEnd: integer("calculationWindowEnd", { mode: "timestamp" }).notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+export type JackpotDrawSnapshot = typeof jackpotDrawSnapshots.$inferSelect;
+export type InsertJackpotDrawSnapshot = typeof jackpotDrawSnapshots.$inferInsert;
 
 // ---------- Phase 15: Media assets ----------
 export const mediaAssets = sqliteTable("media_assets", {

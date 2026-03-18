@@ -37,17 +37,72 @@ queryClient.getMutationCache().subscribe(event => {
   }
 });
 
+// API base URL: use VITE_API_URL when set (e.g. production with separate API server), else same origin
+function getTrpcUrl(): string {
+  if (typeof window === "undefined") return "/api/trpc";
+  const base = import.meta.env.VITE_API_URL?.replace(/\/$/, "") ?? window.location.origin;
+  return `${base}/api/trpc`;
+}
+
+const TRPC_RESPONSE_PREVIEW_LEN = 200;
+
+async function trpcSafeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  const res = await globalThis.fetch(input, {
+    ...(init ?? {}),
+    credentials: "include",
+  });
+  const text = await res.text();
+  const preview = text.slice(0, TRPC_RESPONSE_PREVIEW_LEN);
+  const contentType = res.headers.get("content-type") ?? "";
+  const looksLikeJson =
+    contentType.includes("application/json") ||
+    (preview.trimStart().startsWith("{") || preview.trimStart().startsWith("["));
+
+  if (import.meta.env.DEV) {
+    console.info("[tRPC] Response", { requestUrl: url, status: res.status, statusText: res.statusText, responsePreview: preview });
+  }
+
+  if (!looksLikeJson || text.startsWith("<")) {
+    console.error("[tRPC] Non-JSON response", {
+      requestUrl: url,
+      status: res.status,
+      statusText: res.statusText,
+      contentType,
+      responsePreview: preview,
+    });
+    if (text.startsWith("<")) {
+      throw new Error(
+        `השרת החזיר דף HTML במקום JSON (ייתכן שהבקשה לא מגיעה ל-API). קוד: ${res.status}. תחילת תגובה: ${preview.replace(/\s+/g, " ").slice(0, 80)}...`
+      );
+    }
+    throw new Error(
+      `תגובה לא תקינה מהשרת (קוד ${res.status}). תחילת תגובה: ${preview.replace(/\s+/g, " ").slice(0, 80)}...`
+    );
+  }
+
+  try {
+    JSON.parse(text);
+  } catch {
+    console.error("[tRPC] Invalid JSON", { requestUrl: url, status: res.status, responsePreview: preview });
+    throw new Error(
+      `השרת החזיר תגובה שלא ניתן לפרסר כ-JSON (קוד ${res.status}). תחילת תגובה: ${preview.replace(/\s+/g, " ").slice(0, 80)}...`
+    );
+  }
+
+  return new Response(text, {
+    status: res.status,
+    statusText: res.statusText,
+    headers: res.headers,
+  });
+}
+
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
-      url: typeof window !== "undefined" ? `${window.location.origin}/api/trpc` : "/api/trpc",
+      url: getTrpcUrl(),
       transformer: superjson,
-      fetch(input, init) {
-        return globalThis.fetch(input, {
-          ...(init ?? {}),
-          credentials: "include",
-        });
-      },
+      fetch: trpcSafeFetch,
     }),
   ],
 });

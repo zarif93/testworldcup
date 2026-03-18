@@ -140,6 +140,10 @@ export default function PredictionForm() {
     { id: validId },
     { enabled: validId > 0, retry: false }
   );
+  const { data: costBreakdown } = trpc.tournaments.getEntryCostBreakdown.useQuery(
+    { tournamentId: validId },
+    { enabled: validId > 0 && !!tournament }
+  );
   const tournamentType = tournament ? (tournament as { type?: string }).type : undefined;
   const { data: resolvedFormSchema, isLoading: schemaLoading, isFetched: schemaFetched } = trpc.tournaments.getResolvedFormSchema.useQuery(
     { tournamentId: validId },
@@ -482,7 +486,7 @@ export default function PredictionForm() {
       toast.error("הגעת למקסימום 2 טפסים בתחרות FreeRoll זו");
       return;
     }
-    if (hasEntries && entryCost > 0 && !confirmedAddEntryRef.current) {
+    if (hasEntries && totalCost > 0 && !confirmedAddEntryRef.current) {
       setShowAddEntryConfirm(true);
       return;
     }
@@ -621,15 +625,18 @@ export default function PredictionForm() {
       ? lottoNumbers.length === 6 && lottoStrong != null && lottoStrong >= 1 && lottoStrong <= 7
       : matchesList.length > 0 && Object.keys(predictions).length === matchesList.length;
   const styles = getTournamentStyles(tournament.amount);
-  const entryCost = (tournament as { entryCostPoints?: number }).entryCostPoints ?? (tournament as { amount?: number }).amount ?? 0;
-  const isFreeroll = entryCost === 0;
+  const entryFeeBase = (tournament as { entryCostPoints?: number }).entryCostPoints ?? (tournament as { amount?: number }).amount ?? 0;
+  const entryFee = costBreakdown?.entryFee ?? entryFeeBase;
+  const jackpotContribution = costBreakdown?.jackpotContribution ?? 0;
+  const totalCost = costBreakdown?.totalCost ?? entryFeeBase;
+  const isFreeroll = totalCost === 0;
   const countPendingApproved = (list: Array<{ status?: string }> | undefined) =>
     (list ?? []).filter((s) => s.status === "pending" || s.status === "approved").length;
   const freerollSubmissionCount = countPendingApproved(myEntriesForTournament);
   const freerollLimitReached = !!isAuthenticated && isFreeroll && freerollSubmissionCount >= 2;
   const hasEntries = !!isAuthenticated && (myEntriesForTournament?.length ?? 0) > 0;
   const hasEnoughPoints =
-    user?.unlimitedPoints || user?.role === "admin" || (typeof user?.points === "number" && user.points >= entryCost);
+    user?.unlimitedPoints || user?.role === "admin" || (typeof user?.points === "number" && user.points >= totalCost);
 
   return (
     <div className="min-h-screen py-4 sm:py-8 overflow-x-hidden max-w-full">
@@ -653,10 +660,24 @@ export default function PredictionForm() {
           </Button>
         </div>
 
-        {/* Phase 32: tournament hero – entry, prize, urgency, why join */}
+        {/* Phase 32: tournament hero – entry, prize, urgency, why join; Phase 2: cost breakdown with Jackpot */}
         <div className="mb-6 rounded-2xl border border-slate-600/60 bg-gradient-to-b from-slate-800/80 to-slate-800/50 overflow-hidden card-tournament-live">
           <div className="p-4 sm:p-5 flex flex-wrap items-center gap-4 gap-y-3">
-            <span className="text-amber-400 font-bold">כניסה: {entryCost > 0 ? `${entryCost} נקודות` : "חינם"}</span>
+            {totalCost > 0 ? (
+              <div className="flex flex-col gap-0.5 text-right">
+                <span className="text-amber-400 font-bold">
+                  מחיר תחרות: ₪{entryFee.toLocaleString("he-IL")}
+                  {jackpotContribution > 0 && (
+                    <span className="block text-sm font-normal text-amber-300/90 mt-0.5">
+                      תרומה לג&#39;קפוט: ₪{jackpotContribution.toLocaleString("he-IL")}
+                    </span>
+                  )}
+                </span>
+                <span className="text-white font-bold">סה&quot;כ לחיוב: ₪{totalCost.toLocaleString("he-IL")}</span>
+              </div>
+            ) : (
+              <span className="text-amber-400 font-bold">כניסה: חינם</span>
+            )}
             <span className="text-emerald-400 font-black text-lg">₪{(tournament as { prizePool?: number }).prizePool?.toLocaleString("he-IL") ?? "—"} פרס</span>
             {!tournament.isLocked && (isChance && chanceCountdownDisplay) && (
               <span className={`font-mono font-bold text-lg tabular-nums ${countdownMs > 0 && countdownMs <= 3600000 ? "countdown-urgent is-less-than-hour" : "text-amber-400"}`}>
@@ -670,8 +691,13 @@ export default function PredictionForm() {
             )}
           </div>
           <p className="px-4 pb-4 pt-0 text-slate-400 text-sm border-t border-slate-700/50 mt-0 pt-3">
-            הזדמנות לזכות בפרס – מלא טופס והצטרף תוך דקה. אחרי אישור הטופס תיכנס לדירוג התחרות. {entryCost > 0 && isAuthenticated && !user?.unlimitedPoints && user?.role !== "admin" ? "ההשתתפות תחויב מנקודותיך." : ""}
+            הזדמנות לזכות בפרס – מלא טופס והצטרף תוך דקה. אחרי אישור הטופס תיכנס לדירוג התחרות. {totalCost > 0 && isAuthenticated && !user?.unlimitedPoints && user?.role !== "admin" ? `ההשתתפות תחויב מנקודותיך (₪${totalCost.toLocaleString("he-IL")} סה"כ).` : ""}
           </p>
+          {isAuthenticated && totalCost > 0 && !hasEnoughPoints && typeof user?.points === "number" && (
+            <div className="mx-4 mb-4 p-3 rounded-lg bg-red-500/20 border border-red-400/50 text-red-200 text-sm">
+              יתרה נדרשת: ₪{totalCost.toLocaleString("he-IL")} סה&quot;כ • יתרתך: ₪{user.points.toLocaleString("he-IL")}
+            </div>
+          )}
         </div>
 
         {isAuthenticated && validId > 0 && !tournament.isLocked && <LossAversionBanner tournamentId={validId} className="mb-4" />}
@@ -705,7 +731,7 @@ export default function PredictionForm() {
         )}
         {isDuplicateMode && (
           <div className="bg-amber-500/20 border border-amber-500/50 rounded-xl p-4 mb-6 text-amber-200 flex items-center gap-2 break-words min-w-0">
-            📋 מצב שכפול – שליחה תיצור טופס חדש {user?.unlimitedPoints || user?.role === "admin" ? "ללא חיוב נקודות" : `ותחייב ${entryCost} נקודות`}.
+            📋 מצב שכפול – שליחה תיצור טופס חדש {user?.unlimitedPoints || user?.role === "admin" ? "ללא חיוב נקודות" : `ותחייב ₪${totalCost.toLocaleString("he-IL")} סה"כ`}.
           </div>
         )}
 
@@ -940,7 +966,7 @@ export default function PredictionForm() {
           <AlertDialogHeader>
             <AlertDialogTitle>כניסה נוספת</AlertDialogTitle>
             <AlertDialogDescription>
-              פעולה זו תיצור כניסה נוספת לתחרות {user?.unlimitedPoints || user?.role === "admin" ? "ללא חיוב נקודות." : `ותוריד ${entryCost} נקודות מיתרתך.`} להמשיך?
+              פעולה זו תיצור כניסה נוספת לתחרות {user?.unlimitedPoints || user?.role === "admin" ? "ללא חיוב נקודות." : `ותחייב ₪${totalCost.toLocaleString("he-IL")} מיתרתך.`} להמשיך?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -330,7 +330,7 @@ async function initSqlite() {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS financial_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      eventType TEXT NOT NULL CHECK(eventType IN ('ENTRY_FEE','PRIZE_PAYOUT','PLATFORM_COMMISSION','AGENT_COMMISSION','REFUND','ADJUSTMENT')),
+      eventType TEXT NOT NULL CHECK(eventType IN ('ENTRY_FEE','JACKPOT_CONTRIBUTION','PRIZE_PAYOUT','PLATFORM_COMMISSION','AGENT_COMMISSION','REFUND','ADJUSTMENT')),
       tournamentId INTEGER,
       userId INTEGER,
       agentId INTEGER,
@@ -341,12 +341,40 @@ async function initSqlite() {
       createdAt INTEGER
     )
   `);
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_tournamentId ON financial_events(tournamentId)`);
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_userId ON financial_events(userId)`);
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_agentId ON financial_events(agentId)`);
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_eventType ON financial_events(eventType)`);
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_createdAt ON financial_events(createdAt)`);
-  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS financial_events_idempotencyKey ON financial_events(idempotencyKey) WHERE idempotencyKey IS NOT NULL`);
+  const feSql = sqlite.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='financial_events'").get() as { sql: string } | undefined;
+  if (feSql?.sql && !feSql.sql.includes("JACKPOT_CONTRIBUTION")) {
+    sqlite.exec(`
+      CREATE TABLE financial_events_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        eventType TEXT NOT NULL CHECK(eventType IN ('ENTRY_FEE','JACKPOT_CONTRIBUTION','PRIZE_PAYOUT','PLATFORM_COMMISSION','AGENT_COMMISSION','REFUND','ADJUSTMENT')),
+        tournamentId INTEGER,
+        userId INTEGER,
+        agentId INTEGER,
+        submissionId INTEGER,
+        amountPoints INTEGER NOT NULL,
+        idempotencyKey TEXT,
+        payloadJson TEXT,
+        createdAt INTEGER
+      )
+    `);
+    sqlite.exec(`INSERT INTO financial_events_new SELECT id, eventType, tournamentId, userId, agentId, submissionId, amountPoints, idempotencyKey, payloadJson, createdAt FROM financial_events`);
+    sqlite.exec(`DROP TABLE financial_events`);
+    sqlite.exec(`ALTER TABLE financial_events_new RENAME TO financial_events`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_tournamentId ON financial_events(tournamentId)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_userId ON financial_events(userId)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_agentId ON financial_events(agentId)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_eventType ON financial_events(eventType)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_createdAt ON financial_events(createdAt)`);
+    sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS financial_events_idempotencyKey ON financial_events(idempotencyKey) WHERE idempotencyKey IS NOT NULL`);
+    console.log("[DB] Migrated financial_events to include JACKPOT_CONTRIBUTION");
+  } else {
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_tournamentId ON financial_events(tournamentId)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_userId ON financial_events(userId)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_agentId ON financial_events(agentId)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_eventType ON financial_events(eventType)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_createdAt ON financial_events(createdAt)`);
+    sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS financial_events_idempotencyKey ON financial_events(idempotencyKey) WHERE idempotencyKey IS NOT NULL`);
+  }
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS agent_commission_config (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1063,9 +1091,53 @@ async function initSqlite() {
       updatedAt INTEGER
     )
   `);
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS jackpot_draws (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scheduled_for INTEGER NOT NULL,
+      executed_at INTEGER,
+      calculation_window_start INTEGER NOT NULL,
+      calculation_window_end INTEGER NOT NULL,
+      ticket_step_ils INTEGER NOT NULL,
+      winner_payout_percent INTEGER NOT NULL,
+      carry_over_percent INTEGER NOT NULL,
+      total_pool_at_draw INTEGER NOT NULL,
+      eligible_users_count INTEGER NOT NULL,
+      total_tickets_count INTEGER NOT NULL,
+      trigger_type TEXT NOT NULL CHECK(trigger_type IN ('scheduled','manual')),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','running','completed','failed')),
+      winner_user_id INTEGER,
+      winner_username TEXT,
+      payout_amount INTEGER,
+      carry_over_amount INTEGER,
+      error_message TEXT,
+      createdAt INTEGER,
+      updatedAt INTEGER
+    )
+  `);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS jackpot_draws_scheduled_for ON jackpot_draws(scheduled_for)`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS jackpot_draws_status ON jackpot_draws(status)`);
+  const snapInfo = sqlite.prepare("PRAGMA table_info(jackpot_draw_snapshots)").all() as Array<{ name: string }>;
+  if (snapInfo.length > 0 && !snapInfo.some((c) => c.name === "draw_id")) {
+    sqlite.exec(`DROP TABLE IF EXISTS jackpot_draw_snapshots`);
+  }
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS jackpot_draw_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      draw_id INTEGER NOT NULL REFERENCES jackpot_draws(id) ON DELETE CASCADE,
+      userId INTEGER NOT NULL,
+      approvedPlayVolume INTEGER NOT NULL,
+      ticketsCount INTEGER NOT NULL,
+      calculationWindowStart INTEGER NOT NULL,
+      calculationWindowEnd INTEGER NOT NULL,
+      createdAt INTEGER
+    )
+  `);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS jackpot_draw_snapshots_draw_id ON jackpot_draw_snapshots(draw_id)`);
+  sqlite.exec(`DROP TABLE IF EXISTS jackpot_draw_audit`);
 
-  const { leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams } = await import("../drizzle/schema-sqlite");
-  const db = drizzle(sqlite, { schema: { users, tournaments, matches, submissions, agentCommissions, agentCommissionConfig, siteSettings, chanceDrawResults, lottoDrawResults, customFootballMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog, financialEvents, leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams } });
+  const { leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams, jackpotDraws, jackpotDrawSnapshots } = await import("../drizzle/schema-sqlite");
+  const db = drizzle(sqlite, { schema: { users, tournaments, matches, submissions, agentCommissions, agentCommissionConfig, siteSettings, chanceDrawResults, lottoDrawResults, customFootballMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog, financialEvents, leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams, jackpotDraws, jackpotDrawSnapshots } });
 
   // Team library: schema is migration-only. Fail at startup if tables are missing.
   const teamLibCategoriesExists = sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_library_categories'").get();
@@ -1552,24 +1624,53 @@ export async function getUserPoints(userId: number): Promise<number> {
   return Number(val);
 }
 
+/** Jackpot contribution: 2.5% = 250 basis points by default. Only applied when entry fee > 0. */
+const JACKPOT_CONTRIBUTION_BASIS_POINTS_DEFAULT = 250;
+
+/** Cost breakdown for display (entry fee + jackpot contribution when enabled). Same logic as validateTournamentEntry. */
+export async function getEntryCostBreakdown(entryFeeBase: number): Promise<{ entryFee: number; jackpotContribution: number; totalCost: number; jackpotEnabled: boolean }> {
+  const entryFee = Math.max(0, Math.floor(entryFeeBase));
+  let jackpotContribution = 0;
+  let jackpotEnabled = false;
+  if (entryFee > 0) {
+    const raw = await getSiteSettings();
+    jackpotEnabled = raw["jackpot.enabled"] !== "0" && raw["jackpot.enabled"] !== "false" && String(raw["jackpot.enabled"] ?? "").toLowerCase() !== "false";
+    if (jackpotEnabled) {
+      const bps = parseInt(raw["jackpot.contribution_basis_points"] ?? String(JACKPOT_CONTRIBUTION_BASIS_POINTS_DEFAULT), 10) || JACKPOT_CONTRIBUTION_BASIS_POINTS_DEFAULT;
+      jackpotContribution = Math.floor((entryFee * bps) / 10000);
+    }
+  }
+  return { entryFee, jackpotContribution, totalCost: entryFee + jackpotContribution, jackpotEnabled };
+}
+
 /**
  * בדיקה מרכזית לכל סוגי התחרויות: האם למשתמש יש מספיק נקודות להשתתפות.
- * משתמש ב-DB בלבד (getUserPoints) – מקור אמת יחיד.
- * @returns { allowed, cost, currentBalance } – allowed=true רק אם מנהל / עלות 0 / יתרה >= עלות
+ * כולל תרומת ג'קפוט (אחוז מעלות הבסיס) – רק ENTRY_FEE נספר לנפח זכאות.
+ * @returns { allowed, cost (total), entryFee, jackpotContribution, currentBalance }
  */
 export async function validateTournamentEntry(
   userId: number,
   tournament: { amount?: number; entryCostPoints?: number | null },
   isAdmin: boolean
-): Promise<{ allowed: boolean; cost: number; currentBalance: number }> {
-  const cost = Number((tournament as { entryCostPoints?: number }).entryCostPoints ?? tournament.amount ?? 0);
+): Promise<{ allowed: boolean; cost: number; entryFee: number; jackpotContribution: number; currentBalance: number }> {
+  const entryFee = Number((tournament as { entryCostPoints?: number }).entryCostPoints ?? tournament.amount ?? 0);
+  let jackpotContribution = 0;
+  if (entryFee > 0) {
+    const raw = await getSiteSettings();
+    const enabled = raw["jackpot.enabled"] !== "0" && raw["jackpot.enabled"] !== "false" && String(raw["jackpot.enabled"] ?? "").toLowerCase() !== "false";
+    if (enabled) {
+      const bps = parseInt(raw["jackpot.contribution_basis_points"] ?? String(JACKPOT_CONTRIBUTION_BASIS_POINTS_DEFAULT), 10) || JACKPOT_CONTRIBUTION_BASIS_POINTS_DEFAULT;
+      jackpotContribution = Math.floor((entryFee * bps) / 10000);
+    }
+  }
+  const cost = entryFee + jackpotContribution;
   const hasUnlimitedPoints = isAdmin || await userHasUnlimitedPoints(userId);
   if (hasUnlimitedPoints || cost <= 0) {
     const currentBalance = cost <= 0 ? 0 : await getUserPoints(userId);
-    return { allowed: true, cost, currentBalance };
+    return { allowed: true, cost, entryFee, jackpotContribution, currentBalance };
   }
   const currentBalance = await getUserPoints(userId);
-  return { allowed: currentBalance >= cost, cost, currentBalance };
+  return { allowed: currentBalance >= cost, cost, entryFee, jackpotContribution, currentBalance };
 }
 
 export type PointActionType = "deposit" | "withdraw" | "participation" | "prize" | "admin_approval" | "refund" | "agent_transfer";
@@ -1664,7 +1765,14 @@ type ParticipationWithLockParams = {
   userId: number;
   username: string;
   tournamentId: number;
+  /** Total charge from wallet (entryFee + jackpotContribution). */
   cost: number;
+  /** Base entry fee – recorded as ENTRY_FEE, counts toward eligibility. */
+  entryFee: number;
+  /** Jackpot contribution – recorded as JACKPOT_CONTRIBUTION, does not count toward eligibility. */
+  jackpotContribution: number;
+  /** When true (e.g. unlimited user): do not deduct from wallet; still record submission + ENTRY_FEE + JACKPOT in one transaction. */
+  skipWalletDeduction?: boolean;
   agentId: number | null;
   predictions: unknown;
   status: "approved" | "pending";
@@ -1689,7 +1797,7 @@ function runParticipationAtomicSqlite(
   const strongHitVal = params.strongHit != null ? (params.strongHit ? 1 : 0) : null;
   const commissionAgent = params.commissionAgent ?? 0;
   const commissionSite = params.commissionSite ?? 0;
-  const payloadJson = params.cost > 0 ? JSON.stringify({ commissionAmount: commissionAgent + commissionSite, agentCommissionAmount: commissionAgent }) : null;
+  const payloadJson = params.entryFee > 0 ? JSON.stringify({ commissionAmount: commissionAgent + commissionSite, agentCommissionAmount: commissionAgent }) : null;
 
   const run = sqlite.transaction(() => {
     const tRow = sqlite.prepare("SELECT status, maxParticipants FROM tournaments WHERE id = ?").get(params.tournamentId) as { status?: string; maxParticipants?: number | null } | undefined;
@@ -1709,14 +1817,19 @@ function runParticipationAtomicSqlite(
     }
 
     const userRow = sqlite.prepare("SELECT points FROM users WHERE id = ?").get(params.userId) as { points: number } | undefined;
-    if (!userRow || Number(userRow.points ?? 0) < params.cost) return { success: false as const };
-    const balanceAfter = Number(userRow.points ?? 0) - params.cost;
+    const skipDeduction = params.skipWalletDeduction === true;
+    if (!skipDeduction) {
+      if (!userRow || Number(userRow.points ?? 0) < params.cost) return { success: false as const };
+    }
+    const balanceAfter = skipDeduction ? Number(userRow?.points ?? 0) : Number(userRow!.points ?? 0) - params.cost;
 
-    sqlite.prepare("UPDATE users SET points = ?, updatedAt = ? WHERE id = ?").run(balanceAfter, now, params.userId);
-    sqlite.prepare(`
-      INSERT INTO point_transactions (userId, amount, balanceAfter, actionType, performedBy, referenceId, description, commissionAgent, commissionSite, agentId, createdAt)
-      VALUES (?, ?, ?, 'participation', NULL, ?, ?, ?, ?, ?, ?)
-    `).run(params.userId, -params.cost, balanceAfter, params.referenceId, params.description, commissionAgent || null, commissionSite || null, params.agentId, now);
+    if (!skipDeduction) {
+      sqlite.prepare("UPDATE users SET points = ?, updatedAt = ? WHERE id = ?").run(balanceAfter, now, params.userId);
+      sqlite.prepare(`
+        INSERT INTO point_transactions (userId, amount, balanceAfter, actionType, performedBy, referenceId, description, commissionAgent, commissionSite, agentId, createdAt)
+        VALUES (?, ?, ?, 'participation', NULL, ?, ?, ?, ?, ?, ?)
+      `).run(params.userId, -params.cost, balanceAfter, params.referenceId, params.description, commissionAgent || null, commissionSite || null, params.agentId, now);
+    }
 
     const countRow = sqlite.prepare("SELECT COUNT(*) as c FROM submissions WHERE tournamentId = ?").get(params.tournamentId) as { c: number };
     const nextNum = countRow.c + 1;
@@ -1732,13 +1845,28 @@ function runParticipationAtomicSqlite(
     sqlite.prepare(`
       INSERT INTO financial_events (eventType, amountPoints, tournamentId, userId, agentId, submissionId, idempotencyKey, payloadJson, createdAt)
       VALUES ('ENTRY_FEE', ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(params.cost, params.tournamentId, params.userId, params.agentId, submissionId, `entry:${submissionId}`, payloadJson, now);
+    `).run(params.entryFee, params.tournamentId, params.userId, params.agentId, submissionId, `entry:${submissionId}`, payloadJson, now);
+
+    if (params.jackpotContribution > 0) {
+      sqlite.prepare(`
+        INSERT INTO financial_events (eventType, amountPoints, tournamentId, userId, agentId, submissionId, idempotencyKey, payloadJson, createdAt)
+        VALUES ('JACKPOT_CONTRIBUTION', ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(params.jackpotContribution, params.tournamentId, params.userId, params.agentId, submissionId, `jackpot_contribution:${submissionId}`, null, now);
+      const balRow = sqlite.prepare("SELECT value FROM site_settings WHERE key = 'jackpot.balance_points'").get() as { value: string } | undefined;
+      const currentBal = balRow ? parseInt(balRow.value, 10) || 0 : 0;
+      const newBal = currentBal + params.jackpotContribution;
+      if (balRow) {
+        sqlite.prepare("UPDATE site_settings SET value = ?, updatedAt = ? WHERE key = 'jackpot.balance_points'").run(String(newBal), now);
+      } else {
+        sqlite.prepare("INSERT INTO site_settings (key, value, createdAt, updatedAt) VALUES ('jackpot.balance_points', ?, ?, ?)").run(String(newBal), now, now);
+      }
+    }
 
     if (params.agentId != null && commissionAgent > 0) {
       sqlite.prepare(`
         INSERT INTO agent_commissions (agentId, submissionId, userId, entryAmount, commissionAmount, createdAt)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(params.agentId, submissionId, params.userId, params.cost, commissionAgent, now);
+      `).run(params.agentId, submissionId, params.userId, params.entryFee, commissionAgent, now);
     }
 
     return { success: true as const, submissionId, balanceAfter };
@@ -1779,21 +1907,24 @@ export async function executeParticipationWithLock(params: ParticipationWithLock
       }
 
       const [row] = await tx.select({ points: users.points }).from(users).where(eq(users.id, params.userId)).limit(1);
-      if (!row || Number(row.points ?? 0) < params.cost) return { success: false as const };
-      const balanceAfter = Number(row.points ?? 0) - params.cost;
-      await tx.update(users).set({ points: balanceAfter }).where(eq(users.id, params.userId));
-      await tx.insert(pointTransactions).values({
-        userId: params.userId,
-        amount: -params.cost,
-        balanceAfter,
-        actionType: "participation",
-        performedBy: null,
-        referenceId: params.referenceId,
-        description: params.description,
-        commissionAgent: params.commissionAgent ?? null,
-        commissionSite: params.commissionSite ?? null,
-        agentId: params.agentId,
-      });
+      const skipDeduction = params.skipWalletDeduction === true;
+      if (!skipDeduction && (!row || Number(row.points ?? 0) < params.cost)) return { success: false as const };
+      const balanceAfter = skipDeduction ? Number(row?.points ?? 0) : Number(row!.points ?? 0) - params.cost;
+      if (!skipDeduction) {
+        await tx.update(users).set({ points: balanceAfter }).where(eq(users.id, params.userId));
+        await tx.insert(pointTransactions).values({
+          userId: params.userId,
+          amount: -params.cost,
+          balanceAfter,
+          actionType: "participation",
+          performedBy: null,
+          referenceId: params.referenceId,
+          description: params.description,
+          commissionAgent: params.commissionAgent ?? null,
+          commissionSite: params.commissionSite ?? null,
+          agentId: params.agentId,
+        });
+      }
       const countRows = await tx.select().from(submissions).where(eq(submissions.tournamentId, params.tournamentId));
       const nextNum = countRows.length + 1;
       await tx.insert(submissions).values({
@@ -1818,7 +1949,7 @@ export async function executeParticipationWithLock(params: ParticipationWithLock
         const agentCommissionAmount = params.commissionAgent ?? 0;
         await tx.insert(financialEvents).values({
           eventType: "ENTRY_FEE",
-          amountPoints: params.cost,
+          amountPoints: params.entryFee,
           tournamentId: params.tournamentId,
           userId: params.userId,
           agentId: params.agentId,
@@ -1826,12 +1957,33 @@ export async function executeParticipationWithLock(params: ParticipationWithLock
           idempotencyKey: `entry:${submissionId}`,
           payloadJson: { commissionAmount, agentCommissionAmount },
         });
+        if (params.jackpotContribution > 0) {
+          await tx.insert(financialEvents).values({
+            eventType: "JACKPOT_CONTRIBUTION",
+            amountPoints: params.jackpotContribution,
+            tournamentId: params.tournamentId,
+            userId: params.userId,
+            agentId: params.agentId,
+            submissionId,
+            idempotencyKey: `jackpot_contribution:${submissionId}`,
+            payloadJson: null,
+          });
+          const { siteSettings } = await getSchema();
+          const [balRow] = await tx.select({ value: siteSettings.value }).from(siteSettings).where(eq(siteSettings.key, "jackpot.balance_points")).limit(1);
+          const currentBal = balRow ? parseInt(String((balRow as { value: string }).value), 10) || 0 : 0;
+          const newBal = currentBal + params.jackpotContribution;
+          if (balRow) {
+            await tx.update(siteSettings).set({ value: String(newBal), updatedAt: new Date() }).where(eq(siteSettings.key, "jackpot.balance_points"));
+          } else {
+            await tx.insert(siteSettings).values({ key: "jackpot.balance_points", value: String(newBal) });
+          }
+        }
         if (params.agentId != null && (params.commissionAgent ?? 0) > 0) {
           await tx.insert(agentCommissions).values({
             agentId: params.agentId,
             submissionId,
             userId: params.userId,
-            entryAmount: params.cost,
+            entryAmount: params.entryFee,
             commissionAmount: params.commissionAgent,
           });
         }
@@ -6701,7 +6853,13 @@ async function hasUserRefundForTournament(userId: number, tournamentId: number):
 
 /**
  * Refund all approved (paid) participants for a cancelled tournament.
- * Idempotent: uses payment transaction status when available (paid → refunded); for points-only flow checks point_transactions to avoid double refund.
+ *
+ * Refund rule: ENTRY_FEE only. We refund the base entry (tournament.amount) to the user's wallet.
+ * JACKPOT_CONTRIBUTION is not refunded; jackpot balance is not decremented. Eligibility uses
+ * (ENTRY_FEE - REFUND) so refunded users lose that entry from their approved play volume.
+ *
+ * Idempotent: uses payment transaction status when available (paid → refunded); for points-only
+ * flow checks point_transactions to avoid double refund.
  * Call when competition is cancelled/closed before valid completion (no prizes distributed).
  */
 export async function refundTournamentParticipants(tournamentId: number): Promise<{ refundedCount: number; totalRefunded: number; refundedUserIds: number[]; amountPerUser: number }> {
