@@ -92,6 +92,20 @@ async function startServer() {
     fs.mkdirSync(uploadsDir, { recursive: true });
     logger.info("Created uploads directory", { uploadsDir });
   }
+  const backgroundsDir = path.join(uploadsDir, "backgrounds");
+  if (!fs.existsSync(backgroundsDir)) {
+    fs.mkdirSync(backgroundsDir, { recursive: true });
+    logger.info("Created uploads/backgrounds directory", { backgroundsDir });
+  }
+  const jackpotBackgroundsDir = path.join(uploadsDir, "jackpot-backgrounds");
+  if (!fs.existsSync(jackpotBackgroundsDir)) {
+    fs.mkdirSync(jackpotBackgroundsDir, { recursive: true });
+    logger.info("Created uploads/jackpot-backgrounds directory", { jackpotBackgroundsDir });
+  }
+
+  import("sharp")
+    .then((m) => { console.log("sharp loaded:", !!m?.default); })
+    .catch(() => { console.log("sharp loaded: false"); });
 
   const app = express();
   if (process.env.NODE_ENV === "production") {

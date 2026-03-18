@@ -194,6 +194,20 @@ import {
   createMediaAsset,
   deleteMediaAsset,
   updateMediaAsset,
+  listSiteBackgroundImages,
+  getActiveSiteBackground,
+  createSiteBackgroundImage,
+  setActiveSiteBackground,
+  deactivateSiteBackground,
+  deleteSiteBackgroundImage,
+  listJackpotBackgroundImages,
+  getActiveJackpotBackground,
+  createJackpotBackgroundImage,
+  setActiveJackpotBackground,
+  deleteJackpotBackgroundImage,
+  duplicateJackpotBackgroundImage,
+  reorderJackpotBackgroundImages,
+  getJackpotConversionStats,
 } from "./db";
 import {
   commissionReportToCsv,
@@ -211,7 +225,7 @@ import { resolveTournamentScoringConfig } from "./schema/resolveTournamentSchema
 import { TRPCError } from "@trpc/server";
 import { requirePermission, requireAnyPermission, getEffectivePermissions } from "./rbac";
 import * as analyticsDashboard from "./analytics/dashboard";
-import { trackTournamentJoin, trackLeaderboardView } from "./analytics/events";
+import { trackTournamentJoin, trackLeaderboardView, trackJackpotCtaClick, trackJackpotHeroView } from "./analytics/events";
 import { recordDevice } from "./lib/antiCheat";
 import {
   getUserRoles,
@@ -419,6 +433,35 @@ const settingsPublicRouter = router({
       const { getJackpotLastDrawsPublic } = await import("./jackpot");
       return getJackpotLastDrawsPublic(input?.limit ?? 5);
     }),
+  /** Active site background image URL for homepage/layout (fallback to null if none). */
+  getActiveBackground: publicProcedure.query(async () => getActiveSiteBackground()),
+  /** Track Jackpot CTA click (conversion vs background). */
+  trackJackpotCtaClick: publicProcedure
+    .input(z.object({ backgroundId: z.number().optional() }).optional())
+    .mutation(({ input }) => {
+      trackJackpotCtaClick({ backgroundId: input?.backgroundId });
+      return {};
+    }),
+  /** Track Jackpot hero view (hero entered viewport – for conversion dashboard). */
+  trackJackpotHeroView: publicProcedure
+    .input(z.object({ backgroundId: z.number().optional() }).optional())
+    .mutation(({ input }) => {
+      trackJackpotHeroView({ backgroundId: input?.backgroundId });
+      return {};
+    }),
+  /** Active Jackpot hero background + overlay settings (for JackpotHero only). */
+  getActiveJackpotBackground: publicProcedure.query(async () => {
+    const active = await getActiveJackpotBackground();
+    const settings = await getSiteSettings();
+    return {
+      active,
+      overlayOpacity: Math.min(100, Math.max(0, parseFloat(settings.jackpot_bg_overlay_opacity) || 70)),
+      vignetteStrength: Math.min(100, Math.max(0, parseFloat(settings.jackpot_bg_vignette_strength) || 80)),
+      fxIntensity: Math.min(100, Math.max(0, parseFloat(settings.jackpot_bg_fx_intensity) || 80)),
+      glowStrength: Math.min(100, Math.max(0, parseFloat(settings.jackpot_bg_glow_strength) || 80)),
+      intensity: Math.min(100, Math.max(0, parseInt(settings.jackpot_intensity ?? "70", 10) || 70)),
+    };
+  }),
 });
 
 export const appRouter = router({
@@ -579,7 +622,7 @@ export const appRouter = router({
       if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
       return getMyCompetitionSummary(ctx.user.id);
     }),
-    /** Jackpot progress widget: 7-day approved play, ticket count, amount until next ticket, countdown to draw. */
+    /** Jackpot progress widget: approved play in current cycle, ticket count, amount until next ticket, countdown to draw. */
     getJackpotProgress: protectedProcedure.query(async ({ ctx }) => {
       if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
       const { getJackpotProgress: getProgress } = await import("./jackpot");
@@ -2911,6 +2954,140 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
         await setSiteSettingsBatch(input);
         return { success: true };
       }),
+
+    listSiteBackgroundImages: adminProcedure.use(usePermission("settings.manage")).query(() => listSiteBackgroundImages()),
+    uploadSiteBackgroundImage: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.object({
+        fileBase64: z.string().min(1),
+        originalName: z.string().min(1),
+        mimeType: z.string().min(1),
+        activate: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return createSiteBackgroundImage({
+          fileBase64: input.fileBase64,
+          originalName: input.originalName,
+          mimeType: input.mimeType,
+          activate: input.activate,
+          uploadedBy: ctx.user?.id ?? null,
+        });
+      }),
+    setActiveSiteBackground: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await setActiveSiteBackground(input.id);
+        return { success: true };
+      }),
+    deactivateSiteBackground: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deactivateSiteBackground(input.id);
+        return { success: true };
+      }),
+    deleteSiteBackgroundImage: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteSiteBackgroundImage(input.id);
+        return { success: true };
+      }),
+
+    listJackpotBackgroundImages: adminProcedure.use(usePermission("settings.manage")).query(() => listJackpotBackgroundImages()),
+    uploadJackpotBackgroundImage: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.object({
+        fileBase64: z.string().min(1),
+        originalName: z.string().min(1),
+        mimeType: z.string().min(1),
+        activate: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await createJackpotBackgroundImage({
+          fileBase64: input.fileBase64,
+          originalName: input.originalName,
+          mimeType: input.mimeType,
+          activate: input.activate,
+        });
+        const ip = (ctx as { req?: { ip?: string; socket?: { remoteAddress?: string } } }).req?.ip ?? (ctx as { req?: { socket?: { remoteAddress?: string } } }).req?.socket?.remoteAddress ?? "";
+        await insertAdminAuditLog({
+          performedBy: ctx.user?.id ?? 0,
+          action: "jackpot_bg_upload",
+          details: { entityType: "jackpot_background", entityId: result.id, ip },
+        });
+        return result;
+      }),
+    setActiveJackpotBackground: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await setActiveJackpotBackground(input.id);
+        const ip = (ctx as { req?: { ip?: string; socket?: { remoteAddress?: string } } }).req?.ip ?? (ctx as { req?: { socket?: { remoteAddress?: string } } }).req?.socket?.remoteAddress ?? "";
+        await insertAdminAuditLog({
+          performedBy: ctx.user?.id ?? 0,
+          action: "jackpot_bg_activate",
+          details: { entityType: "jackpot_background", entityId: input.id, ip },
+        });
+        return { success: true };
+      }),
+    deleteJackpotBackgroundImage: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await deleteJackpotBackgroundImage(input.id);
+        const ip = (ctx as { req?: { ip?: string; socket?: { remoteAddress?: string } } }).req?.ip ?? (ctx as { req?: { socket?: { remoteAddress?: string } } }).req?.socket?.remoteAddress ?? "";
+        await insertAdminAuditLog({
+          performedBy: ctx.user?.id ?? 0,
+          action: "jackpot_bg_delete",
+          details: { entityType: "jackpot_background", entityId: input.id, ip },
+        });
+        return { success: true };
+      }),
+    duplicateJackpotBackgroundImage: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await duplicateJackpotBackgroundImage(input.id);
+        const ip = (ctx as { req?: { ip?: string; socket?: { remoteAddress?: string } } }).req?.ip ?? (ctx as { req?: { socket?: { remoteAddress?: string } } }).req?.socket?.remoteAddress ?? "";
+        await insertAdminAuditLog({
+          performedBy: ctx.user?.id ?? 0,
+          action: "jackpot_bg_duplicate",
+          details: { entityType: "jackpot_background", entityId: result.id, sourceId: input.id, ip },
+        });
+        return result;
+      }),
+    reorderJackpotBackgroundImages: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.object({ updates: z.array(z.object({ id: z.number(), displayOrder: z.number() })) }))
+      .mutation(async ({ input }) => {
+        await reorderJackpotBackgroundImages(input.updates);
+        return { success: true };
+      }),
+    setJackpotBackgroundOverlay: adminProcedure.use(usePermission("settings.manage"))
+      .input(z.object({
+        overlayOpacity: z.number().min(0).max(100).optional(),
+        vignetteStrength: z.number().min(0).max(100).optional(),
+        fxIntensity: z.number().min(0).max(100).optional(),
+        glowStrength: z.number().min(0).max(100).optional(),
+        intensity: z.number().min(0).max(100).optional(),
+        preset: z.enum(["aggressive", "luxury", "calm", "explosive"]).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const presets = {
+          aggressive: { overlayOpacity: 75, vignetteStrength: 90, fxIntensity: 95, glowStrength: 85 },
+          luxury: { overlayOpacity: 60, vignetteStrength: 85, fxIntensity: 40, glowStrength: 60 },
+          calm: { overlayOpacity: 50, vignetteStrength: 60, fxIntensity: 30, glowStrength: 40 },
+          explosive: { overlayOpacity: 65, vignetteStrength: 88, fxIntensity: 100, glowStrength: 95 },
+        } as const;
+        if (input.preset != null) {
+          const p = presets[input.preset];
+          await setSiteSetting("jackpot_bg_overlay_opacity", String(p.overlayOpacity));
+          await setSiteSetting("jackpot_bg_vignette_strength", String(p.vignetteStrength));
+          await setSiteSetting("jackpot_bg_fx_intensity", String(p.fxIntensity));
+          await setSiteSetting("jackpot_bg_glow_strength", String(p.glowStrength));
+          await setSiteSetting("jackpot_bg_preset", input.preset);
+        }
+        if (input.overlayOpacity !== undefined) await setSiteSetting("jackpot_bg_overlay_opacity", String(input.overlayOpacity));
+        if (input.vignetteStrength !== undefined) await setSiteSetting("jackpot_bg_vignette_strength", String(input.vignetteStrength));
+        if (input.fxIntensity !== undefined) await setSiteSetting("jackpot_bg_fx_intensity", String(input.fxIntensity));
+        if (input.glowStrength !== undefined) await setSiteSetting("jackpot_bg_glow_strength", String(input.glowStrength));
+        if (input.intensity !== undefined) await setSiteSetting("jackpot_intensity", String(input.intensity));
+        return { success: true };
+      }),
+    getJackpotConversionStats: adminProcedure.use(usePermission("settings.manage")).query(async () => getJackpotConversionStats()),
 
     getJackpotSettings: adminProcedure.use(usePermission("settings.manage")).query(async () => {
       const { getJackpotSettings: getSettings } = await import("./jackpot");

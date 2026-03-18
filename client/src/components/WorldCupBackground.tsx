@@ -1,19 +1,16 @@
-import { useState, useEffect } from "react";
+import { trpc } from "@/lib/trpc";
 
-const BACKGROUND_IMAGES = ["/worldcup-bg-1.png", "/worldcup-bg-2.png"] as const;
+/** Single explicit default when no admin background is active. Served from public folder. */
+const DEFAULT_BACKGROUND_URL = "/worldcup-bg-1.png";
 
 /**
- * רקע קבוע לכל האתר – תמונות מונדיאל (אצטדיון, גביע, דגלים).
- * נשאר קבוע בגלילה (position: fixed). בוחר אקראית אחת משתי התמונות.
+ * רקע קבוע לכל האתר – נטען מהתמונה הפעילה בהגדרות האתר.
+ * אם אין תמונת רקע פעילה – משתמש בברירת מחדל אחת קבועה.
  * שכבת גרדיאנט כהה מעל כדי שהטקסט יישאר קריא.
  */
 export function WorldCupBackground() {
-  const [bgImage, setBgImage] = useState<string>(BACKGROUND_IMAGES[0]);
-
-  useEffect(() => {
-    const idx = Math.floor(Math.random() * BACKGROUND_IMAGES.length);
-    setBgImage(BACKGROUND_IMAGES[idx]);
-  }, []);
+  const { data: activeBg } = trpc.settings.getActiveBackground.useQuery();
+  const bgImage = activeBg?.url ?? DEFAULT_BACKGROUND_URL;
 
   return (
     <div

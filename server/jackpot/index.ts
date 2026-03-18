@@ -2,15 +2,15 @@
  * Jackpot eligibility and winner selection.
  *
  * Rules:
- * - Eligibility: rolling 7-day window backward from draw timestamp.
+ * - Eligibility: current Jackpot cycle = from previous completed draw execution time until current draw time.
+ *   If no previous draw: use jackpot.cycle_start_at (site setting) or fallback to (drawTime - 365 days).
  * - Tickets: floor(approved_play_volume / ticket_step_ils), default 1000 ILS per ticket.
- * - Approved play volume: ENTRY_FEE only (base entry), minus REFUNDs; no jackpot extra, bonuses, manual credits.
- * - Draw: weighted pool by ticket count, one winner; winner gets winner_payout_percent (default 75%), rest carry-over.
- * - Snapshot + audit at draw time for full traceability.
+ * - Approved play volume: ENTRY_FEE minus REFUND only; no JACKPOT_CONTRIBUTION, bonuses, manual credits.
+ * - Snapshot stores calculation_window_start/end = cycle window (draw-to-draw).
  */
 
 import { getDb, getSchema, getSiteSettings, setSiteSetting } from "../db";
-import { and, desc, eq, gte, lte, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, lt, isNotNull, sql } from "drizzle-orm";
 
 const JACKPOT_KEYS = {
   BALANCE_POINTS: "jackpot.balance_points",
@@ -19,6 +19,7 @@ const JACKPOT_KEYS = {
   TICKET_STEP_ILS: "jackpot.ticket_step_ils",
   WINNER_PAYOUT_PERCENT: "jackpot.winner_payout_percent",
   NEXT_DRAW_AT: "jackpot.next_draw_at",
+  CYCLE_START_AT: "jackpot.cycle_start_at",
 } as const;
 
 /** Default 2.5% = 250 basis points. */
@@ -26,7 +27,8 @@ export const DEFAULT_JACKPOT_CONTRIBUTION_BASIS_POINTS = 250;
 
 const DEFAULT_TICKET_STEP_ILS = 1000;
 const DEFAULT_WINNER_PAYOUT_PERCENT = 75;
-export const ELIGIBILITY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/** Fallback when there is no previous completed draw: cycle start = end - this many ms (max 1 year). */
+export const FIRST_CYCLE_FALLBACK_MS = 365 * 24 * 60 * 60 * 1000;
 
 export type JackpotSettings = {
   enabled: boolean;
@@ -38,7 +40,8 @@ export type JackpotSettings = {
 };
 
 export type JackpotProgress = {
-  approvedPlayVolume7d: number;
+  /** Approved play volume in the current Jackpot cycle (from previous draw until next draw). */
+  approvedPlayVolume: number;
   ticketCount: number;
   amountUntilNextTicket: number;
   nextDrawAt: Date | null;
@@ -123,14 +126,53 @@ export async function getApprovedPlayVolumeForWindow(
   return Math.max(0, total);
 }
 
-/** All users with their approved play volume and ticket count for the 7-day window ending at drawTimestamp. */
+/** Most recent completed draw's executedAt strictly before the given time. Used to define cycle start. */
+export async function getPreviousCompletedDrawExecutedAt(beforeTimestamp: Date): Promise<Date | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const schema = await getSchema();
+  const { jackpotDraws } = schema as { jackpotDraws: { id: unknown; executedAt: unknown; status: unknown } };
+  if (!jackpotDraws) return null;
+  const beforeMs = beforeTimestamp.getTime();
+  const rows = await db
+    .select({ executedAt: jackpotDraws.executedAt })
+    .from(jackpotDraws)
+    .where(
+      and(
+        eq(jackpotDraws.status, "completed"),
+        isNotNull(jackpotDraws.executedAt),
+        lt(jackpotDraws.executedAt, beforeTimestamp)
+      )
+    )
+    .orderBy(desc(jackpotDraws.executedAt))
+    .limit(1);
+  const executedAt = (rows[0] as { executedAt: Date | null } | undefined)?.executedAt;
+  return executedAt instanceof Date && !Number.isNaN(executedAt.getTime()) ? executedAt : null;
+}
+
+/** Cycle window for a draw: from previous completed draw execution (or fallback) until draw timestamp. */
+export async function getCycleWindow(drawTimestamp: Date): Promise<{ windowStart: Date; windowEnd: Date }> {
+  const windowEnd = new Date(drawTimestamp.getTime());
+  const prevExecutedAt = await getPreviousCompletedDrawExecutedAt(drawTimestamp);
+  if (prevExecutedAt) {
+    return { windowStart: new Date(prevExecutedAt.getTime()), windowEnd };
+  }
+  const raw = await getSiteSettings();
+  const cycleStartRaw = raw[JACKPOT_KEYS.CYCLE_START_AT];
+  if (cycleStartRaw && cycleStartRaw.trim()) {
+    const d = new Date(cycleStartRaw.trim());
+    if (!Number.isNaN(d.getTime())) return { windowStart: d, windowEnd };
+  }
+  const windowStart = new Date(drawTimestamp.getTime() - FIRST_CYCLE_FALLBACK_MS);
+  return { windowStart, windowEnd };
+}
+
+/** All users with approved play volume and ticket count for the draw-to-draw cycle ending at drawTimestamp. */
 export async function getEligibilitySnapshot(
   drawTimestamp: Date,
   ticketStepIls: number
 ): Promise<Array<{ userId: number; approvedPlayVolume: number; ticketsCount: number }>> {
-  const windowEnd = new Date(drawTimestamp.getTime());
-  const windowStart = new Date(drawTimestamp.getTime() - ELIGIBILITY_WINDOW_MS);
-
+  const { windowStart, windowEnd } = await getCycleWindow(drawTimestamp);
   const schema = await getSchema();
   const db = await getDb();
   if (!db) return [];
@@ -200,21 +242,21 @@ export async function getEligibilitySnapshot(
   return result;
 }
 
-/** User progress for dashboard: 7-day volume, tickets, amount until next ticket, next draw. */
+/** User progress for dashboard: volume in current cycle, tickets, amount until next ticket, next draw. */
 export async function getJackpotProgress(userId: number): Promise<JackpotProgress> {
   const settings = await getJackpotSettings();
   const now = new Date();
-  const windowEnd = settings.nextDrawAt && settings.nextDrawAt > now ? settings.nextDrawAt : now;
-  const windowStart = new Date(windowEnd.getTime() - ELIGIBILITY_WINDOW_MS);
+  const cycleEnd = settings.nextDrawAt && settings.nextDrawAt > now ? settings.nextDrawAt : now;
+  const { windowStart, windowEnd } = await getCycleWindow(cycleEnd);
 
-  const approvedPlayVolume7d = await getApprovedPlayVolumeForWindow(userId, windowStart, windowEnd);
+  const approvedPlayVolume = await getApprovedPlayVolumeForWindow(userId, windowStart, windowEnd);
   const step = Math.max(1, settings.ticketStepIls);
-  const ticketCount = Math.floor(approvedPlayVolume7d / step);
-  const remainder = approvedPlayVolume7d % step;
+  const ticketCount = Math.floor(approvedPlayVolume / step);
+  const remainder = approvedPlayVolume % step;
   const amountUntilNextTicket = remainder === 0 ? step : step - remainder;
 
   return {
-    approvedPlayVolume7d,
+    approvedPlayVolume,
     ticketCount,
     amountUntilNextTicket,
     nextDrawAt: settings.nextDrawAt,
@@ -272,8 +314,7 @@ export async function runJackpotDraw(
   }
 
   const settings = await getJackpotSettings();
-  const windowEnd = new Date(drawTimestamp.getTime());
-  const windowStart = new Date(drawTimestamp.getTime() - ELIGIBILITY_WINDOW_MS);
+  const { windowStart, windowEnd } = await getCycleWindow(drawTimestamp);
   const carryOverPercent = Math.max(0, 100 - settings.winnerPayoutPercent);
 
   const eligibility = await getEligibilitySnapshot(drawTimestamp, settings.ticketStepIls);
@@ -307,9 +348,9 @@ export async function runJackpotDraw(
     if (eligibility.length === 0) {
       await db
         .update(jackpotDraws)
-        .set({ status: "failed", errorMessage: "No eligible players in the 7-day window", updatedAt: new Date() })
+        .set({ status: "failed", errorMessage: "No eligible players in this Jackpot cycle", updatedAt: new Date() })
         .where(eq(jackpotDraws.id, drawId));
-      return { success: false, error: "No eligible players in the 7-day window" };
+      return { success: false, error: "No eligible players in this Jackpot cycle" };
     }
 
     if (totalPool <= 0) {

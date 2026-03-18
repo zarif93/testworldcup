@@ -918,7 +918,7 @@ export default function AdminPanel() {
     { id: "notifications" as const, label: "התראות", icon: <Bell className="w-5 h-5" /> },
     ...(canViewSubmissions ? [{ id: "payments" as const, label: "תשלומים", icon: <CreditCard className="w-5 h-5" /> }] : []),
     ...(canManageSettings ? [{ id: "settings" as const, label: "הגדרות אתר", icon: <Settings className="w-5 h-5" /> }] : []),
-    ...(canManageSettings ? [{ id: "jackpot" as const, label: "ג׳קפוט", icon: <Trophy className="w-5 h-5" /> }] : []),
+    ...(canManageSettings ? [{ id: "jackpot" as const, label: "ניהול ג׳קפוט", icon: <Trophy className="w-5 h-5" /> }] : []),
   ];
 
   return (

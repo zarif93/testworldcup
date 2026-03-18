@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { BackgroundImagesSection } from "./BackgroundImagesSection";
 
 const SETTINGS_GROUPS: { group: string; label: string; keys: { key: string; label: string; placeholder?: string }[] }[] = [
   {
@@ -157,6 +158,8 @@ export function SettingsSection() {
           </CardContent>
         </Card>
       ))}
+
+      <BackgroundImagesSection />
     </div>
   );
 }

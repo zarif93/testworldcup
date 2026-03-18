@@ -1,11 +1,8 @@
 /**
- * Admin: Jackpot configuration and draw execution.
- * - Ticket step (ILS per ticket), default 1000
- * - Payout split (winner % / carry-over), default 75/25
- * - Next draw at (datetime)
- * - Current balance
- * - Run draw (manual trigger)
- * - Draw audit log
+ * Admin: Jackpot – all-in-one section.
+ * - Jackpot settings (ticket step, payout, next draw, balance)
+ * - Draw execution and history
+ * - Jackpot hero background: upload, list, active, presets, sliders (intensity / glow / vignette / fx), CTR dashboard, preview
  */
 
 import { useState, useEffect } from "react";
@@ -16,6 +13,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { JackpotBackgroundSection } from "./JackpotBackgroundSection";
 
 export function JackpotSection() {
   const utils = trpc.useUtils();
@@ -100,7 +98,7 @@ export function JackpotSection() {
             הגדרות ג׳קפוט
           </h2>
           <p className="text-slate-400 text-sm">
-            חלון זכאות: 7 ימים אחורה מתאריך ההגרלה. כרטיסים = floor(היקף משחק מאושר / צעד כרטיס). ברירת מחדל: 1000 ₪ לכרטיס, 75% לזוכה / 25% גלגול.
+            זכאות לפי מחזור הגרלה: מההגרלה הקודמת ועד ההגרלה הבאה. כרטיסים = floor(היקף משחק מאושר / צעד כרטיס). ברירת מחדל: 1000 ₪ לכרטיס, 75% לזוכה / 25% גלגול.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -164,7 +162,7 @@ export function JackpotSection() {
                   />
                 </div>
                 <div>
-                  <Label className="text-slate-400">יתרת פול נוכחית (₪)</Label>
+                  <Label className="text-slate-400">סכום הג׳קפוט (₪)</Label>
                   <Input
                     type="number"
                     min={0}
@@ -188,6 +186,8 @@ export function JackpotSection() {
           )}
         </CardContent>
       </Card>
+
+      <JackpotBackgroundSection />
 
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>

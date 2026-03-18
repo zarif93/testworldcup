@@ -12,7 +12,9 @@ import {
   runJackpotDraw,
   listJackpotDraws,
   setJackpotSettings,
-  ELIGIBILITY_WINDOW_MS,
+  getCycleWindow,
+  getPreviousCompletedDrawExecutedAt,
+  FIRST_CYCLE_FALLBACK_MS,
 } from "./index";
 
 const JACKPOT_KEYS = {
@@ -48,7 +50,7 @@ describe("Jackpot QA", () => {
     ).run(userId, `open-jp-${userId}`, `jpuser${userId}`, base, base);
   }
 
-  describe("1–3: Ticket formula (floor(volume/1000))", () => {
+  describe("1–3: Ticket formula (floor(volume/1000)) – cycle window", () => {
     it("999 ILS approved play => 0 tickets", async () => {
       if (!USE_SQLITE) return;
       const sqlite = await getSqlite();
@@ -56,7 +58,7 @@ describe("Jackpot QA", () => {
       const base = Date.now();
       const userId = 90700001 + (base % 10000);
       const windowEnd = ts(base);
-      const windowStart = ts(base - ELIGIBILITY_WINDOW_MS);
+      const windowStart = ts(base - FIRST_CYCLE_FALLBACK_MS);
       const eventAt = base - 86400000;
 
       seedJackpotUser(sqlite, userId, base);
@@ -83,7 +85,7 @@ describe("Jackpot QA", () => {
       const base = Date.now();
       const userId = 90700002 + (base % 10000);
       const windowEnd = ts(base);
-      const windowStart = ts(base - ELIGIBILITY_WINDOW_MS);
+      const windowStart = ts(base - FIRST_CYCLE_FALLBACK_MS);
       const eventAt = base - 86400000;
 
       seedJackpotUser(sqlite, userId, base);
@@ -108,7 +110,7 @@ describe("Jackpot QA", () => {
       const base = Date.now();
       const userId = 90700003 + (base % 10000);
       const windowEnd = ts(base);
-      const windowStart = ts(base - ELIGIBILITY_WINDOW_MS);
+      const windowStart = ts(base - FIRST_CYCLE_FALLBACK_MS);
       const eventAt = base - 86400000;
 
       seedJackpotUser(sqlite, userId, base);
@@ -126,7 +128,7 @@ describe("Jackpot QA", () => {
     });
   });
 
-  describe("4: ENTRY_FEE minus REFUND in 7-day window", () => {
+  describe("4: ENTRY_FEE minus REFUND in cycle window", () => {
     it("calculates net volume correctly (ENTRY_FEE - REFUND)", async () => {
       if (!USE_SQLITE) return;
       const sqlite = await getSqlite();
@@ -134,7 +136,7 @@ describe("Jackpot QA", () => {
       const base = Date.now();
       const userId = 90700010 + (base % 10000);
       const windowEnd = ts(base);
-      const windowStart = ts(base - ELIGIBILITY_WINDOW_MS);
+      const windowStart = ts(base - FIRST_CYCLE_FALLBACK_MS);
       const t = base - 86400000;
 
       seedJackpotUser(sqlite, userId, base);
@@ -159,8 +161,9 @@ describe("Jackpot QA", () => {
       await getDb();
       await setJackpotSettings({ balancePoints: 5000, ticketStepIls: 1000, winnerPayoutPercent: 75 });
       const drawTime = new Date(Date.now() + 3600000);
-      const ws = drawTime.getTime() - ELIGIBILITY_WINDOW_MS;
-      const we = drawTime.getTime();
+      const { windowStart, windowEnd } = await getCycleWindow(drawTime);
+      const ws = windowStart.getTime();
+      const we = windowEnd.getTime();
       sqlite.prepare("DELETE FROM financial_events WHERE createdAt >= ? AND createdAt <= ?").run(ws, we);
 
       const result = await runJackpotDraw(drawTime, "manual");
@@ -214,9 +217,10 @@ describe("Jackpot QA", () => {
       const base = Date.now();
       const userId = 90700030 + (base % 10000);
       const drawTime = ts(base);
-      const eventAt = base - ELIGIBILITY_WINDOW_MS;
-      const ws = base - ELIGIBILITY_WINDOW_MS;
-      const we = base;
+      const eventAt = base - 86400000; // 1 day ago, inside fallback cycle
+      const { windowStart, windowEnd } = await getCycleWindow(drawTime);
+      const ws = windowStart.getTime();
+      const we = windowEnd.getTime();
 
       seedJackpotUser(sqlite, userId, base);
       sqlite.prepare("DELETE FROM financial_events WHERE createdAt >= ? AND createdAt <= ? AND (userId IS NULL OR userId != ?)").run(ws, we, userId);
@@ -246,9 +250,10 @@ describe("Jackpot QA", () => {
       const base = Date.now();
       const userId = 90700040 + (base % 10000);
       const drawTime = ts(base);
-      const eventAt = base - ELIGIBILITY_WINDOW_MS;
-      const ws = base - ELIGIBILITY_WINDOW_MS;
-      const we = base;
+      const eventAt = base - 86400000;
+      const { windowStart, windowEnd } = await getCycleWindow(drawTime);
+      const ws = windowStart.getTime();
+      const we = windowEnd.getTime();
 
       seedJackpotUser(sqlite, userId, base);
       sqlite.prepare("DELETE FROM financial_events WHERE createdAt >= ? AND createdAt <= ? AND (userId IS NULL OR userId != ?)").run(ws, we, userId);
@@ -276,9 +281,10 @@ describe("Jackpot QA", () => {
       const base = Date.now();
       const userId = 90700050 + (base % 10000);
       const drawTime = ts(base);
-      const eventAt = base - ELIGIBILITY_WINDOW_MS;
-      const ws = base - ELIGIBILITY_WINDOW_MS;
-      const we = base;
+      const eventAt = base - 86400000;
+      const { windowStart, windowEnd } = await getCycleWindow(drawTime);
+      const ws = windowStart.getTime();
+      const we = windowEnd.getTime();
 
       seedJackpotUser(sqlite, userId, base);
       sqlite.prepare("DELETE FROM financial_events WHERE createdAt >= ? AND createdAt <= ? AND (userId IS NULL OR userId != ?)").run(ws, we, userId);
@@ -315,10 +321,79 @@ describe("Jackpot QA", () => {
       expect(draw.eligibleUsersCount).toBe(1);
       expect(draw.totalTicketsCount).toBe(1);
 
-      const snapshotRows = sqlite.prepare("SELECT * FROM jackpot_draw_snapshots WHERE draw_id = ?").all(result.drawId) as Array<{ userId: number; ticketsCount: number }>;
+      const snapshotRows = sqlite.prepare("SELECT * FROM jackpot_draw_snapshots WHERE draw_id = ?").all(result.drawId) as Array<{ userId: number; ticketsCount: number; calculationWindowStart: number; calculationWindowEnd: number }>;
       expect(snapshotRows.length).toBe(1);
       expect(snapshotRows[0].userId).toBe(userId);
       expect(snapshotRows[0].ticketsCount).toBe(1);
+      expect(snapshotRows[0].calculationWindowStart).toBeLessThanOrEqual(snapshotRows[0].calculationWindowEnd);
+    });
+  });
+
+  describe("Draw-to-draw cycle and first-draw fallback", () => {
+    it("getCycleWindow with no previous draw uses fallback (cycle end - 365 days)", async () => {
+      if (!USE_SQLITE) return;
+      await getSqlite();
+      const drawTime = new Date(Date.now());
+      const { windowStart, windowEnd } = await getCycleWindow(drawTime);
+      expect(windowEnd.getTime()).toBe(drawTime.getTime());
+      const span = windowEnd.getTime() - windowStart.getTime();
+      expect(span).toBe(FIRST_CYCLE_FALLBACK_MS);
+    });
+
+    it("getPreviousCompletedDrawExecutedAt returns null when no draws", async () => {
+      if (!USE_SQLITE) return;
+      const before = new Date(Date.now());
+      const prev = await getPreviousCompletedDrawExecutedAt(before);
+      expect(prev).toBeNull();
+    });
+
+    it("after one completed draw, getCycleWindow for next draw uses previous executedAt as start", async () => {
+      if (!USE_SQLITE) return;
+      const sqlite = await getSqlite();
+      if (!sqlite) return;
+      const base = Date.now();
+      const userId = 90700070 + (base % 10000);
+      const firstDrawTime = ts(base - 86400000 * 14); // 14 days ago
+      const eventInFirstCycle = base - 86400000 * 15; // 15 days ago, inside (firstDrawTime - 365d, firstDrawTime)
+
+      seedJackpotUser(sqlite, userId, base);
+      sqlite.prepare("DELETE FROM financial_events WHERE userId = ?").run(userId);
+      sqlite.prepare("INSERT INTO financial_events (eventType, userId, amountPoints, createdAt) VALUES ('ENTRY_FEE', ?, ?, ?)").run(userId, 1000, eventInFirstCycle);
+
+      await setJackpotSettings({ balancePoints: 2000, ticketStepIls: 1000, winnerPayoutPercent: 75 });
+      const r1 = await runJackpotDraw(firstDrawTime, "manual");
+      expect(r1.success).toBe(true);
+
+      const nextDrawTime = ts(base + 3600000); // 1 hour from now so executedAt of first draw is before it
+      const prev = await getPreviousCompletedDrawExecutedAt(nextDrawTime);
+      expect(prev).not.toBeNull();
+
+      const { windowStart, windowEnd } = await getCycleWindow(nextDrawTime);
+      expect(windowStart.getTime()).toBeGreaterThanOrEqual(prev!.getTime() - 1000);
+      expect(windowEnd.getTime()).toBe(nextDrawTime.getTime());
+    });
+
+    it("event before previous draw is excluded from next cycle", async () => {
+      if (!USE_SQLITE) return;
+      const sqlite = await getSqlite();
+      if (!sqlite) return;
+      const base = Date.now();
+      const userId = 90700080 + (base % 10000);
+      const firstDrawTime = ts(base - 86400000 * 14);
+      const eventInFirstCycle = base - 86400000 * 20; // 20 days ago, inside first cycle (firstDrawTime - 365d, firstDrawTime)
+
+      seedJackpotUser(sqlite, userId, base);
+      sqlite.prepare("DELETE FROM financial_events WHERE userId = ?").run(userId);
+      sqlite.prepare("INSERT INTO financial_events (eventType, userId, amountPoints, createdAt) VALUES ('ENTRY_FEE', ?, ?, ?)").run(userId, 5000, eventInFirstCycle);
+
+      await setJackpotSettings({ balancePoints: 5000, ticketStepIls: 1000, winnerPayoutPercent: 75 });
+      const r1 = await runJackpotDraw(firstDrawTime, "manual");
+      expect(r1.success).toBe(true);
+
+      const nextDrawTime = ts(base + 3600000);
+      const eligibility = await getEligibilitySnapshot(nextDrawTime, 1000);
+      const userEntry = eligibility.find((e) => e.userId === userId);
+      expect(userEntry).toBeUndefined();
     });
   });
 
@@ -342,7 +417,7 @@ describe("Jackpot QA", () => {
       });
 
       const progress = await getJackpotProgress(userId);
-      expect(progress.approvedPlayVolume7d).toBe(1500);
+      expect(progress.approvedPlayVolume).toBe(1500);
       expect(progress.ticketCount).toBe(1);
       expect(progress.amountUntilNextTicket).toBe(500);
       expect(progress.balancePoints).toBe(5000);

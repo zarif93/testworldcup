@@ -924,6 +924,52 @@ async function initSqlite() {
     )
   `);
   sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS site_background_images (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      filename TEXT NOT NULL,
+      originalName TEXT NOT NULL,
+      url TEXT NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 0,
+      size_bytes INTEGER,
+      width INTEGER,
+      height INTEGER,
+      uploaded_by INTEGER,
+      created_at INTEGER,
+      updated_at INTEGER
+    )
+  `);
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS jackpot_background_images (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      filename TEXT NOT NULL,
+      url TEXT NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER
+    )
+  `);
+  const jbInfo = sqlite.prepare("PRAGMA table_info(jackpot_background_images)").all() as Array<{ name: string }>;
+  if (jbInfo.length > 0) {
+    if (!jbInfo.some((c) => c.name === "display_order")) {
+      sqlite.exec(`ALTER TABLE jackpot_background_images ADD COLUMN display_order INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!jbInfo.some((c) => c.name === "thumbnailFilename")) {
+      sqlite.exec(`ALTER TABLE jackpot_background_images ADD COLUMN thumbnailFilename TEXT`);
+    }
+    if (!jbInfo.some((c) => c.name === "thumbnailUrl")) {
+      sqlite.exec(`ALTER TABLE jackpot_background_images ADD COLUMN thumbnailUrl TEXT`);
+    }
+    if (!jbInfo.some((c) => c.name === "mobileFilename")) {
+      sqlite.exec(`ALTER TABLE jackpot_background_images ADD COLUMN mobileFilename TEXT`);
+    }
+    if (!jbInfo.some((c) => c.name === "mobileUrl")) {
+      sqlite.exec(`ALTER TABLE jackpot_background_images ADD COLUMN mobileUrl TEXT`);
+    }
+    if (!jbInfo.some((c) => c.name === "mean_luminance")) {
+      sqlite.exec(`ALTER TABLE jackpot_background_images ADD COLUMN mean_luminance INTEGER`);
+    }
+  }
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS jackpot_background_images_is_active ON jackpot_background_images(is_active)`);
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS automation_jobs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       jobType TEXT NOT NULL,
@@ -1136,8 +1182,8 @@ async function initSqlite() {
   sqlite.exec(`CREATE INDEX IF NOT EXISTS jackpot_draw_snapshots_draw_id ON jackpot_draw_snapshots(draw_id)`);
   sqlite.exec(`DROP TABLE IF EXISTS jackpot_draw_audit`);
 
-  const { leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams, jackpotDraws, jackpotDrawSnapshots } = await import("../drizzle/schema-sqlite");
-  const db = drizzle(sqlite, { schema: { users, tournaments, matches, submissions, agentCommissions, agentCommissionConfig, siteSettings, chanceDrawResults, lottoDrawResults, customFootballMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog, financialEvents, leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams, jackpotDraws, jackpotDrawSnapshots } });
+  const { leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, siteBackgroundImages, jackpotBackgroundImages, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams, jackpotDraws, jackpotDrawSnapshots } = await import("../drizzle/schema-sqlite");
+  const db = drizzle(sqlite, { schema: { users, tournaments, matches, submissions, agentCommissions, agentCommissionConfig, siteSettings, chanceDrawResults, lottoDrawResults, customFootballMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog, financialEvents, leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, siteBackgroundImages, jackpotBackgroundImages, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams, jackpotDraws, jackpotDrawSnapshots } });
 
   // Team library: schema is migration-only. Fail at startup if tables are missing.
   const teamLibCategoriesExists = sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_library_categories'").get();
@@ -6086,6 +6132,31 @@ export async function insertAnalyticsEvent(data: {
   );
 }
 
+/** Jackpot conversion stats per background: views, clicks, CTR. */
+export async function getJackpotConversionStats(): Promise<Array<{ backgroundId: number; views: number; clicks: number; ctr: number }>> {
+  const sqlite = await getSqlite();
+  if (!sqlite) return [];
+  const viewRows = sqlite.prepare(
+    `SELECT COALESCE(CAST(json_extract(payloadJson, '$.backgroundId') AS INTEGER), 0) AS bid, COUNT(*) AS cnt
+     FROM analytics_events WHERE eventName = 'jackpot_hero_view' GROUP BY bid`
+  ).all() as Array<{ bid: number; cnt: number }>;
+  const clickRows = sqlite.prepare(
+    `SELECT COALESCE(CAST(json_extract(payloadJson, '$.backgroundId') AS INTEGER), 0) AS bid, COUNT(*) AS cnt
+     FROM analytics_events WHERE eventName = 'jackpot_cta_click' GROUP BY bid`
+  ).all() as Array<{ bid: number; cnt: number }>;
+  const viewMap = new Map(viewRows.map((r) => [r.bid, r.cnt]));
+  const clickMap = new Map(clickRows.map((r) => [r.bid, r.cnt]));
+  const ids = new Set([...viewMap.keys(), ...clickMap.keys()]);
+  return Array.from(ids)
+    .filter((id) => id > 0)
+    .map((backgroundId) => {
+      const views = viewMap.get(backgroundId) ?? 0;
+      const clicks = clickMap.get(backgroundId) ?? 0;
+      return { backgroundId, views, clicks, ctr: views > 0 ? clicks / views : 0 };
+    })
+    .sort((a, b) => b.views - a.views);
+}
+
 /** Phase 11: Notifications pending for delivery (email/sms/whatsapp). For cron/job to poll and send. */
 export async function getPendingNotificationsForDelivery(limit = 50): Promise<Array<{
   id: number;
@@ -8114,6 +8185,342 @@ export async function updateMediaAsset(id: number, data: { altText?: string | nu
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(mediaAssets).set({ ...data, updatedAt: new Date() }).where(eq(mediaAssets.id, id));
+}
+
+// ---------- Site background images ----------
+const BACKGROUND_ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+const BACKGROUND_MAX_BYTES = 8 * 1024 * 1024; // 8MB
+const BACKGROUND_SUBDIR = "backgrounds";
+
+export async function listSiteBackgroundImages(): Promise<Array<{
+  id: number;
+  filename: string;
+  originalName: string;
+  url: string;
+  isActive: boolean;
+  sizeBytes: number | null;
+  width: number | null;
+  height: number | null;
+  uploadedBy: number | null;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+}>> {
+  if (!USE_SQLITE) return [];
+  const { siteBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(siteBackgroundImages).orderBy(desc(siteBackgroundImages.createdAt));
+  return rows.map((r) => ({
+    id: r.id,
+    filename: r.filename,
+    originalName: r.originalName,
+    url: r.url,
+    isActive: r.isActive ?? false,
+    sizeBytes: r.sizeBytes ?? null,
+    width: r.width ?? null,
+    height: r.height ?? null,
+    uploadedBy: r.uploadedBy ?? null,
+    createdAt: r.createdAt ?? null,
+    updatedAt: r.updatedAt ?? null,
+  }));
+}
+
+export async function getActiveSiteBackground(): Promise<{ url: string } | null> {
+  if (!USE_SQLITE) return null;
+  const { siteBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({ url: siteBackgroundImages.url }).from(siteBackgroundImages).where(eq(siteBackgroundImages.isActive, true)).limit(1);
+  const r = rows[0];
+  return r ? { url: r.url } : null;
+}
+
+export async function createSiteBackgroundImage(data: {
+  fileBase64: string;
+  originalName: string;
+  mimeType: string;
+  activate?: boolean;
+  uploadedBy?: number | null;
+}): Promise<{ id: number; url: string }> {
+  const { siteBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (!BACKGROUND_ALLOWED_TYPES.includes(data.mimeType)) throw new Error("סוג קובץ לא נתמך. אפשר רק: JPEG, PNG, GIF, WebP.");
+  const buf = Buffer.from(data.fileBase64, "base64");
+  if (buf.length > BACKGROUND_MAX_BYTES) throw new Error("הקובץ גדול מדי. מקסימום 8MB.");
+  if (buf.length === 0) throw new Error("הקובץ ריק.");
+  const ext = (data.originalName && data.originalName.includes(".")) ? data.originalName.replace(/^.*\./, "").toLowerCase() : "jpg";
+  const safeExt = ["jpg", "jpeg", "png", "gif", "webp"].includes(ext) ? ext : "jpg";
+  const { nanoid } = await import("nanoid");
+  const filename = `${nanoid(12)}.${safeExt}`;
+  const { join } = await import("path");
+  const { mkdir, writeFile } = await import("fs/promises");
+  const { existsSync } = await import("fs");
+  const uploadsDir = join(process.cwd(), "uploads", BACKGROUND_SUBDIR);
+  if (!existsSync(uploadsDir)) await mkdir(uploadsDir, { recursive: true });
+  const filePath = join(uploadsDir, filename);
+  await writeFile(filePath, buf);
+  // URL is relative; same-origin. Served publicly by express.static(uploadsDir) at /uploads.
+  const url = `/uploads/${BACKGROUND_SUBDIR}/${filename}`;
+  let width: number | null = null;
+  let height: number | null = null;
+  try {
+    const sharp = await import("sharp").catch(() => null);
+    if (sharp) {
+      const meta = await sharp.default(buf).metadata();
+      if (meta.width != null) width = meta.width;
+      if (meta.height != null) height = meta.height;
+    }
+  } catch {
+    // ignore
+  }
+  const isActive = data.activate === true;
+  if (isActive) {
+    await db.update(siteBackgroundImages).set({ isActive: false, updatedAt: new Date() });
+  }
+  const [row] = await db.insert(siteBackgroundImages).values({
+    filename,
+    originalName: data.originalName || filename,
+    url,
+    isActive,
+    sizeBytes: buf.length,
+    width,
+    height,
+    uploadedBy: data.uploadedBy ?? null,
+  }).returning({ id: siteBackgroundImages.id, url: siteBackgroundImages.url });
+  return { id: row!.id, url: row!.url };
+}
+
+export async function setActiveSiteBackground(id: number): Promise<void> {
+  const { siteBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(siteBackgroundImages).set({ isActive: false, updatedAt: new Date() });
+  await db.update(siteBackgroundImages).set({ isActive: true, updatedAt: new Date() }).where(eq(siteBackgroundImages.id, id));
+}
+
+export async function deactivateSiteBackground(id: number): Promise<void> {
+  const { siteBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(siteBackgroundImages).set({ isActive: false, updatedAt: new Date() }).where(eq(siteBackgroundImages.id, id));
+}
+
+export async function deleteSiteBackgroundImage(id: number): Promise<void> {
+  const { siteBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const rows = await db.select().from(siteBackgroundImages).where(eq(siteBackgroundImages.id, id)).limit(1);
+  const row = rows[0];
+  if (row) {
+    const { join } = await import("path");
+    const { unlink } = await import("fs/promises");
+    const { existsSync } = await import("fs");
+    const filePath = join(process.cwd(), "uploads", BACKGROUND_SUBDIR, row.filename);
+    if (existsSync(filePath)) await unlink(filePath).catch(() => {});
+    await db.delete(siteBackgroundImages).where(eq(siteBackgroundImages.id, id));
+  }
+}
+
+// ---------- Jackpot hero background images (storage abstraction, WebP, thumbnail, display_order, one active) ----------
+export async function listJackpotBackgroundImages(): Promise<Array<{
+  id: number;
+  filename: string;
+  thumbnailFilename: string | null;
+  url: string;
+  thumbnailUrl: string | null;
+  isActive: boolean;
+  displayOrder: number;
+  createdAt: Date | null;
+}>> {
+  if (!USE_SQLITE) return [];
+  const { jackpotBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(jackpotBackgroundImages).orderBy(desc(jackpotBackgroundImages.displayOrder), desc(jackpotBackgroundImages.createdAt));
+  return rows.map((r) => ({
+    id: r.id,
+    filename: r.filename,
+    thumbnailFilename: r.thumbnailFilename ?? null,
+    url: r.url,
+    thumbnailUrl: r.thumbnailUrl ?? r.url,
+    isActive: r.isActive ?? false,
+    displayOrder: r.displayOrder ?? 0,
+    createdAt: r.createdAt ?? null,
+  }));
+}
+
+export async function getActiveJackpotBackground(): Promise<{
+  id: number;
+  url: string;
+  thumbnailUrl: string;
+  mobileUrl: string | null;
+  meanLuminance: number | null;
+} | null> {
+  if (!USE_SQLITE) return null;
+  const { jackpotBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({
+    id: jackpotBackgroundImages.id,
+    url: jackpotBackgroundImages.url,
+    thumbnailUrl: jackpotBackgroundImages.thumbnailUrl,
+    mobileUrl: jackpotBackgroundImages.mobileUrl,
+    meanLuminance: jackpotBackgroundImages.meanLuminance,
+  }).from(jackpotBackgroundImages).where(eq(jackpotBackgroundImages.isActive, true)).limit(1);
+  const r = rows[0];
+  if (!r) return null;
+  const lum = r.meanLuminance != null ? r.meanLuminance / 1000 : null;
+  return {
+    id: r.id,
+    url: r.url,
+    thumbnailUrl: r.thumbnailUrl ?? r.url,
+    mobileUrl: r.mobileUrl ?? null,
+    meanLuminance: lum,
+  };
+}
+
+let _jackpotProcessFn: ((buf: Buffer, mime: string) => Promise<{ ok: true; result: { fullBuffer: Buffer; thumbBuffer: Buffer; mobileBuffer: Buffer; width: number; height: number; meanLuminance: number } } | { ok: false; error: string }>) | null = null;
+async function getJackpotProcessor() {
+  if (_jackpotProcessFn) return _jackpotProcessFn;
+  try {
+    const mod = await import("./storage/jackpotBackgroundImageProcess");
+    _jackpotProcessFn = mod.processJackpotBackgroundImage;
+    return _jackpotProcessFn;
+  } catch (e) {
+    console.warn("[Jackpot] Image processor (sharp) not available, using pass-through:", e instanceof Error ? e.message : String(e));
+    const { validateJackpotBackgroundBuffer } = await import("./storage/jackpotBackgroundValidate");
+    _jackpotProcessFn = async (buf: Buffer, mime: string) => {
+      const v = validateJackpotBackgroundBuffer(buf, mime);
+      if (!v.ok) return v;
+      return { ok: true, result: { fullBuffer: buf, thumbBuffer: buf, mobileBuffer: buf, width: 1920, height: 1080, meanLuminance: 0.5 } };
+    };
+    return _jackpotProcessFn;
+  }
+}
+
+export async function createJackpotBackgroundImage(data: {
+  fileBase64: string;
+  originalName: string;
+  mimeType: string;
+  activate?: boolean;
+}): Promise<{ id: number; url: string; thumbnailUrl: string }> {
+  const { jackpotBackgroundStorage } = await import("./storage/jackpotBackgroundStorage");
+  const processJackpotBackgroundImage = await getJackpotProcessor();
+  const { jackpotBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const buf = Buffer.from(data.fileBase64, "base64");
+  const processed = await processJackpotBackgroundImage(buf, data.mimeType);
+  if (!processed.ok) throw new Error(processed.error);
+  const { fullBuffer, thumbBuffer, mobileBuffer, meanLuminance } = processed.result;
+  const { nanoid } = await import("nanoid");
+  const base = nanoid(12);
+  const fullKey = `${base}.webp`;
+  const thumbKey = `${base}_thumb.webp`;
+  const mobileKey = `${base}_mobile.webp`;
+  const url = await jackpotBackgroundStorage.save(fullKey, fullBuffer);
+  const thumbnailUrl = await jackpotBackgroundStorage.save(thumbKey, thumbBuffer);
+  const mobileUrl = await jackpotBackgroundStorage.save(mobileKey, mobileBuffer);
+  const maxOrder = await db.select({ maxOrder: sql<number>`COALESCE(MAX(${jackpotBackgroundImages.displayOrder}), 0)` }).from(jackpotBackgroundImages).then((r) => (r[0] as { maxOrder: number } | undefined)?.maxOrder ?? 0);
+  const displayOrder = maxOrder + 1;
+  const isActive = data.activate === true;
+  if (isActive) {
+    await db.update(jackpotBackgroundImages).set({ isActive: false });
+  }
+  const luminanceStored = Math.round(meanLuminance * 1000);
+  const [row] = await db.insert(jackpotBackgroundImages).values({
+    filename: fullKey,
+    thumbnailFilename: thumbKey,
+    mobileFilename: mobileKey,
+    url,
+    thumbnailUrl,
+    mobileUrl,
+    isActive,
+    displayOrder,
+    meanLuminance: luminanceStored,
+  }).returning({
+    id: jackpotBackgroundImages.id,
+    url: jackpotBackgroundImages.url,
+    thumbnailUrl: jackpotBackgroundImages.thumbnailUrl,
+  });
+  return { id: row!.id, url: row!.url, thumbnailUrl: row!.thumbnailUrl ?? row!.url };
+}
+
+/** Transaction-safe: only one active at a time. */
+export async function setActiveJackpotBackground(id: number): Promise<void> {
+  if (!USE_SQLITE) return;
+  const { jackpotBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.transaction(async (tx) => {
+    await tx.update(jackpotBackgroundImages).set({ isActive: false });
+    await tx.update(jackpotBackgroundImages).set({ isActive: true }).where(eq(jackpotBackgroundImages.id, id));
+  });
+}
+
+export async function deleteJackpotBackgroundImage(id: number): Promise<void> {
+  const { jackpotBackgroundStorage } = await import("./storage/jackpotBackgroundStorage");
+  const { jackpotBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const rows = await db.select().from(jackpotBackgroundImages).where(eq(jackpotBackgroundImages.id, id)).limit(1);
+  const row = rows[0];
+  if (row) {
+    await jackpotBackgroundStorage.delete(row.filename);
+    if (row.thumbnailFilename) await jackpotBackgroundStorage.delete(row.thumbnailFilename);
+    if ((row as { mobileFilename?: string | null }).mobileFilename) await jackpotBackgroundStorage.delete((row as { mobileFilename: string }).mobileFilename);
+    await db.delete(jackpotBackgroundImages).where(eq(jackpotBackgroundImages.id, id));
+  }
+}
+
+export async function duplicateJackpotBackgroundImage(id: number): Promise<{ id: number; url: string; thumbnailUrl: string }> {
+  const { jackpotBackgroundStorage } = await import("./storage/jackpotBackgroundStorage");
+  const { jackpotBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const rows = await db.select().from(jackpotBackgroundImages).where(eq(jackpotBackgroundImages.id, id)).limit(1);
+  const row = rows[0];
+  if (!row) throw new Error("תמונת רקע לא נמצאה");
+  const { nanoid } = await import("nanoid");
+  const base = nanoid(12);
+  const fullKey = `${base}.webp`;
+  const thumbKey = `${base}_thumb.webp`;
+  const url = await jackpotBackgroundStorage.duplicate(row.filename, fullKey);
+  const thumbnailUrl = row.thumbnailFilename
+    ? await jackpotBackgroundStorage.duplicate(row.thumbnailFilename, thumbKey)
+    : url;
+  const mobileRow = row as { mobileFilename?: string | null; mobileUrl?: string | null };
+  const mobileKey = `${base}_mobile.webp`;
+  const mobileUrl = mobileRow.mobileFilename
+    ? await jackpotBackgroundStorage.duplicate(mobileRow.mobileFilename, mobileKey)
+    : url;
+  const maxOrder = await db.select({ maxOrder: sql<number>`COALESCE(MAX(${jackpotBackgroundImages.displayOrder}), 0)` }).from(jackpotBackgroundImages).then((r) => (r[0] as { maxOrder: number } | undefined)?.maxOrder ?? 0);
+  const [newRow] = await db.insert(jackpotBackgroundImages).values({
+    filename: fullKey,
+    thumbnailFilename: thumbKey,
+    mobileFilename: mobileRow.mobileFilename ? mobileKey : null,
+    url,
+    thumbnailUrl,
+    mobileUrl: mobileRow.mobileFilename ? mobileUrl : null,
+    isActive: false,
+    displayOrder: maxOrder + 1,
+    meanLuminance: (row as { meanLuminance?: number | null }).meanLuminance ?? null,
+  }).returning({
+    id: jackpotBackgroundImages.id,
+    url: jackpotBackgroundImages.url,
+    thumbnailUrl: jackpotBackgroundImages.thumbnailUrl,
+  });
+  return { id: newRow!.id, url: newRow!.url, thumbnailUrl: newRow!.thumbnailUrl ?? newRow!.url };
+}
+
+export async function reorderJackpotBackgroundImages(updates: Array<{ id: number; displayOrder: number }>): Promise<void> {
+  const { jackpotBackgroundImages } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  for (const { id, displayOrder } of updates) {
+    await db.update(jackpotBackgroundImages).set({ displayOrder }).where(eq(jackpotBackgroundImages.id, id));
+  }
 }
 
 const CHANCE_CARDS = ["7", "8", "9", "10", "J", "Q", "K", "A"] as const;

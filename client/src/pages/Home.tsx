@@ -558,20 +558,20 @@ export default function Home() {
         </div>
       )}
 
-      {/* Hero section – brand title only; optional background image; Jackpot and content follow */}
-      <section className="relative container mx-auto px-3 sm:px-4 pt-3 pb-2 md:pt-5 md:pb-4 text-center overflow-x-hidden max-w-full">
-        {heroBanner?.imageUrl && (
-          <div className="absolute inset-0 overflow-hidden rounded-xl mx-auto max-w-5xl" aria-hidden>
-            <img src={heroBanner.imageUrl} alt="" className="w-full h-full object-cover opacity-30" />
-          </div>
-        )}
-        <h1 className="relative z-10 text-xl xs:text-2xl min-[375px]:text-3xl sm:text-4xl md:text-5xl font-black text-white mb-1 md:mb-2 tracking-tight drop-shadow-sm px-1 break-words">
+      {/* 1. Brand Hero Title – WinMondial is the main site title, always first content element, above Jackpot */}
+      <section className="relative w-full overflow-x-hidden text-center pt-6 md:pt-8">
+        <h1 className="font-black text-white tracking-tight drop-shadow-sm px-3 break-words text-xl xs:text-2xl min-[375px]:text-3xl sm:text-4xl md:text-5xl mb-12 md:mb-20">
           {heroBanner?.title?.trim() || siteName || "WinMondial"}
         </h1>
+      </section>
 
-        {/* Jackpot hero – same container as promo/secondary/cta banners (max-w-4xl) */}
-        {jackpotBanner != null && jackpotEnabled && (
-          <div className="max-w-4xl mx-auto px-3 mb-6 md:mb-8">
+      {/* 2. Jackpot Hero Event – central event, below brand; design unchanged */}
+      {jackpotBanner != null && jackpotEnabled && (
+        <section
+          className="relative w-full overflow-x-hidden"
+          aria-label="ג׳קפוט – האירוע המרכזי"
+        >
+          <div className="max-w-4xl mx-auto px-3 sm:px-4 pt-10 pb-14 md:pt-16 md:pb-24 mb-2 md:mb-4">
             <JackpotHero
               balancePoints={jackpotBanner.balancePoints ?? 0}
               nextDrawAt={jackpotBanner.nextDrawAt}
@@ -581,18 +581,37 @@ export default function Home() {
               showProgressButton={isAuthenticated}
             />
           </div>
+        </section>
+      )}
+
+      {/* 3. Supporting section: personal area, promo, features, tournaments (no brand title here) */}
+      <section
+        className={`relative container mx-auto px-3 sm:px-4 overflow-x-hidden max-w-full text-center ${
+          jackpotBanner != null && jackpotEnabled
+            ? "pt-8 pb-4 md:pt-10 md:pb-6 border-t border-slate-700/50"
+            : "pt-4 pb-2 md:pt-6 md:pb-4"
+        }`}
+      >
+        {heroBanner?.imageUrl && (
+          <div className="absolute inset-0 overflow-hidden rounded-xl mx-auto max-w-5xl" aria-hidden>
+            <img src={heroBanner.imageUrl} alt="" className="w-full h-full object-cover opacity-30" />
+          </div>
         )}
 
-        {/* Jackpot disabled notice – when settings exist but jackpot is off */}
+        {/* Jackpot disabled notice – when settings exist but jackpot is off (Jackpot not shown as hero above) */}
         {jackpotBanner != null && !jackpotEnabled && (
           <div className="max-w-3xl mx-auto px-3 mb-3">
             <p className="text-slate-500 text-sm text-center">הג׳קפוט כרגע מושבת.</p>
           </div>
         )}
 
-        {/* Personal area – rank, chase, pressure (logged-in only) */}
+        {/* Personal area – secondary to Jackpot when Jackpot is hero; compact so it doesn’t compete */}
         {isAuthenticated && mySummary && (
-          <div className="max-w-2xl mx-auto px-2 mb-3 md:mb-4">
+          <div
+            className={`max-w-2xl mx-auto px-2 ${
+              jackpotBanner != null && jackpotEnabled ? "mb-4 md:mb-5" : "mb-3 md:mb-4"
+            }`}
+          >
             <div className="rounded-xl border border-slate-600/60 bg-slate-800/50 px-3 py-2.5 text-right">
               <p className="text-amber-400 font-bold text-sm mb-1.5">אזור התחרות שלי</p>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-300 text-xs sm:text-sm">
@@ -738,7 +757,7 @@ export default function Home() {
                               style={{ width: `${filled}%` }}
                             />
                           </div>
-                          <p className="text-slate-500 text-xs mt-1">היקף משחק: {jackpotProgress.approvedPlayVolume7d} ₪</p>
+                          <p className="text-slate-500 text-xs mt-1">היקף משחק בהגרלה הנוכחית: {jackpotProgress.approvedPlayVolume} ₪</p>
                         </div>
                       );
                     })()}
@@ -748,7 +767,7 @@ export default function Home() {
                       </p>
                     )}
                     {jackpotProgress.balancePoints > 0 && (
-                      <p className="text-slate-500 text-xs mt-0.5">פול נוכחי: {jackpotProgress.balancePoints} ₪</p>
+                      <p className="text-slate-500 text-xs mt-0.5">סכום הג׳קפוט: {jackpotProgress.balancePoints} ₪</p>
                     )}
                   </div>
                 ) : (
@@ -759,9 +778,13 @@ export default function Home() {
           </>
         )}
 
-        {/* homepage_promo: promotional banner above tournaments section */}
+        {/* Supporting content: promo and features sit clearly below the Jackpot stage when Jackpot is hero */}
         {promoBanner && (
-          <div className="max-w-4xl mx-auto px-3 mb-6">
+          <div
+            className={`max-w-4xl mx-auto px-3 ${
+              jackpotBanner != null && jackpotEnabled ? "mt-8 md:mt-10 mb-5 md:mb-6" : "mb-6"
+            }`}
+          >
             <HomepageBannerBlock
               banner={promoBanner}
               variant="promo"
@@ -770,9 +793,12 @@ export default function Home() {
           </div>
         )}
 
-        {/* homepage_features: features/benefits blocks above tournaments */}
         {featuresBlocks.length > 0 && (
-          <div className="max-w-4xl mx-auto px-3 mb-6 space-y-4">
+          <div
+            className={`max-w-4xl mx-auto px-3 space-y-4 ${
+              jackpotBanner != null && jackpotEnabled ? "mb-5 md:mb-6" : "mb-6"
+            }`}
+          >
             {featuresBlocks.map((block) => (
               <HomepageSectionBlock key={block.id} section={block} onNavigate={setLocation} />
             ))}

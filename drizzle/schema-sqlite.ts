@@ -756,6 +756,40 @@ export const mediaAssets = sqliteTable("media_assets", {
 export type MediaAsset = typeof mediaAssets.$inferSelect;
 export type InsertMediaAsset = typeof mediaAssets.$inferInsert;
 
+// ---------- Site background images (admin-managed, one active) ----------
+export const siteBackgroundImages = sqliteTable("site_background_images", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  filename: text("filename").notNull(),
+  originalName: text("originalName").notNull(),
+  url: text("url").notNull(),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(false),
+  sizeBytes: integer("size_bytes"),
+  width: integer("width"),
+  height: integer("height"),
+  uploadedBy: integer("uploaded_by"),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+export type SiteBackgroundImage = typeof siteBackgroundImages.$inferSelect;
+export type InsertSiteBackgroundImage = typeof siteBackgroundImages.$inferInsert;
+
+// ---------- Jackpot hero background images (admin-managed, one active, display_order, thumbnail, mobile, luminance) ----------
+export const jackpotBackgroundImages = sqliteTable("jackpot_background_images", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  filename: text("filename").notNull(),
+  thumbnailFilename: text("thumbnailFilename"),
+  mobileFilename: text("mobileFilename"),
+  url: text("url").notNull(),
+  thumbnailUrl: text("thumbnailUrl"),
+  mobileUrl: text("mobileUrl"),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(false),
+  displayOrder: integer("display_order").notNull().default(0),
+  meanLuminance: integer("mean_luminance"), // 0-1000 scale (0.0-1.0 * 1000) for auto contrast
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+export type JackpotBackgroundImage = typeof jackpotBackgroundImages.$inferSelect;
+export type InsertJackpotBackgroundImage = typeof jackpotBackgroundImages.$inferInsert;
+
 // ---------- Phase 18: Automation engine (job log) ----------
 export const automationJobs = sqliteTable("automation_jobs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
