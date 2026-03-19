@@ -6660,25 +6660,53 @@ export async function createTournament(data: {
 
   if (hasSportsMatches) {
     // Single transaction: tournament + all match rows. If any insert fails, entire operation rolls back.
-    const id = await db.transaction(async (tx) => {
-      const [inserted] = await tx.insert(tournaments).values(row as typeof tournaments.$inferInsert).returning({ id: tournaments.id });
-      const tournamentId = inserted?.id;
-      if (tournamentId == null) throw new Error("Failed to get tournament id after insert");
-      for (let i = 0; i < data.matches!.length; i++) {
-        const m = data.matches![i];
-        await tx.insert(customFootballMatches).values({
-          tournamentId,
-          homeTeam: (m.homeTeam ?? "").trim(),
-          awayTeam: (m.awayTeam ?? "").trim(),
-          homeTeamId: (m as { homeTeamId?: number | null }).homeTeamId ?? null,
-          awayTeamId: (m as { awayTeamId?: number | null }).awayTeamId ?? null,
-          matchDate: (m.matchDate ?? "").trim() || null,
-          matchTime: (m.matchTime ?? "").trim() || null,
-          displayOrder: i,
-        });
-      }
-      return tournamentId;
-    });
+    // better-sqlite3: transaction callback must be synchronous (no async / await / returned Promise).
+    let createdTournamentId: number | undefined;
+    if (USE_SQLITE) {
+      db.transaction((tx) => {
+        const inserted = tx.insert(tournaments).values(row as typeof tournaments.$inferInsert).returning({ id: tournaments.id }).get();
+        const tournamentId = inserted?.id;
+        if (tournamentId == null) throw new Error("Failed to get tournament id after insert");
+        createdTournamentId = tournamentId;
+        for (let i = 0; i < data.matches!.length; i++) {
+          const m = data.matches![i];
+          tx.insert(customFootballMatches)
+            .values({
+              tournamentId,
+              homeTeam: (m.homeTeam ?? "").trim(),
+              awayTeam: (m.awayTeam ?? "").trim(),
+              homeTeamId: (m as { homeTeamId?: number | null }).homeTeamId ?? null,
+              awayTeamId: (m as { awayTeamId?: number | null }).awayTeamId ?? null,
+              matchDate: (m.matchDate ?? "").trim() || null,
+              matchTime: (m.matchTime ?? "").trim() || null,
+              displayOrder: i,
+            })
+            .run();
+        }
+      });
+    } else {
+      createdTournamentId = await db.transaction(async (tx) => {
+        const [inserted] = await tx.insert(tournaments).values(row as typeof tournaments.$inferInsert).returning({ id: tournaments.id });
+        const tournamentId = inserted?.id;
+        if (tournamentId == null) throw new Error("Failed to get tournament id after insert");
+        for (let i = 0; i < data.matches!.length; i++) {
+          const m = data.matches![i];
+          await tx.insert(customFootballMatches).values({
+            tournamentId,
+            homeTeam: (m.homeTeam ?? "").trim(),
+            awayTeam: (m.awayTeam ?? "").trim(),
+            homeTeamId: (m as { homeTeamId?: number | null }).homeTeamId ?? null,
+            awayTeamId: (m as { awayTeamId?: number | null }).awayTeamId ?? null,
+            matchDate: (m.matchDate ?? "").trim() || null,
+            matchTime: (m.matchTime ?? "").trim() || null,
+            displayOrder: i,
+          });
+        }
+        return tournamentId;
+      });
+    }
+    const id = createdTournamentId;
+    if (id == null) throw new Error("Failed to create football_custom tournament with matches");
     if (process.env.NODE_ENV !== "production") {
       console.log("[createTournament] created", data.matches!.length, "match rows for football_custom tournament", id, "(single transaction)");
     }
