@@ -140,6 +140,7 @@ export function DynamicPredictionForm({
   const isChance = legacyType === "chance";
   const isLotto = legacyType === "lotto";
   const isFootball = legacyType === "football" || legacyType === "football_custom";
+  const isFootballCustom = legacyType === "football_custom";
 
   const editSubmissionId =
     typeof window !== "undefined" ? parseInt(new URLSearchParams(window.location.search).get("edit") ?? "", 10) || 0 : 0;
@@ -643,7 +644,7 @@ export function DynamicPredictionForm({
                       <span className="text-white font-medium break-words">{m.homeTeam}</span>
                       <span className="text-slate-500 mx-2 font-medium">vs</span>
                       <span className="text-white font-medium break-words">{m.awayTeam}</span>
-                      {(m.matchDate || m.matchTime) && (
+                      {!isFootballCustom && (m.matchDate || m.matchTime) && (
                         <span className="text-slate-500 text-sm mr-2 block sm:inline mt-1 sm:mt-0">
                           {[m.matchDate, m.matchTime].filter(Boolean).join(" • ")}
                         </span>

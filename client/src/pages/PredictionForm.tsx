@@ -407,8 +407,8 @@ export default function PredictionForm() {
       homeTeam: m.homeTeam,
       awayTeam: m.awayTeam,
       matchNumber: "matchNumber" in m ? (m as { matchNumber?: number }).matchNumber : undefined,
-      matchDate: "matchDate" in m ? (m as { matchDate?: string }).matchDate : undefined,
-      matchTime: "matchTime" in m ? (m as { matchTime?: string }).matchTime : undefined,
+      matchDate: isFootballCustom ? undefined : ("matchDate" in m ? (m as { matchDate?: string }).matchDate : undefined),
+      matchTime: isFootballCustom ? undefined : ("matchTime" in m ? (m as { matchTime?: string }).matchTime : undefined),
     }));
     return (
       <DynamicPredictionForm
@@ -874,7 +874,7 @@ export default function PredictionForm() {
                       <span className="text-white font-medium break-words">{m.homeTeam}</span>
                       <span className="text-slate-500 mx-2 font-medium">vs</span>
                       <span className="text-white font-medium break-words">{m.awayTeam}</span>
-                      {((m as { matchDate?: string; matchTime?: string }).matchDate || (m as { matchTime?: string }).matchTime) && (
+                      {!isFootballCustom && (((m as { matchDate?: string; matchTime?: string }).matchDate || (m as { matchTime?: string }).matchTime)) && (
                         <span className="text-slate-500 text-sm mr-2 block sm:inline mt-1 sm:mt-0">
                           {[(m as { matchDate?: string }).matchDate, (m as { matchTime?: string }).matchTime].filter(Boolean).join(" • ")}
                         </span>

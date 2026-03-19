@@ -61,8 +61,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { RolesManagementSection } from "@/components/admin/RolesManagementSection";
 import { CompetitionsTable } from "@/components/admin/CompetitionsTable";
-import { SchemaDebugModal } from "@/components/admin/SchemaDebugModal";
-import { CompetitionItemsManageModal } from "@/components/admin/CompetitionItemsManageModal";
 import { CmsSection } from "@/components/admin/CmsSection";
 import { SettingsSection } from "@/components/admin/SettingsSection";
 import { MediaManagerSection } from "@/components/admin/MediaManagerSection";
@@ -77,15 +75,72 @@ import { TeamPicker } from "@/components/admin/TeamPicker";
 type AdminSection = "dashboard" | "analytics" | "ops" | "finance" | "autoFill" | "submissions" | "competitions" | "agents" | "players" | "admins" | "roles" | "cms" | "media" | "notifications" | "payments" | "settings";
 type CompetitionSubType = "lotto" | "chance" | "mondial" | "football_custom" | null;
 
+/** Inline reasons why תחרויות ספורט create submit is blocked (matches button + server checks). */
+function getFootballCustomCreateIssues(
+  numberOfGamesStr: string,
+  matches: Array<{ homeTeam: string; awayTeam: string }>
+): string[] {
+  const issues: string[] = [];
+  const ng = numberOfGamesStr.trim() ? parseInt(numberOfGamesStr, 10) : NaN;
+  if (!Number.isInteger(ng) || ng < 1 || ng > 30) {
+    issues.push("מספר משחקים חייב להיות מספר שלם בין 1 ל־30.");
+  }
+  if (Number.isInteger(ng) && ng >= 1 && ng <= 30 && matches.length !== ng) {
+    issues.push(`נדרשות ${ng} שורות משחקים (מולאו ${matches.length}).`);
+  }
+  if (!Number.isInteger(ng) || ng < 1 || ng > 30) return issues;
+
+  matches.forEach((r, i) => {
+    const num = i + 1;
+    if (!r.homeTeam?.trim()) issues.push(`משחק #${num}: חסרה קבוצת בית.`);
+    if (!r.awayTeam?.trim()) issues.push(`משחק #${num}: חסרה קבוצת חוץ.`);
+    if (r.homeTeam?.trim() && r.awayTeam?.trim() && r.homeTeam.trim() === r.awayTeam.trim()) {
+      issues.push(`משחק #${num}: אותה קבוצה לבית ולחוץ — יש לבחור או להזין שני שמות שונים.`);
+    }
+  });
+  return issues;
+}
+
+function toDateInputValue(value: unknown): string {
+  if (value == null) return "";
+  const d = typeof value === "number" ? new Date(value) : new Date(value as string);
+  if (Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function toTimeInputValue(value: unknown): string {
+  if (value == null) return "";
+  const d = typeof value === "number" ? new Date(value) : new Date(value as string);
+  if (Number.isNaN(d.getTime())) return "";
+  const h = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${h}:${min}`;
+}
+
 export default function AdminPanel() {
   const { user, loading: authLoading, logout } = useAuth();
   const [, setLocation] = useLocation();
   const [section, setSection] = useState<AdminSection>("dashboard");
   const [competitionSubType, setCompetitionSubType] = useState<CompetitionSubType>(null);
-  const [schemaDebugTournamentId, setSchemaDebugTournamentId] = useState<number | null>(null);
-  const [itemsManageTournament, setItemsManageTournament] = useState<{ id: number; name: string } | null>(null);
   const [editCommissionModal, setEditCommissionModal] = useState<{ tournamentId: number; tournamentName: string; currentCommissionPercent: number } | null>(null);
   const [editCommissionValue, setEditCommissionValue] = useState("");
+  const [editFootballCustomTournament, setEditFootballCustomTournament] = useState<{
+    id: number;
+    name: string;
+    amount: string;
+    commissionPercent: string;
+    maxParticipants: string;
+    openDate: string;
+    openTime: string;
+    closeDate: string;
+    closeTime: string;
+    numberOfWinners: number;
+    prizePercentages: string[];
+    hasRegistrations: boolean;
+  } | null>(null);
   const [adminCode, setAdminCode] = useState("");
   const [codeError, setCodeError] = useState(false);
   const [searchSubmissions, setSearchSubmissions] = useState("");
@@ -115,14 +170,12 @@ export default function AdminPanel() {
     homeTeam: string; awayTeam: string;
     homeTeamId?: number; awayTeamId?: number;
     homeCategoryName?: string; awayCategoryName?: string;
-    matchDate: string; matchTime: string;
-  }>({ homeTeam: "", awayTeam: "", matchDate: "", matchTime: "" });
+  }>({ homeTeam: "", awayTeam: "" });
   const [footballCustomResultEdit, setFootballCustomResultEdit] = useState<Record<number, { homeScore: string; awayScore: string }>>({});
   const [editCustomMatch, setEditCustomMatch] = useState<{
     id: number; homeTeam: string; awayTeam: string;
     homeTeamId?: number; awayTeamId?: number;
     homeCategoryName?: string; awayCategoryName?: string;
-    matchDate: string; matchTime: string;
   } | null>(null);
 
   const [pointsSelectedUserId, setPointsSelectedUserId] = useState<number | "">("");
@@ -270,6 +323,7 @@ export default function AdminPanel() {
   const createTournamentMut = trpc.admin.createTournament.useMutation();
   const deleteTournamentMut = trpc.admin.deleteTournament.useMutation();
   const updateTournamentCommissionMut = trpc.admin.updateTournamentCommission.useMutation();
+  const updateFootballCustomTournamentMut = trpc.admin.updateFootballCustomTournament.useMutation();
   const createAgentMut = trpc.admin.createAgent.useMutation();
   const deleteUserMut = trpc.admin.deleteUser.useMutation();
   const createAutoSubmissionsMut = trpc.admin.createAutoSubmissions.useMutation();
@@ -395,8 +449,15 @@ export default function AdminPanel() {
     homeTeam: string; awayTeam: string;
     homeTeamId?: number; awayTeamId?: number;
     homeCategoryName?: string; awayCategoryName?: string;
-    matchDate: string; matchTime: string;
   }>>([]);
+
+  const footballCustomCreateIssues = useMemo(
+    () =>
+      newTournament.type === "football_custom"
+        ? getFootballCustomCreateIssues(newTournament.numberOfGames, sportsCreateMatches)
+        : [],
+    [newTournament.type, newTournament.numberOfGames, sportsCreateMatches]
+  );
 
   const CHANCE_DRAW_TIMES = ["09:00", "11:00", "13:00", "15:00", "17:00", "19:00", "21:00"] as const;
   const LOTTO_DRAW_TIMES = ["20:00", "22:30", "23:00", "23:30", "00:00"] as const;
@@ -757,10 +818,6 @@ export default function AdminPanel() {
           toast.error(`משחק ${i + 1}: קבוצה ביתית ואורחת לא יכולות להיות אותו שם`);
           return;
         }
-        if (!(r.matchDate?.trim()) || !(r.matchTime?.trim())) {
-          toast.error(`משחק ${i + 1}: חובה למלא תאריך ושעה`);
-          return;
-        }
       }
     }
     const n = Math.max(1, Math.min(20, newTournament.numberOfWinners));
@@ -796,8 +853,6 @@ export default function AdminPanel() {
             awayTeam: r.awayTeam.trim(),
             homeTeamId: r.homeTeamId ?? undefined,
             awayTeamId: r.awayTeamId ?? undefined,
-            matchDate: r.matchDate.trim() || undefined,
-            matchTime: r.matchTime.trim() || undefined,
           }))
         : undefined;
       await createTournamentMut.mutateAsync({
@@ -1237,6 +1292,234 @@ export default function AdminPanel() {
               )}
             </CardContent>
           </Card>
+          <Dialog
+            open={editFootballCustomTournament != null}
+            onOpenChange={(open) => {
+              if (!open) setEditFootballCustomTournament(null);
+            }}
+          >
+            <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>עריכת תחרות ספורט</DialogTitle>
+                <DialogDescription className="text-slate-400">
+                  עריכת פרטי תחרות בלבד (לא עריכת משחקים).
+                </DialogDescription>
+              </DialogHeader>
+              {editFootballCustomTournament != null && (
+                <div className="space-y-4 py-2">
+                  {editFootballCustomTournament.hasRegistrations && (
+                    <div className="rounded-md border border-amber-600/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-100">
+                      לתחרות קיימות הרשמות, לכן שדות כספיים נעולים: עלות, עמלה, מספר משתתפים וחלוקת פרסים.
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-sm text-slate-300">שם תחרות</label>
+                      <Input
+                        className="bg-slate-900 border-slate-600"
+                        value={editFootballCustomTournament.name}
+                        onChange={(e) => setEditFootballCustomTournament((p) => (p ? { ...p, name: e.target.value } : null))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm text-slate-300">עלות (נק׳)</label>
+                      <Input
+                        type="number"
+                        min={0}
+                        className="bg-slate-900 border-slate-600"
+                        value={editFootballCustomTournament.amount}
+                        onChange={(e) => setEditFootballCustomTournament((p) => (p ? { ...p, amount: e.target.value } : null))}
+                        disabled={editFootballCustomTournament.hasRegistrations}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm text-slate-300">עמלה (%)</label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.1}
+                        className="bg-slate-900 border-slate-600"
+                        value={editFootballCustomTournament.commissionPercent}
+                        onChange={(e) => setEditFootballCustomTournament((p) => (p ? { ...p, commissionPercent: e.target.value } : null))}
+                        disabled={editFootballCustomTournament.hasRegistrations}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm text-slate-300">מקס׳ משתתפים (אופציונלי)</label>
+                      <Input
+                        type="number"
+                        min={1}
+                        className="bg-slate-900 border-slate-600"
+                        value={editFootballCustomTournament.maxParticipants}
+                        onChange={(e) => setEditFootballCustomTournament((p) => (p ? { ...p, maxParticipants: e.target.value } : null))}
+                        placeholder="ללא הגבלה"
+                        disabled={editFootballCustomTournament.hasRegistrations}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-sm text-slate-300">תאריך פתיחה</label>
+                      <Input
+                        type="date"
+                        className="bg-slate-900 border-slate-600"
+                        value={editFootballCustomTournament.openDate}
+                        onChange={(e) => setEditFootballCustomTournament((p) => (p ? { ...p, openDate: e.target.value } : null))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm text-slate-300">שעת פתיחה</label>
+                      <Input
+                        type="time"
+                        className="bg-slate-900 border-slate-600"
+                        value={editFootballCustomTournament.openTime}
+                        onChange={(e) => setEditFootballCustomTournament((p) => (p ? { ...p, openTime: e.target.value } : null))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm text-slate-300">תאריך סגירה</label>
+                      <Input
+                        type="date"
+                        className="bg-slate-900 border-slate-600"
+                        value={editFootballCustomTournament.closeDate}
+                        onChange={(e) => setEditFootballCustomTournament((p) => (p ? { ...p, closeDate: e.target.value } : null))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm text-slate-300">שעת סגירה</label>
+                      <Input
+                        type="time"
+                        className="bg-slate-900 border-slate-600"
+                        value={editFootballCustomTournament.closeTime}
+                        onChange={(e) => setEditFootballCustomTournament((p) => (p ? { ...p, closeTime: e.target.value } : null))}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm text-slate-300">מספר זוכים</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={20}
+                      className="bg-slate-900 border-slate-600 w-28"
+                      value={editFootballCustomTournament.numberOfWinners}
+                      disabled={editFootballCustomTournament.hasRegistrations}
+                      onChange={(e) => {
+                        if (editFootballCustomTournament.hasRegistrations) return;
+                        const n = Math.max(1, Math.min(20, parseInt(e.target.value || "1", 10) || 1));
+                        setEditFootballCustomTournament((p) => {
+                          if (!p) return null;
+                          const next = p.prizePercentages.slice(0, n);
+                          while (next.length < n) next.push(next.length === 0 ? "100" : "0");
+                          return { ...p, numberOfWinners: n, prizePercentages: next };
+                        });
+                      }}
+                    />
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      {Array.from({ length: editFootballCustomTournament.numberOfWinners }, (_, i) => (
+                        <div key={i} className="space-y-1">
+                          <label className="text-xs text-slate-400">מקום {i + 1} (%)</label>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={100}
+                            className="bg-slate-900 border-slate-600"
+                            value={editFootballCustomTournament.prizePercentages[i] ?? ""}
+                            disabled={editFootballCustomTournament.hasRegistrations}
+                            onChange={(e) => setEditFootballCustomTournament((p) => {
+                              if (!p) return null;
+                              if (p.hasRegistrations) return p;
+                              const arr = [...p.prizePercentages];
+                              arr[i] = e.target.value;
+                              return { ...p, prizePercentages: arr };
+                            })}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button variant="outline" className="border-slate-600" onClick={() => setEditFootballCustomTournament(null)}>
+                  ביטול
+                </Button>
+                <Button
+                  className="bg-amber-600 hover:bg-amber-700"
+                  disabled={updateFootballCustomTournamentMut.isPending || editFootballCustomTournament == null}
+                  onClick={async () => {
+                    if (!editFootballCustomTournament) return;
+                    const isFinancialLocked = editFootballCustomTournament.hasRegistrations;
+                    const name = editFootballCustomTournament.name.trim();
+                    const amount = parseInt(editFootballCustomTournament.amount, 10);
+                    const commissionPercent = parseFloat(editFootballCustomTournament.commissionPercent);
+                    const maxParticipants = editFootballCustomTournament.maxParticipants.trim() === ""
+                      ? null
+                      : parseInt(editFootballCustomTournament.maxParticipants, 10);
+                    if (!name) {
+                      toast.error("שם תחרות הוא שדה חובה");
+                      return;
+                    }
+                    if (!isFinancialLocked && (!Number.isInteger(amount) || amount < 0)) {
+                      toast.error("עלות חייבת להיות מספר שלם 0 ומעלה");
+                      return;
+                    }
+                    if (!isFinancialLocked && (!Number.isFinite(commissionPercent) || commissionPercent < 0 || commissionPercent > 100)) {
+                      toast.error("עמלה חייבת להיות בין 0 ל־100");
+                      return;
+                    }
+                    if (!isFinancialLocked && maxParticipants != null && (!Number.isInteger(maxParticipants) || maxParticipants < 1)) {
+                      toast.error("מקסימום משתתפים חייב להיות מספר שלם חיובי");
+                      return;
+                    }
+                    const percentages = editFootballCustomTournament.prizePercentages
+                      .slice(0, editFootballCustomTournament.numberOfWinners)
+                      .map((v) => parseFloat(v) || 0);
+                    const totalPct = percentages.reduce((a, b) => a + b, 0);
+                    if (!isFinancialLocked && Math.abs(totalPct - 100) > 0.01) {
+                      toast.error(`חלוקת פרסים: סך האחוזים חייב להיות 100% (נוכחי: ${totalPct}%)`);
+                      return;
+                    }
+                    const prizeDistribution: Record<string, number> = {};
+                    for (let i = 0; i < percentages.length; i++) prizeDistribution[String(i + 1)] = percentages[i];
+                    const opensAt = new Date(`${editFootballCustomTournament.openDate}T${editFootballCustomTournament.openTime}:00+02:00`).getTime();
+                    const closesAt = new Date(`${editFootballCustomTournament.closeDate}T${editFootballCustomTournament.closeTime}:00+02:00`).getTime();
+                    if (Number.isNaN(opensAt) || Number.isNaN(closesAt)) {
+                      toast.error("יש לבחור תאריך ושעת פתיחה/סגירה תקינים");
+                      return;
+                    }
+                    if (closesAt <= opensAt) {
+                      toast.error("שעת הסגירה חייבת להיות אחרי שעת הפתיחה");
+                      return;
+                    }
+                    try {
+                      await updateFootballCustomTournamentMut.mutateAsync({
+                        tournamentId: editFootballCustomTournament.id,
+                        name,
+                        amount,
+                        maxParticipants,
+                        commissionPercent,
+                        prizeDistribution,
+                        opensAt,
+                        closesAt,
+                      });
+                      toast.success("פרטי התחרות עודכנו");
+                      setEditFootballCustomTournament(null);
+                      await utils.tournaments.getAll.invalidate();
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "שגיאה בעדכון התחרות");
+                    }
+                  }}
+                >
+                  {updateFootballCustomTournamentMut.isPending ? <Loader2 className="w-4 h-4 animate-spin ml-1" /> : null}
+                  שמור שינויים
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           </div>
         )}
 
@@ -1549,7 +1832,7 @@ export default function AdminPanel() {
                             const n = parseInt(v, 10);
                             if (Number.isInteger(n) && n >= 1 && n <= 30) {
                               setSportsCreateMatches((prev) => {
-                                const next = Array.from({ length: n }, (_, i) => prev[i] ?? { homeTeam: "", awayTeam: "", matchDate: "", matchTime: "" });
+                                const next = Array.from({ length: n }, (_, i) => prev[i] ?? { homeTeam: "", awayTeam: "" });
                                 return next;
                               });
                             } else {
@@ -1567,8 +1850,6 @@ export default function AdminPanel() {
                             <span className="w-6">#</span>
                             <span className="min-w-[180px] max-w-[220px]">קבוצת בית</span>
                             <span className="min-w-[180px] max-w-[220px]">קבוצת חוץ</span>
-                            <span className="w-36">תאריך</span>
-                            <span className="w-28">שעה</span>
                           </div>
                           <div className="space-y-2">
                             {sportsCreateMatches.map((row, i) => (
@@ -1596,8 +1877,6 @@ export default function AdminPanel() {
                                   })}
                                   excludeTeamId={row.homeTeamId ?? null}
                                 />
-                                <Input type="date" className="bg-slate-800 text-white w-36" value={row.matchDate} onChange={(e) => setSportsCreateMatches((prev) => { const n = [...prev]; n[i] = { ...n[i], matchDate: e.target.value }; return n; })} />
-                                <Input type="time" className="bg-slate-800 text-white w-28" value={row.matchTime} onChange={(e) => setSportsCreateMatches((prev) => { const n = [...prev]; n[i] = { ...n[i], matchTime: e.target.value }; return n; })} />
                               </div>
                             ))}
                           </div>
@@ -1744,7 +2023,7 @@ export default function AdminPanel() {
                     </div>
                   )}
 
-                  <div className="pt-2">
+                  <div className="pt-2 space-y-2">
                     <Button
                       type="submit"
                       disabled={
@@ -1755,17 +2034,26 @@ export default function AdminPanel() {
                             0
                           ) - 100
                         ) > 0.01 ||
-                        (newTournament.type === "football_custom" && (() => {
-                          const ng = newTournament.numberOfGames.trim() ? parseInt(newTournament.numberOfGames, 10) : NaN;
-                          if (!Number.isInteger(ng) || ng < 1 || ng > 30) return true;
-                          if (sportsCreateMatches.length !== ng) return true;
-                          return sportsCreateMatches.some((r) => !(r.homeTeam?.trim()) || !(r.awayTeam?.trim()) || !(r.matchDate?.trim()) || !(r.matchTime?.trim()));
-                        })())
+                        (newTournament.type === "football_custom" && footballCustomCreateIssues.length > 0)
                       }
                     >
                       {createTournamentMut.isPending ? <Loader2 className="w-4 h-4 animate-spin ml-1" /> : null}
                       צור תחרות
                     </Button>
+                    {newTournament.type === "football_custom" && footballCustomCreateIssues.length > 0 && (
+                      <div
+                        className="rounded-md border border-amber-600/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-100 max-w-xl"
+                        role="status"
+                        aria-live="polite"
+                      >
+                        <p className="font-medium text-amber-300 mb-1">לא ניתן ליצור תחרות עד שיתקנו:</p>
+                        <ul className="list-disc list-inside space-y-0.5 text-amber-100/95">
+                          {footballCustomCreateIssues.map((msg, idx) => (
+                            <li key={idx}>{msg}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 </form>
               </CardContent>
@@ -1793,8 +2081,6 @@ export default function AdminPanel() {
                 setEditCommissionModal({ tournamentId: id, tournamentName: name, currentCommissionPercent: current });
                 setEditCommissionValue(String(current));
               }}
-              onViewSchema={setSchemaDebugTournamentId}
-              onViewItems={(id, name) => setItemsManageTournament({ id, name })}
             />
             <Card className="bg-slate-800/50 border-slate-700 max-w-2xl">
               <CardHeader>
@@ -1842,19 +2128,6 @@ export default function AdminPanel() {
                 </div>
               </CardContent>
             </Card>
-            <Dialog open={schemaDebugTournamentId != null} onOpenChange={(open) => !open && setSchemaDebugTournamentId(null)}>
-              <SchemaDebugModal
-                tournamentId={schemaDebugTournamentId}
-                onClose={() => setSchemaDebugTournamentId(null)}
-              />
-            </Dialog>
-            {itemsManageTournament != null && (
-              <CompetitionItemsManageModal
-                tournamentId={itemsManageTournament.id}
-                tournamentName={itemsManageTournament.name}
-                onClose={() => setItemsManageTournament(null)}
-              />
-            )}
             <Dialog
               open={editCommissionModal != null}
               onOpenChange={(open) => {
@@ -3830,6 +4103,49 @@ export default function AdminPanel() {
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="text-white font-medium">{t.name} – ₪{t.amount}</span>
                           <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-slate-300"
+                              onClick={() => {
+                                const rawPd = (t as { prizeDistribution?: Record<string, number> | string | null }).prizeDistribution;
+                                let pd: Record<string, number> = { "1": 100 };
+                                if (rawPd && typeof rawPd === "object" && !Array.isArray(rawPd)) {
+                                  pd = rawPd as Record<string, number>;
+                                } else if (typeof rawPd === "string" && rawPd.trim()) {
+                                  try {
+                                    const parsed = JSON.parse(rawPd) as Record<string, number>;
+                                    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) pd = parsed;
+                                  } catch {
+                                    pd = { "1": 100 };
+                                  }
+                                }
+                                const ordered = Object.keys(pd)
+                                  .filter((k) => /^[1-9]\d*$/.test(k))
+                                  .sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
+                                  .map((k) => String(pd[k] ?? 0));
+                                const winners = Math.max(1, ordered.length || 1);
+                                const registrationsCount = submissionsCountByTournament.get(t.id) ?? 0;
+                                setEditFootballCustomTournament({
+                                  id: t.id,
+                                  name: t.name ?? "",
+                                  amount: String(t.amount ?? ""),
+                                  commissionPercent: String((((t as { commissionPercentBasisPoints?: number | null }).commissionPercentBasisPoints ?? 1250) / 100)),
+                                  maxParticipants: (t as { maxParticipants?: number | null }).maxParticipants != null ? String((t as { maxParticipants?: number | null }).maxParticipants) : "",
+                                  openDate: toDateInputValue((t as { opensAt?: unknown }).opensAt),
+                                  openTime: toTimeInputValue((t as { opensAt?: unknown }).opensAt),
+                                  closeDate: toDateInputValue((t as { closesAt?: unknown }).closesAt),
+                                  closeTime: toTimeInputValue((t as { closesAt?: unknown }).closesAt),
+                                  numberOfWinners: winners,
+                                  prizePercentages: winners > 0 ? ordered.slice(0, winners) : ["100"],
+                                  hasRegistrations: registrationsCount > 0,
+                                });
+                              }}
+                              title="ערוך פרטי תחרות"
+                            >
+                              <Pencil className="w-3.5 h-3.5 ml-1" />
+                              ערוך תחרות
+                            </Button>
                             <Button size="sm" variant="default" onClick={() => { setFootballCustomSelectedId(t.id); setFootballCustomResultEdit({}); setEditCustomMatch(null); }}>ניהול משחקים</Button>
                             <Button size="sm" variant={t.isLocked ? "outline" : "default"} onClick={() => handleLock(t.id, !t.isLocked)}>{t.isLocked ? "פתח" : "נעל"}</Button>
                             <Button size="sm" variant="outline" onClick={() => setFootballCustomSelectedId(t.id)}>דירוג</Button>
@@ -3858,11 +4174,9 @@ export default function AdminPanel() {
                                     awayTeam: footballCustomNewMatch.awayTeam.trim(),
                                     homeTeamId: footballCustomNewMatch.homeTeamId ?? undefined,
                                     awayTeamId: footballCustomNewMatch.awayTeamId ?? undefined,
-                                    matchDate: footballCustomNewMatch.matchDate.trim() || undefined,
-                                    matchTime: footballCustomNewMatch.matchTime.trim() || undefined,
                                   });
                                   toast.success("משחק נוסף");
-                                  setFootballCustomNewMatch({ homeTeam: "", awayTeam: "", matchDate: "", matchTime: "" });
+                                  setFootballCustomNewMatch({ homeTeam: "", awayTeam: "" });
                                   await utils.admin.getCustomFootballMatches.invalidate();
                                 } catch {
                                   toast.error("שגיאה");
@@ -3883,8 +4197,6 @@ export default function AdminPanel() {
                                 onChange={(v) => setFootballCustomNewMatch((p) => ({ ...p, awayTeam: v.teamName, awayTeamId: v.teamId, awayCategoryName: v.categoryName }))}
                                 excludeTeamId={footballCustomNewMatch.homeTeamId ?? null}
                               />
-                              <Input type="date" placeholder="dd/mm/yyyy" title="dd/mm/yyyy" className="bg-slate-800 text-white w-36" value={footballCustomNewMatch.matchDate} onChange={(e) => setFootballCustomNewMatch((p) => ({ ...p, matchDate: e.target.value }))} />
-                              <Input type="time" placeholder="שעה" className="bg-slate-800 text-white w-28" value={footballCustomNewMatch.matchTime} onChange={(e) => setFootballCustomNewMatch((p) => ({ ...p, matchTime: e.target.value }))} />
                               <Button type="submit" size="sm" disabled={addCustomFootballMatchMut.isPending}>הוסף משחק</Button>
                             </form>
                             {customFootballMatches && customFootballMatches.length > 0 && (
@@ -3909,8 +4221,6 @@ export default function AdminPanel() {
                                             onChange={(v) => setEditCustomMatch((x) => (x ? { ...x, awayTeam: v.teamName, awayTeamId: v.teamId, awayCategoryName: v.categoryName } : null))}
                                             excludeTeamId={editCustomMatch.homeTeamId ?? null}
                                           />
-                                          <Input type="date" className="bg-slate-800 text-white w-36" value={editCustomMatch.matchDate} onChange={(e) => setEditCustomMatch((x) => (x ? { ...x, matchDate: e.target.value } : null))} />
-                                          <Input type="time" className="bg-slate-800 text-white w-28" value={editCustomMatch.matchTime} onChange={(e) => setEditCustomMatch((x) => (x ? { ...x, matchTime: e.target.value } : null))} />
                                           <Button size="sm" onClick={async () => {
                                             if (!editCustomMatch) return;
                                             if (editCustomMatch.homeTeam.trim() === editCustomMatch.awayTeam.trim()) {
@@ -3924,8 +4234,6 @@ export default function AdminPanel() {
                                                 awayTeam: editCustomMatch.awayTeam.trim(),
                                                 homeTeamId: editCustomMatch.homeTeamId ?? undefined,
                                                 awayTeamId: editCustomMatch.awayTeamId ?? undefined,
-                                                matchDate: editCustomMatch.matchDate.trim() || null,
-                                                matchTime: editCustomMatch.matchTime.trim() || null,
                                               });
                                               toast.success("משחק עודכן");
                                               setEditCustomMatch(null);
@@ -3941,8 +4249,7 @@ export default function AdminPanel() {
                                       ) : (
                                         <>
                                           <span className="text-slate-300 text-sm min-w-[140px]">{m.homeTeam} – {m.awayTeam}</span>
-                                          {(m.matchDate || m.matchTime) && <span className="text-slate-500 text-xs">{[m.matchDate, m.matchTime].filter(Boolean).join(" ")}</span>}
-                                          <Button size="sm" variant="outline" className="text-slate-400" onClick={() => setEditCustomMatch({ id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam, homeTeamId: (m as { homeTeamId?: number }).homeTeamId, awayTeamId: (m as { awayTeamId?: number }).awayTeamId, matchDate: m.matchDate ?? "", matchTime: m.matchTime ?? "" })} title="ערוך משחק">
+                                          <Button size="sm" variant="outline" className="text-slate-400" onClick={() => setEditCustomMatch({ id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam, homeTeamId: (m as { homeTeamId?: number }).homeTeamId, awayTeamId: (m as { awayTeamId?: number }).awayTeamId })} title="ערוך משחק">
                                             <Pencil className="w-3.5 h-3.5 ml-1" />
                                             ערוך משחק
                                           </Button>

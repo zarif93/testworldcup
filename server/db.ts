@@ -3870,6 +3870,101 @@ export async function updateTournamentCommission(tournamentId: number, commissio
     .where(eq(tournaments.id, tournamentId));
 }
 
+/**
+ * Admin edit for sports competitions (football_custom) details.
+ * Does not modify match rows; only tournament-level metadata.
+ */
+export async function updateFootballCustomTournamentDetails(data: {
+  tournamentId: number;
+  name: string;
+  amount: number;
+  maxParticipants?: number | null;
+  commissionPercent: number;
+  prizeDistribution: Record<string, number>;
+  opensAt: number;
+  closesAt: number;
+}): Promise<void> {
+  const tournament = await getTournamentById(data.tournamentId);
+  if (!tournament) throw new Error("Tournament not found");
+  if ((tournament as { type?: string | null }).type !== "football_custom") {
+    throw new Error("ניתן לערוך כך רק תחרויות ספורט (football_custom)");
+  }
+  if (!data.name.trim()) throw new Error("שם תחרות הוא שדה חובה");
+  if (!Number.isInteger(data.amount) || data.amount < 0) {
+    throw new Error("עלות תחרות חייבת להיות מספר שלם 0 ומעלה");
+  }
+  const commission = Number(data.commissionPercent);
+  if (!Number.isFinite(commission) || commission < 0 || commission > 100) {
+    throw new Error("עמלה חייבת להיות בין 0 ל־100");
+  }
+  if (!Number.isFinite(data.opensAt) || !Number.isFinite(data.closesAt) || data.closesAt <= data.opensAt) {
+    throw new Error("תאריך/שעת סגירה חייבים להיות אחרי תאריך/שעת פתיחה");
+  }
+
+  const pd = data.prizeDistribution ?? {};
+  const keys = Object.keys(pd).filter((k) => /^[1-9]\d*$/.test(k)).map((k) => parseInt(k, 10)).sort((a, b) => a - b);
+  if (keys.length === 0) {
+    throw new Error("חלוקת פרסים חייבת לכלול לפחות מקום אחד");
+  }
+  const expectedKeys = Array.from({ length: keys.length }, (_, i) => i + 1);
+  if (keys.some((k, i) => k !== expectedKeys[i])) {
+    throw new Error("חלוקת פרסים: המקומות חייבים להיות 1, 2, 3, ... ברצף");
+  }
+  const sum = keys.reduce((s, k) => s + (typeof pd[String(k)] === "number" ? pd[String(k)] : 0), 0);
+  if (Math.abs(sum - 100) > 0.01) {
+    throw new Error(`חלוקת פרסים: סך האחוזים חייב להיות 100% (נוכחי: ${sum}%)`);
+  }
+
+  const hasRegistrations = (await getSubmissionsByTournament(data.tournamentId)).length > 0;
+  if (hasRegistrations) {
+    const currentAmount = Number((tournament as { amount?: number }).amount ?? 0);
+    const currentMaxParticipants = (tournament as { maxParticipants?: number | null }).maxParticipants ?? null;
+    const currentCommissionPercent = ((tournament as { commissionPercentBasisPoints?: number | null }).commissionPercentBasisPoints ?? 1250) / 100;
+    const currentPrizeRaw = (tournament as { prizeDistribution?: unknown }).prizeDistribution;
+    const currentPrize: Record<string, number> =
+      currentPrizeRaw && typeof currentPrizeRaw === "object" && !Array.isArray(currentPrizeRaw)
+        ? (currentPrizeRaw as Record<string, number>)
+        : {};
+
+    const normalizePrize = (x: Record<string, number>) => {
+      const keysNorm = Object.keys(x).filter((k) => /^[1-9]\d*$/.test(k)).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+      const out: Record<string, number> = {};
+      for (const k of keysNorm) out[k] = Number(x[k] ?? 0);
+      return out;
+    };
+    const financialChanged =
+      currentAmount !== data.amount ||
+      (currentMaxParticipants ?? null) !== (data.maxParticipants ?? null) ||
+      Math.abs(currentCommissionPercent - commission) > 0.0001 ||
+      JSON.stringify(normalizePrize(currentPrize)) !== JSON.stringify(normalizePrize(pd));
+
+    if (financialChanged) {
+      throw new Error("לא ניתן לערוך עלות/עמלה/מספר משתתפים/חלוקת פרסים לאחר שיש הרשמות לתחרות.");
+    }
+  }
+
+  const { tournaments } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const set: Record<string, unknown> = {
+    name: data.name.trim(),
+    opensAt: new Date(data.opensAt),
+    closesAt: new Date(data.closesAt),
+    updatedAt: new Date(),
+  };
+  if (!hasRegistrations) {
+    set.amount = data.amount;
+    set.maxParticipants = data.maxParticipants ?? null;
+    set.commissionPercentBasisPoints = Math.max(0, Math.min(10_000, Math.round(commission * 100)));
+    set.prizeDistribution = pd;
+  }
+  await db
+    .update(tournaments)
+    .set(set as typeof tournaments.$inferInsert)
+    .where(eq(tournaments.id, data.tournamentId));
+}
+
 /** שמירה לצמיתות – רשומה כספית בעת חלוקת פרסים או החזר. לא נמחקת אוטומטית. */
 export type FinancialRecordParticipant = { submissionId?: number; userId: number; username: string; amountPaid: number; prizeWon: number; rank?: number };
 export async function insertFinancialRecord(data: {
@@ -6546,7 +6641,7 @@ export async function createTournament(data: {
   /** תחרויות ספורט: מספר משחקים (1–30). כשמועבר matches – נוצרות שורות בהתאם ב־custom_football_matches. */
   numberOfGames?: number | null;
   /** תחרויות ספורט: רשימת משחקים ליצירה במקביל לתחרות (צעד אחד). */
-  matches?: Array<{ homeTeam: string; awayTeam: string; matchDate?: string | null; matchTime?: string | null }> | null;
+  matches?: Array<{ homeTeam: string; awayTeam: string; homeTeamId?: number | null; awayTeamId?: number | null }> | null;
 }): Promise<number> {
   const { validateCreateTournamentPayload } = await import("./tournamentCreateValidator");
   const validation = validateCreateTournamentPayload({
@@ -6628,11 +6723,8 @@ export async function createTournament(data: {
       const m = matches[i];
       const home = (m.homeTeam ?? "").trim();
       const away = (m.awayTeam ?? "").trim();
-      const date = (m.matchDate ?? "").trim();
-      const time = (m.matchTime ?? "").trim();
       if (!home || !away) throw new Error(`משחק ${i + 1}: חובה למלא קבוצה ביתית ואורחת`);
       if (home === away) throw new Error(`משחק ${i + 1}: קבוצה ביתית ואורחת לא יכולות להיות אותו שם`);
-      if (!date || !time) throw new Error(`משחק ${i + 1}: חובה למלא תאריך ושעה`);
     }
     row.numberOfGames = numGames;
     row.status = "OPEN";
@@ -6677,8 +6769,8 @@ export async function createTournament(data: {
               awayTeam: (m.awayTeam ?? "").trim(),
               homeTeamId: (m as { homeTeamId?: number | null }).homeTeamId ?? null,
               awayTeamId: (m as { awayTeamId?: number | null }).awayTeamId ?? null,
-              matchDate: (m.matchDate ?? "").trim() || null,
-              matchTime: (m.matchTime ?? "").trim() || null,
+              matchDate: null,
+              matchTime: null,
               displayOrder: i,
             })
             .run();
@@ -6697,8 +6789,8 @@ export async function createTournament(data: {
             awayTeam: (m.awayTeam ?? "").trim(),
             homeTeamId: (m as { homeTeamId?: number | null }).homeTeamId ?? null,
             awayTeamId: (m as { awayTeamId?: number | null }).awayTeamId ?? null,
-            matchDate: (m.matchDate ?? "").trim() || null,
-            matchTime: (m.matchTime ?? "").trim() || null,
+            matchDate: null,
+            matchTime: null,
             displayOrder: i,
           });
         }
@@ -8598,8 +8690,6 @@ export async function addCustomFootballMatch(data: {
   awayTeam: string;
   homeTeamId?: number | null;
   awayTeamId?: number | null;
-  matchDate?: string | null;
-  matchTime?: string | null;
   displayOrder?: number;
 }) {
   const { customFootballMatches } = await getSchema();
@@ -8611,8 +8701,8 @@ export async function addCustomFootballMatch(data: {
     awayTeam: data.awayTeam.trim(),
     homeTeamId: data.homeTeamId ?? null,
     awayTeamId: data.awayTeamId ?? null,
-    matchDate: data.matchDate?.trim() || null,
-    matchTime: data.matchTime?.trim() || null,
+    matchDate: null,
+    matchTime: null,
     displayOrder: data.displayOrder ?? 0,
   });
 }
@@ -8629,8 +8719,6 @@ export async function updateCustomFootballMatch(matchId: number, data: {
   awayTeam?: string;
   homeTeamId?: number | null;
   awayTeamId?: number | null;
-  matchDate?: string | null;
-  matchTime?: string | null;
 }) {
   const { customFootballMatches } = await getSchema();
   const db = await getDb();
@@ -8640,8 +8728,6 @@ export async function updateCustomFootballMatch(matchId: number, data: {
   if (data.awayTeam !== undefined) set.awayTeam = data.awayTeam.trim();
   if (data.homeTeamId !== undefined) set.homeTeamId = data.homeTeamId ?? null;
   if (data.awayTeamId !== undefined) set.awayTeamId = data.awayTeamId ?? null;
-  if (data.matchDate !== undefined) set.matchDate = data.matchDate?.trim() || null;
-  if (data.matchTime !== undefined) set.matchTime = data.matchTime?.trim() || null;
   await db.update(customFootballMatches).set(set).where(eq(customFootballMatches.id, matchId));
 }
 

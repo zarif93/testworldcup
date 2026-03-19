@@ -46,6 +46,7 @@ import {
   createTournament,
   deleteTournament,
   updateTournamentCommission,
+  updateFootballCustomTournamentDetails,
   isTournamentCompleted,
   refundTournamentParticipants,
   repairUnrefundedCancelledCompetitions,
@@ -1923,6 +1924,54 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
         });
         return { success: true };
       }),
+    updateFootballCustomTournament: adminProcedure.use(usePermission("competitions.edit"))
+      .input(z.object({
+        tournamentId: z.number().int().positive(),
+        name: z.string().min(1),
+        amount: z.number().int().min(0),
+        maxParticipants: z.number().int().min(1).nullable().optional(),
+        commissionPercent: z.number().min(0).max(100),
+        prizeDistribution: z.record(z.string(), z.number()),
+        opensAt: z.union([z.string(), z.number(), z.date()]),
+        closesAt: z.union([z.string(), z.number(), z.date()]),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const toTs = (v: string | number | Date): number | null => {
+          if (typeof v === "number") return Number.isNaN(v) ? null : v;
+          if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.getTime();
+          try {
+            const d = new Date(v);
+            return Number.isNaN(d.getTime()) ? null : d.getTime();
+          } catch {
+            return null;
+          }
+        };
+        const opensAt = toTs(input.opensAt);
+        const closesAt = toTs(input.closesAt);
+        if (opensAt == null || closesAt == null) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "חובה לבחור תאריך ושעת פתיחה/סגירה" });
+        }
+        if (closesAt <= opensAt) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "שעת הסגירה חייבת להיות אחרי שעת הפתיחה" });
+        }
+        await updateFootballCustomTournamentDetails({
+          tournamentId: input.tournamentId,
+          name: input.name,
+          amount: input.amount,
+          maxParticipants: input.maxParticipants ?? null,
+          commissionPercent: input.commissionPercent,
+          prizeDistribution: input.prizeDistribution,
+          opensAt,
+          closesAt,
+        });
+        await insertAdminAuditLog({
+          performedBy: ctx.user!.id,
+          action: "Update Football Custom Tournament",
+          targetUserId: null,
+          details: { tournamentId: input.tournamentId, ip: getAuditIp(ctx) },
+        });
+        return { success: true };
+      }),
     hideTournamentFromHomepage: adminProcedure
       .input(z.object({ id: z.coerce.number() }))
       .mutation(async ({ input, ctx }) => {
@@ -1991,14 +2040,12 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
         commissionPercent: z.number().min(0).max(100).nullable().optional(),
         /** תחרויות ספורט: מספר משחקים (1–30). יחד עם matches – יצירה בצעד אחד. */
         numberOfGames: z.number().int().min(1).max(30).nullable().optional(),
-        /** תחרויות ספורט: רשימת משחקים (בית, אורח, תאריך, שעה; אופציונלי teamId מהספרייה). */
+        /** תחרויות ספורט: רשימת משחקים (בית, אורח; אופציונלי teamId מהספרייה). */
         matches: z.array(z.object({
           homeTeam: z.string().min(1),
           awayTeam: z.string().min(1),
           homeTeamId: z.number().int().positive().optional().nullable(),
           awayTeamId: z.number().int().positive().optional().nullable(),
-          matchDate: z.string().optional().nullable(),
-          matchTime: z.string().optional().nullable(),
         })).optional(),
       }))
       .mutation(async ({ input }) => {
@@ -2083,9 +2130,6 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
             }
             if (m.homeTeam.trim() === m.awayTeam.trim()) {
               throw new TRPCError({ code: "BAD_REQUEST", message: `משחק ${i + 1}: קבוצה ביתית ואורחת לא יכולות להיות אותו שם` });
-            }
-            if (!(m.matchDate?.trim()) || !(m.matchTime?.trim())) {
-              throw new TRPCError({ code: "BAD_REQUEST", message: `משחק ${i + 1}: חובה למלא תאריך ושעה` });
             }
           }
         }
@@ -2855,8 +2899,6 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
         awayTeam: z.string().min(1),
         homeTeamId: z.number().int().positive().optional().nullable(),
         awayTeamId: z.number().int().positive().optional().nullable(),
-        matchDate: z.string().optional(),
-        matchTime: z.string().optional(),
         displayOrder: z.number().optional(),
       }))
       .mutation(({ input }) => addCustomFootballMatch(input)),
@@ -2877,8 +2919,6 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
         awayTeam: z.string().min(1).optional(),
         homeTeamId: z.number().int().positive().optional().nullable(),
         awayTeamId: z.number().int().positive().optional().nullable(),
-        matchDate: z.string().optional().nullable(),
-        matchTime: z.string().optional().nullable(),
       }))
       .mutation(({ input }) => updateCustomFootballMatch(input.matchId, input)),
     deleteCustomFootballMatch: adminProcedure

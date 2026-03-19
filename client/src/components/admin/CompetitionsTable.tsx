@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Lock, Trash2, Code, ListChecks, Pencil } from "lucide-react";
+import { Lock, Trash2, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
@@ -35,10 +35,6 @@ interface CompetitionsTableProps {
   onDelete: (tournamentId: number, name: string) => void;
   /** Edit commission (only when 0 participants). Receives current commission % 0–100. */
   onEditCommission?: (tournamentId: number, tournamentName: string, currentCommissionPercent: number) => void;
-  /** Phase 2C: optional debug – show resolved schema for this tournament */
-  onViewSchema?: (tournamentId: number) => void;
-  /** Phase 8: manage universal competition item sets/items for this tournament */
-  onViewItems?: (tournamentId: number, tournamentName: string) => void;
   isLoading?: boolean;
 }
 
@@ -61,8 +57,6 @@ export function CompetitionsTable({
   onLock,
   onDelete,
   onEditCommission,
-  onViewSchema,
-  onViewItems,
   isLoading,
 }: CompetitionsTableProps) {
   const [typeFilter, setTypeFilter] = useState<string>("");
@@ -172,28 +166,6 @@ export function CompetitionsTable({
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
-                        {onViewSchema && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 text-slate-400 border-slate-600 hover:bg-slate-700/50"
-                            onClick={() => onViewSchema(t.id)}
-                            title="הצג schema (דיבאג)"
-                          >
-                            <Code className="w-3.5 h-3.5" />
-                          </Button>
-                        )}
-                        {onViewItems && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 text-amber-400/80 border-amber-500/50 hover:bg-amber-500/20"
-                            onClick={() => onViewItems(t.id, t.name)}
-                            title="ניהול פריטי תחרות (Phase 8)"
-                          >
-                            <ListChecks className="w-3.5 h-3.5" />
-                          </Button>
-                        )}
                       </div>
                     </TableCell>
                   </TableRow>

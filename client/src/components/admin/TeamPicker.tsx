@@ -19,10 +19,9 @@ export type TeamPickerValue = {
   categoryName?: string;
 };
 
-function getDisplayLabel(v: TeamPickerValue | null): string {
-  if (!v?.teamName?.trim()) return "";
-  if (v.categoryName?.trim()) return `${v.teamName.trim()} — ${v.categoryName.trim()}`;
-  return v.teamName.trim();
+/** Input shows canonical team name only so live onChange matches parent state (no "שם — קטגוריה" in the field). */
+function valueToInputText(v: TeamPickerValue | null): string {
+  return v?.teamName ?? "";
 }
 
 type Props = {
@@ -52,32 +51,27 @@ export function TeamPicker({ value, onChange, placeholder = "חיפוש או ה�
 
   const filteredHits = excludeTeamId != null ? hits.filter((h) => h.id !== excludeTeamId) : hits;
 
-  // When opening with existing value, show its display label
+  // Keep local input in sync when parent value changes (new row, reset, library pick from handler).
+  // Depend on primitives only — parent passes a new object each render.
   useEffect(() => {
-    if (isOpen && inputText === "" && value?.teamName) {
-      setInputText(getDisplayLabel(value));
-    }
-  }, [isOpen]);
+    setInputText(valueToInputText(value));
+  }, [value?.teamName, value?.teamId, value?.categoryName]);
 
   // Click outside to close
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setIsOpen(false);
-        if (value?.teamName) {
-          setInputText(getDisplayLabel(value));
-        } else {
-          setInputText("");
-        }
+        setInputText(valueToInputText(value));
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [value]);
+  }, [value?.teamName, value?.teamId, value?.categoryName]);
 
   const handleSelect = (hit: { id: number; name: string; categoryName: string }) => {
     onChange({ teamId: hit.id, teamName: hit.name, categoryName: hit.categoryName });
-    setInputText(getDisplayLabel({ teamId: hit.id, teamName: hit.name, categoryName: hit.categoryName }));
+    setInputText(hit.name);
     setIsOpen(false);
     setFocusedIndex(-1);
   };
@@ -90,11 +84,16 @@ export function TeamPicker({ value, onChange, placeholder = "חיפוש או ה�
         return;
       }
       const trimmed = inputText.trim();
-      if (trimmed) {
-        onChange({ teamName: trimmed });
+      const prevTrim = (value?.teamName ?? "").trim();
+      if (!trimmed) {
+        onChange({ teamName: "", teamId: undefined, categoryName: undefined });
+        setInputText("");
+      } else if (trimmed === prevTrim && value?.teamId != null) {
+        onChange({ teamName: trimmed, teamId: value.teamId, categoryName: value.categoryName });
         setInputText(trimmed);
-      } else if (value?.teamName) {
-        setInputText(getDisplayLabel(value));
+      } else {
+        onChange({ teamName: trimmed, teamId: undefined, categoryName: undefined });
+        setInputText(trimmed);
       }
       setIsOpen(false);
     }
@@ -103,7 +102,7 @@ export function TeamPicker({ value, onChange, placeholder = "חיפוש או ה�
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!isOpen || filteredHits.length === 0) {
       if (e.key === "Enter" && inputText.trim()) {
-        onChange({ teamName: inputText.trim() });
+        onChange({ teamName: inputText.trim(), teamId: undefined, categoryName: undefined });
         setIsOpen(false);
       }
       return;
@@ -119,12 +118,12 @@ export function TeamPicker({ value, onChange, placeholder = "חיפוש או ה�
       if (focusedIndex >= 0 && filteredHits[focusedIndex]) {
         handleSelect(filteredHits[focusedIndex]);
       } else if (inputText.trim()) {
-        onChange({ teamName: inputText.trim() });
+        onChange({ teamName: inputText.trim(), teamId: undefined, categoryName: undefined });
         setIsOpen(false);
       }
     } else if (e.key === "Escape") {
       setIsOpen(false);
-      setInputText(value?.teamName ? getDisplayLabel(value) : "");
+      setInputText(valueToInputText(value));
       setFocusedIndex(-1);
     }
   };
@@ -140,12 +139,16 @@ export function TeamPicker({ value, onChange, placeholder = "חיפוש או ה�
     <div ref={containerRef} className={cn("relative", className)}>
       <Input
         placeholder={placeholder}
+        title={value?.categoryName?.trim() ? `קטגוריה בספרייה: ${value.categoryName.trim()}` : undefined}
         className="bg-slate-800 text-white w-full min-w-[140px]"
         value={inputText}
         onChange={(e) => {
-          setInputText(e.target.value);
+          const t = e.target.value;
+          setInputText(t);
           setIsOpen(true);
           setFocusedIndex(-1);
+          // Commit on every keystroke so form validation matches the visible field (blur may never fire, e.g. disabled submit).
+          onChange({ teamName: t, teamId: undefined, categoryName: undefined });
         }}
         onFocus={() => setIsOpen(true)}
         onBlur={handleBlur}
