@@ -10,17 +10,16 @@ This document describes the **production upload flow** after the full migration 
 - **Content-Type:** `multipart/form-data` (browser sets boundary automatically).
 - **Auth:** Same as admin tRPC: cookies + optional admin code. Context is created via `createContext(req, res)`; user must be admin and have the required permission for the upload `type`.
 - **Streaming:** Multer writes the file **directly to disk** (temp directory). The request body is never fully loaded into memory.
-- **Processing:** Server moves/renames the temp file to the final path (or, for jackpot, reads from path with sharp and writes WebP outputs). Sharp reads from **file path**, so the image is streamed from disk; only the processed outputs (e.g. WebP buffers) are in memory.
+- **Processing:** Server moves/renames the temp file to the final path (or reads from path with sharp and writes WebP outputs for site backgrounds). Sharp reads from **file path**, so the image is streamed from disk; only the processed outputs (e.g. WebP buffers) are in memory.
 - **Response:** Always JSON: `{ success: true, id, url [, thumbnailUrl ] }` or `{ success: false, message }`.
 
 ### Flow summary
 
 1. **Client:** Validates file (size/type) with `validateImageFile()`, builds `FormData` with `type`, `file`, and optional `activate`, `altText`, `category`. Sends `POST /api/upload` with `credentials: 'include'`.
 2. **Server (multer):** Parses multipart, streams file to `uploads/temp/<unique>.ext`, enforces 16MB limit and image type filter. On success, `req.file` has `path`, `originalname`, `mimetype`.
-3. **Server (auth):** Builds context from request, checks admin + permission by `type` (site-background/jackpot-background → `settings.manage`, media → `cms.edit`). Returns 401/403 JSON if unauthorized.
+3. **Server (auth):** Builds context from request, checks admin + permission by `type` (site-background → `settings.manage`, media → `cms.edit`). Returns 401/403 JSON if unauthorized.
 4. **Server (handler):** Calls the appropriate `create*FromFile(tempPath, ...)`:
    - **Site background:** Move temp → `uploads/backgrounds/<id>.ext`, sharp metadata from path, insert row, return `{ id, url }`.
-   - **Jackpot background:** `processJackpotBackgroundImageFromFile(tempPath)` (sharp reads from path, outputs WebP buffers), save to storage, insert row, audit log, return `{ id, url, thumbnailUrl }`.
    - **Media:** Move temp → `uploads/<id>.ext`, insert row, return `{ id, url }`.
 5. **Server (cleanup):** In `finally`, unlink temp file (no-op if already moved).
 6. **Client:** Parses JSON; on success invalidates relevant tRPC queries and shows toast; on error shows `getUploadErrorMessage(e)`.
@@ -33,12 +32,10 @@ This document describes the **production upload flow** after the full migration 
 |------|------|--------|
 | **Server – upload API** | `server/upload/routes.ts` | **New.** Multer diskStorage (16MB), auth + permission by type, single `POST /api/upload` handler. |
 | **Server – mount** | `server/_core/index.ts` | Create `uploads/temp`, call `registerUploadRoutes(app)`, comment update for JSON limit. |
-| **Server – DB** | `server/db.ts` | Added `createSiteBackgroundImageFromFile`, `createJackpotBackgroundImageFromFile`, `createMediaAssetFromFile`. Kept legacy base64 `create*` for reference but they are no longer used by any route. |
-| **Server – jackpot processor** | `server/storage/jackpotBackgroundImageProcess.ts` | Added `processJackpotBackgroundImageFromFile(inputPath, mimeType)` using `sharp(inputPath)` (stream from disk). |
-| **Server – jackpot validate** | `server/storage/jackpotBackgroundValidate.ts` | Added `validateJackpotBackgroundFile(filePath, mimeType)` (stat + 12-byte magic read). |
-| **Server – tRPC** | `server/routers.ts` | Removed `uploadSiteBackgroundImage`, `uploadJackpotBackgroundImage`, `uploadMediaAsset` mutations and their imports. |
+| **Server – DB** | `server/db.ts` | Added `createSiteBackgroundImageFromFile`, `createMediaAssetFromFile`. Kept legacy base64 `create*` for reference but they are no longer used by any route. |
+| **Server – tRPC** | `server/routers.ts` | Removed `uploadSiteBackgroundImage`, `uploadMediaAsset` mutations and their imports. |
 | **Client – shared util** | `client/src/lib/uploadUtils.ts` | Added `uploadImage({ type, file, activate?, altText?, category? })` (FormData + fetch), `UploadType`, `UploadResult`. |
-| **Client – UIs** | `BackgroundImagesSection.tsx`, `JackpotBackgroundSection.tsx`, `MediaManagerSection.tsx`, `MediaPickerModal.tsx` | Replaced tRPC upload mutations with `uploadImage()` + local `doUpload()`; removed FileReader/base64. |
+| **Client – UIs** | `BackgroundImagesSection.tsx`,  `MediaManagerSection.tsx`, `MediaPickerModal.tsx` | Replaced tRPC upload mutations with `uploadImage()` + local `doUpload()`; removed FileReader/base64. |
 | **Dependencies** | `package.json` | Added `multer`, `@types/multer`. |
 
 ---
@@ -49,10 +46,9 @@ This document describes the **production upload flow** after the full migration 
 - **After (multipart):**
   - **Multer:** Writes the request body stream directly to a file in `uploads/temp/`. No full-file buffer in Node.
   - **Site background:** Temp file is moved to final path; `sharp(filePath).metadata()` reads from disk (streaming). Only small metadata in memory.
-  - **Jackpot:** `sharp(inputPath)` pipelines read from disk and output WebP buffers. Only the processed buffers (full, thumb, mobile) are in memory, not the original decoded image.
   - **Media:** Temp file is moved to final path; no image decoding.
 
-So the **full image is never loaded into Node memory**; only the stream to disk and (for jackpot) the compressed WebP outputs.
+So the **full image is never loaded into Node memory**; only the stream to disk and any compressed WebP outputs.
 
 ---
 
@@ -62,7 +58,7 @@ So the **full image is never loaded into Node memory**; only the stream to disk 
 |-------|--------|------|
 | **Nginx** | `client_max_body_size 50m` | 50 MB request body; must be set on the **live** server block (see docs/UPLOAD-413-LIVE-SERVER-FIX.md). |
 | **Multer** | `limits.fileSize: 50 * 1024 * 1024` | 50 MB per file. |
-| **Client (site/jackpot)** | 8 MB | `validateImageFile` with `MAX_*_BYTES`. |
+| **Client (site background)** | 8 MB | `validateImageFile` with `MAX_SITE_BACKGROUND_BYTES`. |
 | **Client (media)** | 5 MB | Same. |
 
 **Max safe upload size after change:** **50 MB** per request (file + multipart overhead). Client-side limits (8 MB / 5 MB) remain for UX. If you get 413 + HTML, the limit is applied before the app (nginx or CDN); see **docs/UPLOAD-413-LIVE-SERVER-FIX.md**.
@@ -88,7 +84,6 @@ So the **full image is never loaded into Node memory**; only the stream to disk 
 ## 7. Verification checklist
 
 - [ ] Site background: upload &lt; 8 MB image → success; &gt; 8 MB → client validation error; &gt; 50 MB → server 400 JSON (when nginx is 50m).
-- [ ] Jackpot background: same (8 MB client, 50 MB server when nginx is set).
 - [ ] Media manager & media picker: same with 5 MB client limit.
 - [ ] All responses are JSON; no HTML in UI.
 - [ ] Unauthorized or wrong permission → 401/403 JSON.

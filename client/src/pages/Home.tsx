@@ -26,7 +26,6 @@ import {
 } from "@/components/ui/dialog";
 import { Trophy, Lock, X } from "lucide-react";
 import { getTournamentStyles } from "@/lib/tournamentStyles";
-import { JackpotHero } from "@/components/JackpotHero";
 import { NearWinBanner } from "@/components/NearWinBanner";
 import { RivalStatusBanner } from "@/components/RivalStatusBanner";
 import { StreakBanner } from "@/components/StreakBanner";
@@ -334,15 +333,12 @@ export default function Home() {
   const justSubmitted = searchParams?.get("submitted") === "1";
   const now = useNow(1000);
   const [hideConfirmId, setHideConfirmId] = useState<number | null>(null);
-  const [jackpotHowItWorksOpen, setJackpotHowItWorksOpen] = useState(false);
-  const [jackpotProgressOpen, setJackpotProgressOpen] = useState(false);
   const { data: tournamentStats, isLoading, refetch, dataUpdatedAt } = trpc.tournaments.getPublicStats.useQuery(undefined, {
     refetchInterval: 15000,
   });
   const isDataFresh = dataUpdatedAt != null && Date.now() - dataUpdatedAt < 20000;
   const { data: firstParticipation } = trpc.user.getFirstParticipationStatus.useQuery(undefined, { enabled: isAuthenticated });
   const { data: mySummary } = trpc.user.getMyCompetitionSummary.useQuery(undefined, { enabled: isAuthenticated, staleTime: 60_000 });
-  const { data: jackpotProgress } = trpc.user.getJackpotProgress.useQuery(undefined, { enabled: isAuthenticated, staleTime: 30_000 });
   const { data: recommendation } = trpc.tournaments.getRecommendedTournamentForUser.useQuery(undefined, {
     enabled: isAuthenticated && !!(tournamentStats?.length),
     staleTime: 45_000,
@@ -356,9 +352,6 @@ export default function Home() {
   const { data: homepageCtaBlocks } = trpc.cms.getActiveHomepageSections.useQuery({ key: "homepage_cta" });
   const { data: cmsAnnouncements } = trpc.cms.getActiveAnnouncements.useQuery();
   const { data: siteSettings } = trpc.settings.getPublic.useQuery();
-  const { data: jackpotBanner } = trpc.settings.getJackpotBanner.useQuery(undefined, { staleTime: 60_000 });
-  const { data: jackpotLastDraws } = trpc.settings.getJackpotLastDraws.useQuery({ limit: 5 }, { staleTime: 60_000 });
-  const jackpotEnabled = jackpotBanner?.enabled !== false;
   const heroBanner = (cmsBanners && cmsBanners.length > 0) ? cmsBanners[0] : null;
   const promoBanner = (cmsBannersPromo && cmsBannersPromo.length > 0) ? cmsBannersPromo[0] : null;
   const secondaryBanner = (cmsBannersSecondary && cmsBannersSecondary.length > 0) ? cmsBannersSecondary[0] : null;
@@ -558,60 +551,24 @@ export default function Home() {
         </div>
       )}
 
-      {/* 1. Brand Hero Title – WinMondial is the main site title, always first content element, above Jackpot */}
+      {/* 1. Brand Hero Title – WinMondial is the main site title, always first content element */}
       <section className="relative w-full overflow-x-hidden text-center pt-6 md:pt-8">
         <h1 className="font-black text-white tracking-tight drop-shadow-sm px-3 break-words text-xl xs:text-2xl min-[375px]:text-3xl sm:text-4xl md:text-5xl mb-12 md:mb-20">
           {heroBanner?.title?.trim() || siteName || "WinMondial"}
         </h1>
       </section>
 
-      {/* 2. Jackpot Hero Event – central event, below brand; design unchanged */}
-      {jackpotBanner != null && jackpotEnabled && (
-        <section
-          className="relative w-full overflow-x-hidden"
-          aria-label="ג׳קפוט – האירוע המרכזי"
-        >
-          <div className="max-w-4xl mx-auto px-3 sm:px-4 pt-10 pb-14 md:pt-16 md:pb-24 mb-2 md:mb-4">
-            <JackpotHero
-              balancePoints={jackpotBanner.balancePoints ?? 0}
-              nextDrawAt={jackpotBanner.nextDrawAt}
-              onPlayNow={() => document.getElementById("tournaments")?.scrollIntoView({ behavior: "smooth" })}
-              onHowItWorks={() => setJackpotHowItWorksOpen(true)}
-              onProgress={() => setJackpotProgressOpen(true)}
-              showProgressButton={isAuthenticated}
-            />
-          </div>
-        </section>
-      )}
-
-      {/* 3. Supporting section: personal area, promo, features, tournaments (no brand title here) */}
-      <section
-        className={`relative container mx-auto px-3 sm:px-4 overflow-x-hidden max-w-full text-center ${
-          jackpotBanner != null && jackpotEnabled
-            ? "pt-8 pb-4 md:pt-10 md:pb-6 border-t border-slate-700/50"
-            : "pt-4 pb-2 md:pt-6 md:pb-4"
-        }`}
-      >
+      {/* 2. Supporting section: personal area, promo, features, tournaments (no brand title here) */}
+      <section className="relative container mx-auto px-3 sm:px-4 overflow-x-hidden max-w-full text-center pt-4 pb-2 md:pt-6 md:pb-4">
         {heroBanner?.imageUrl && (
           <div className="absolute inset-0 overflow-hidden rounded-xl mx-auto max-w-5xl" aria-hidden>
             <img src={heroBanner.imageUrl} alt="" className="w-full h-full object-cover opacity-30" />
           </div>
         )}
 
-        {/* Jackpot disabled notice – when settings exist but jackpot is off (Jackpot not shown as hero above) */}
-        {jackpotBanner != null && !jackpotEnabled && (
-          <div className="max-w-3xl mx-auto px-3 mb-3">
-            <p className="text-slate-500 text-sm text-center">הג׳קפוט כרגע מושבת.</p>
-          </div>
-        )}
-
-        {/* Personal area – secondary to Jackpot when Jackpot is hero; compact so it doesn’t compete */}
+        {/* Personal area */}
         {isAuthenticated && mySummary && (
-          <div
-            className={`max-w-2xl mx-auto px-2 ${
-              jackpotBanner != null && jackpotEnabled ? "mb-4 md:mb-5" : "mb-3 md:mb-4"
-            }`}
-          >
+          <div className="max-w-2xl mx-auto px-2 mb-3 md:mb-4">
             <div className="rounded-xl border border-slate-600/60 bg-slate-800/50 px-3 py-2.5 text-right">
               <p className="text-amber-400 font-bold text-sm mb-1.5">אזור התחרות שלי</p>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-300 text-xs sm:text-sm">
@@ -678,113 +635,8 @@ export default function Home() {
           </div>
         )}
 
-        {isAuthenticated && !jackpotEnabled && jackpotBanner != null && (
-          <div className="max-w-2xl mx-auto px-2 mb-2">
-            <p className="text-slate-500 text-xs text-center">הג׳קפוט כרגע מושבת.</p>
-          </div>
-        )}
-
-        {/* Modals: Jackpot "איך עובד" and "ההתקדמות שלי" – content reused from former inline blocks */}
-        {jackpotBanner != null && jackpotEnabled && (
-          <>
-            <Dialog open={jackpotHowItWorksOpen} onOpenChange={setJackpotHowItWorksOpen}>
-              <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-lg max-h-[90vh] overflow-y-auto bg-slate-900 border-slate-600 text-right">
-                <DialogTitle className="text-amber-400 font-bold text-lg sr-only">איך עובד הג׳קפוט</DialogTitle>
-                <div className="rounded-xl border border-slate-600/60 bg-slate-800/50 p-4 sm:p-5 text-right">
-                  <h3 className="text-amber-400 font-bold text-lg mb-3">איך עובד הג׳קפוט</h3>
-                  <p className="text-slate-300 text-sm mb-2">
-                    כרטיסים: כל ₪{(jackpotBanner.ticketStepIls ?? 1000).toLocaleString("he-IL")} משחק מאושר = כרטיס אחד בהגרלה. ככל שמשחקים יותר – יותר כרטיסים.
-                  </p>
-                  <p className="text-slate-300 text-sm">ככל שמשחקים יותר – צוברים יותר סיכויי זכייה בג׳קפוט.</p>
-                  {jackpotLastDraws && jackpotLastDraws.length > 0 && (
-                    <div className="mt-4 pt-3 border-t border-slate-600/60">
-                      <h4 className="text-slate-200 font-semibold text-sm mb-2">הגרלות אחרונות — זוכים ופרסים</h4>
-                      {jackpotLastDraws[0] && (
-                        <div className="rounded-lg bg-slate-700/40 p-3 mb-3 text-right">
-                          <p className="text-slate-300 text-xs mb-0.5">הגרלה אחרונה</p>
-                          <p className="text-white font-semibold">{new Date(jackpotLastDraws[0].executedAt).toLocaleString("he-IL", { dateStyle: "medium", timeStyle: "short" })}</p>
-                          <p className="text-amber-400 font-bold mt-1">{jackpotLastDraws[0].winnerUsername} — ₪{jackpotLastDraws[0].payoutAmount.toLocaleString("he-IL")}</p>
-                          {(jackpotLastDraws[0].eligibleUsersCount != null || jackpotLastDraws[0].totalTicketsCount != null) && (
-                            <p className="text-slate-500 text-xs mt-1">
-                              {jackpotLastDraws[0].eligibleUsersCount != null && `${jackpotLastDraws[0].eligibleUsersCount} משתתפים`}
-                              {jackpotLastDraws[0].eligibleUsersCount != null && jackpotLastDraws[0].totalTicketsCount != null && " • "}
-                              {jackpotLastDraws[0].totalTicketsCount != null && `${jackpotLastDraws[0].totalTicketsCount} כרטיסים`}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                      <ul className="text-slate-400 text-xs space-y-1 list-none">
-                        {jackpotLastDraws.map((d, i) => (
-                          <li key={i}>
-                            {d.winnerUsername} — ₪{d.payoutAmount.toLocaleString("he-IL")} ({new Date(d.executedAt).toLocaleDateString("he-IL")})
-                            {(d.eligibleUsersCount != null || d.totalTicketsCount != null) && (
-                              <span className="text-slate-500"> • {[d.eligibleUsersCount != null ? `${d.eligibleUsersCount} משתתפים` : null, d.totalTicketsCount != null ? `${d.totalTicketsCount} כרטיסים` : null].filter(Boolean).join(", ")}</span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </DialogContent>
-            </Dialog>
-            <Dialog open={jackpotProgressOpen} onOpenChange={setJackpotProgressOpen}>
-              <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto bg-slate-900 border-slate-600 text-right">
-                <DialogTitle className="text-amber-400 font-bold text-lg sr-only">ההתקדמות שלך עד ההגרלה הבאה</DialogTitle>
-                {jackpotProgress ? (
-                  <div className="rounded-xl border border-amber-500/30 bg-slate-800/60 px-4 py-3 text-right">
-                    <p className="text-amber-400 font-bold text-sm mb-2">ההתקדמות שלך עד ההגרלה הבאה</p>
-                    <div className="flex items-baseline gap-2 flex-wrap">
-                      <span className="text-2xl font-black text-amber-400 tabular-nums">{jackpotProgress.ticketCount}</span>
-                      <span className="text-slate-300 font-medium">כרטיסים בהגרלה</span>
-                    </div>
-                    {(() => {
-                      const step = jackpotBanner?.ticketStepIls ?? 1000;
-                      const remaining = jackpotProgress.amountUntilNextTicket;
-                      const filled = step > 0 ? Math.min(100, Math.round(((step - remaining) / step) * 100)) : 0;
-                      return (
-                        <div className="mt-3">
-                          <p className="text-slate-300 text-sm mb-1">
-                            {remaining < step ? (
-                              <>עוד <span className="font-bold text-amber-400 tabular-nums">{remaining} ₪</span> — וכרטיס נוסף בהגרלה</>
-                            ) : (
-                              <>עוד <span className="font-bold text-amber-400 tabular-nums">{remaining} ₪</span> עד לכרטיס הבא</>
-                            )}
-                          </p>
-                          <div className="h-2 rounded-full bg-slate-700/80 overflow-hidden" aria-hidden>
-                            <div
-                              className="h-full rounded-full bg-gradient-to-l from-amber-500/90 to-amber-400 transition-all duration-300"
-                              style={{ width: `${filled}%` }}
-                            />
-                          </div>
-                          <p className="text-slate-500 text-xs mt-1">היקף משחק בהגרלה הנוכחית: {jackpotProgress.approvedPlayVolume} ₪</p>
-                        </div>
-                      );
-                    })()}
-                    {jackpotProgress.nextDrawAt && new Date(jackpotProgress.nextDrawAt).getTime() > Date.now() && (
-                      <p className="text-slate-400 text-xs mt-2">
-                        הגרלה בעוד: <span className="font-mono text-amber-400">{formatRemainingHms(jackpotProgress.nextDrawAt)}</span>
-                      </p>
-                    )}
-                    {jackpotProgress.balancePoints > 0 && (
-                      <p className="text-slate-500 text-xs mt-0.5">סכום הג׳קפוט: {jackpotProgress.balancePoints} ₪</p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-slate-400 text-sm py-4">טוען...</p>
-                )}
-              </DialogContent>
-            </Dialog>
-          </>
-        )}
-
-        {/* Supporting content: promo and features sit clearly below the Jackpot stage when Jackpot is hero */}
         {promoBanner && (
-          <div
-            className={`max-w-4xl mx-auto px-3 ${
-              jackpotBanner != null && jackpotEnabled ? "mt-8 md:mt-10 mb-5 md:mb-6" : "mb-6"
-            }`}
-          >
+          <div className="max-w-4xl mx-auto px-3 mb-6">
             <HomepageBannerBlock
               banner={promoBanner}
               variant="promo"
@@ -794,11 +646,7 @@ export default function Home() {
         )}
 
         {featuresBlocks.length > 0 && (
-          <div
-            className={`max-w-4xl mx-auto px-3 space-y-4 ${
-              jackpotBanner != null && jackpotEnabled ? "mb-5 md:mb-6" : "mb-6"
-            }`}
-          >
+          <div className="max-w-4xl mx-auto px-3 space-y-4 mb-6">
             {featuresBlocks.map((block) => (
               <HomepageSectionBlock key={block.id} section={block} onNavigate={setLocation} />
             ))}

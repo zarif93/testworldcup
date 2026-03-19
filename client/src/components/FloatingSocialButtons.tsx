@@ -1,5 +1,5 @@
 /**
- * Floating social media buttons – premium betting / jackpot competition style.
+ * Floating social media buttons – premium betting competition style.
  * WhatsApp (dominant CTA), Instagram, Facebook. Fixed vertical stack on right,
  * mobile safe area, luxury dark theme with neon accents.
  * Rendered via portal to body to avoid parent overflow/transform clipping.

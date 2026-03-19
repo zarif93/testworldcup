@@ -18,10 +18,6 @@ const EVENT_NAMES = {
   RANKING_CHANGE_VIEW: "ranking_change_view",
   SESSION_RETURN: "session_return",
   TOURNAMENT_ABANDONMENT: "tournament_abandonment",
-  /** Jackpot hero CTA click – conversion vs background */
-  JACKPOT_CTA_CLICK: "jackpot_cta_click",
-  /** Jackpot hero entered viewport – for CTR per background */
-  JACKPOT_HERO_VIEW: "jackpot_hero_view",
 } as const;
 
 function track(eventName: string, data: { userId?: number | null; tournamentId?: number | null; payload?: Record<string, unknown> }) {
@@ -76,12 +72,3 @@ export function trackTournamentAbandonment(userId: number | null, tournamentId: 
   track(EVENT_NAMES.TOURNAMENT_ABANDONMENT, { userId: userId ?? null, tournamentId, payload });
 }
 
-/** Jackpot hero CTA click – track background_id for conversion vs background. */
-export function trackJackpotCtaClick(payload?: { backgroundId?: number | null }) {
-  track(EVENT_NAMES.JACKPOT_CTA_CLICK, { payload: payload ?? {} });
-}
-
-/** Jackpot hero entered viewport – for conversion dashboard (CTR per background). */
-export function trackJackpotHeroView(payload?: { backgroundId?: number | null }) {
-  track(EVENT_NAMES.JACKPOT_HERO_VIEW, { payload: payload ?? {} });
-}

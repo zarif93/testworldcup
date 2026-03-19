@@ -9,7 +9,6 @@
 | Flow | Location | Method | Max size (client) | Backend |
 |------|----------|--------|--------------------|---------|
 | **Site background** | Admin → Settings → תמונות רקע | tRPC mutation `uploadSiteBackgroundImage` | 8MB | `createSiteBackgroundImage` (db.ts), base64 |
-| **Jackpot background** | Admin → ניהול ג׳קפוט | tRPC mutation `uploadJackpotBackgroundImage` | 8MB | `createJackpotBackgroundImage` (db.ts), base64 + sharp |
 | **Media library** | Admin → ניהול מדיה | tRPC mutation `uploadMediaAsset` | 5MB | `createMediaAsset` (db.ts), base64 |
 | **Media picker (modal)** | CMS banner/section forms | Same `uploadMediaAsset` | 5MB | Same |
 
@@ -51,7 +50,7 @@
 
 - **File:** `client/src/lib/uploadUtils.ts` (new)
 - **Contents:**
-  - Constants: `MAX_SITE_BACKGROUND_BYTES` (8MB), `MAX_JACKPOT_BACKGROUND_BYTES` (8MB), `MAX_MEDIA_ASSET_BYTES` (5MB), `ACCEPT_IMAGES`, `UPLOAD_FILE_TOO_LARGE_MSG`, `UPLOAD_SERVER_HTML_MSG`.
+  - Constants: `MAX_SITE_BACKGROUND_BYTES` (8MB), `MAX_MEDIA_ASSET_BYTES` (5MB), `ACCEPT_IMAGES`, `UPLOAD_FILE_TOO_LARGE_MSG`, `UPLOAD_SERVER_HTML_MSG`.
   - `getUploadErrorMessage(error)`: maps any upload error (including 413, HTML, “Unexpected token”) to a user-friendly Hebrew string; never returns raw HTML or parser errors.
   - `validateImageFile(file, maxBytes, accept)`: client-side validation (type + size); returns `{ ok: true }` or `{ ok: false, error: string }`.
 
@@ -59,7 +58,6 @@
 
 - **Files:**
   - `client/src/components/admin/BackgroundImagesSection.tsx`
-  - `client/src/components/admin/JackpotBackgroundSection.tsx`
   - `client/src/components/admin/MediaManagerSection.tsx`
   - `client/src/components/admin/MediaPickerModal.tsx`
 - **Changes:**
@@ -97,7 +95,6 @@
 | `client/src/main.tsx` | Import `UPLOAD_FILE_TOO_LARGE_MSG`; in `trpcSafeFetch`, 413 and non-JSON → friendly Hebrew error |
 | `client/src/lib/uploadUtils.ts` | **New:** constants, `getUploadErrorMessage`, `validateImageFile` |
 | `client/src/components/admin/BackgroundImagesSection.tsx` | Use uploadUtils; `onError` → `getUploadErrorMessage(e)`; validate with `validateImageFile` |
-| `client/src/components/admin/JackpotBackgroundSection.tsx` | Same as above |
 | `client/src/components/admin/MediaManagerSection.tsx` | Same as above |
 | `client/src/components/admin/MediaPickerModal.tsx` | Same as above |
 
@@ -107,7 +104,7 @@
 
 - **Nginx:** Must be **50m** in the **live** server block; otherwise 413 + HTML. See docs/UPLOAD-413-LIVE-SERVER-FIX.md.
 - **Multer:** 50 MB per file. Express JSON 50 MB for other API routes.
-- **Client validation:** 8MB for site/Jackpot backgrounds, 5MB for media. Users are blocked from starting an upload above these.
+- **Client validation:** 8MB for site backgrounds, 5MB for media. Users are blocked from starting an upload above these.
 - **Practical safe max:** **50 MB** at server when nginx (and CDN) are set correctly. Client limits stay 8MB / 5MB for UX.
 
 ---
@@ -135,7 +132,6 @@ sudo nginx -t && sudo systemctl reload nginx
 ## 10. Verification checklist
 
 - [ ] **Site background upload:** Choose image &lt; 8MB → upload succeeds; choose &gt; 8MB → client toast "גודל מקסימלי 8MB"; if client bypass and nginx 413 → toast shows the friendly Hebrew message.
-- [ ] **Jackpot background upload:** Same as above (8MB).
 - [ ] **Media manager upload:** Same with 5MB limit.
 - [ ] **Media picker (modal) upload:** Same with 5MB limit.
 - [ ] **Oversized file:** With nginx 50m on the live server, requests up to 50 MB reach the app. If nginx is not updated, 413 returns HTML but frontend shows the friendly Hebrew message.

@@ -5,7 +5,6 @@
 
 export type FinancialEventType =
   | "ENTRY_FEE"
-  | "JACKPOT_CONTRIBUTION"
   | "PRIZE_PAYOUT"
   | "PLATFORM_COMMISSION"
   | "AGENT_COMMISSION"
@@ -21,7 +20,7 @@ export interface CommissionBreakdown {
   platformNetCommission: number;
 }
 
-/** Competition PnL: prizes - effective entries (entries - entry-fee refunds). Wallet flow is separate. */
+/** Competition PnL: prizes - effective entries (competitions only). Wallet flow is separate. */
 export interface PlayerFinancialProfile {
   userId: number;
   username: string | null;

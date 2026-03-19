@@ -13,7 +13,6 @@ import { canAccessPermission, isSuperAdmin } from "../rbac";
 import type { TrpcUser } from "../rbac";
 import {
   createSiteBackgroundImageFromFile,
-  createJackpotBackgroundImageFromFile,
   createMediaAssetFromFile,
 } from "../db";
 import { insertAdminAuditLog } from "../db";
@@ -49,12 +48,11 @@ const upload = multer({
   },
 });
 
-export type UploadType = "site-background" | "jackpot-background" | "media";
+export type UploadType = "site-background" | "media";
 
 function getRequiredPermission(type: UploadType): string {
   switch (type) {
     case "site-background":
-    case "jackpot-background":
       return "settings.manage";
     case "media":
       return "cms.edit";
@@ -118,8 +116,8 @@ export function registerUploadRoutes(app: import("express").Application): void {
     },
     async (req: Request, res: Response) => {
       const type = (req.body?.type ?? req.query?.type) as UploadType | undefined;
-      if (!type || !["site-background", "jackpot-background", "media"].includes(type)) {
-        sendJsonError(res, 400, "חסר סוג העלאה (type): site-background, jackpot-background או media.");
+      if (!type || !["site-background", "media"].includes(type)) {
+        sendJsonError(res, 400, "חסר סוג העלאה (type): site-background או media.");
         return;
       }
       const auth = await ensureAuthAndPermission(req, res, type);
@@ -144,25 +142,6 @@ export function registerUploadRoutes(app: import("express").Application): void {
             mimeType,
             activate,
             uploadedBy: auth.userId,
-          });
-          res.status(200).set("Content-Type", "application/json").json({ success: true, ...result });
-          return;
-        }
-        if (type === "jackpot-background") {
-          const activate = req.body?.activate === true || req.body?.activate === "true";
-          const result = await createJackpotBackgroundImageFromFile({
-            tempPath,
-            originalName,
-            mimeType,
-            activate,
-          });
-          const ip =
-            (req as { ip?: string }).ip ??
-            (req.socket?.remoteAddress ?? "");
-          await insertAdminAuditLog({
-            performedBy: auth.userId,
-            action: "jackpot_bg_upload",
-            details: { entityType: "jackpot_background", entityId: result.id, ip },
           });
           res.status(200).set("Content-Type", "application/json").json({ success: true, ...result });
           return;

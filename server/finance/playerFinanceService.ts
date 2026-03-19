@@ -65,7 +65,7 @@ export async function getPlayerFinancialProfile(
         } else {
           const tid = e.tournamentId ?? 0;
           let t = tournamentCache.get(tid);
-          if (!t) {
+          if (!t && tid !== 0) {
             const tour = await getTournamentById(tid);
             if (!tour) {
               logError("getPlayerFinancialProfile", new Error("Tournament not found for entry; commission for this entry set to 0"), { tournamentId: tid, userId });

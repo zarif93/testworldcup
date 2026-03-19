@@ -238,7 +238,7 @@ export function PaymentsSection({ onBack }: Props) {
                   {payments.map((p) => (
                     <tr key={p.id} className="border-b border-slate-700/50 hover:bg-slate-800/50">
                       <td className="py-1.5 px-2 text-slate-300">{p.id}</td>
-                      <td className="py-1.5 px-2 text-white">{p.userId}</td>
+                      <td className="py-1.5 px-2 text-white">{(p as { username?: string }).username ?? `#${p.userId}`}</td>
                       <td className="py-1.5 px-2 text-white">{p.tournamentId}</td>
                       <td className="py-1.5 px-2 text-slate-300">{p.submissionId ?? "—"}</td>
                       <td className="py-1.5 px-2 text-slate-300">{p.type}</td>

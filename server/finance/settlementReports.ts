@@ -62,17 +62,17 @@ export function playerSettlementRowResult(winnings: number, entry: number): numb
   return winnings - entry;
 }
 
-/** Only SETTLED competitions. Locked/cancelled/deleted excluded. Result = winnings − entry (player PnL; commission is system revenue, not player loss). */
+/** Only SETTLED competitions. Locked/cancelled/deleted excluded. Result = winnings − entry (player PnL; commission is system revenue, not player loss). Summary finalResult uses canonical competitionNetPnL. */
 export async function getPlayerSettlementReport(
   userId: number,
   filter?: SettlementFilter
 ): Promise<PlayerSettlementReport | null> {
   const settledIds = await getSettledTournamentIds();
-  const detailed = await getPlayerReportDetailed(userId, {
-    from: filter?.from,
-    to: filter?.to,
-    tournamentIds: settledIds,
-  });
+  const dateFilter = { from: filter?.from, to: filter?.to, tournamentIds: settledIds };
+  const [detailed, profile] = await Promise.all([
+    getPlayerReportDetailed(userId, dateFilter),
+    getPlayerFinancialProfile(userId, dateFilter),
+  ]);
   if (!detailed) return null;
 
   const tournamentIds = [...new Set(detailed.rows.map((r) => r.tournamentId))];
@@ -80,8 +80,11 @@ export async function getPlayerSettlementReport(
 
   const rows: PlayerSettlementRow[] = [];
   for (const r of detailed.rows) {
-    const info = statusMap.get(r.tournamentId);
-    if (!info || isExcludedFromReport(info) || !isSettledForReport(info.status)) continue; // only settled (SETTLED/PRIZES_DISTRIBUTED/ARCHIVED) in reports
+    const isSynthetic = r.tournamentId === 0 || r.tournamentId === -1;
+    if (!isSynthetic) {
+      const info = statusMap.get(r.tournamentId);
+      if (!info || isExcludedFromReport(info) || !isSettledForReport(info.status)) continue; // only settled (SETTLED/PRIZES_DISTRIBUTED/ARCHIVED) in reports
+    }
     const entry = r.entryFee - r.refund;
     const commission = r.totalCommission ?? 0;
     const result = playerSettlementRowResult(r.winnings, entry);
@@ -95,7 +98,8 @@ export async function getPlayerSettlementReport(
     });
   }
 
-  const finalResult = rows.reduce((s, r) => s + r.result, 0);
+  const sumFromRows = rows.reduce((s, r) => s + r.result, 0);
+  const finalResult = profile?.competitionNetPnL ?? sumFromRows;
 
   // Temporary debug: player settlement report data loading (end-to-end)
   if (process.env.NODE_ENV !== "production") {
@@ -260,8 +264,7 @@ async function getGlobalSettledProfit(filter?: SettlementFilter): Promise<number
     if (!info || isExcludedFromReport(info) || !isSettledForReport(info.status)) continue;
     const entries = agg.entryFees - agg.refunds;
     const payout = agg.prizes;
-    const siteCommission = agg.totalCommission - agg.agentCommission;
-    totalSiteProfit += entries - payout; // site margin
+    totalSiteProfit += entries - payout; // site margin from tournaments
   }
   return totalSiteProfit;
 }
@@ -290,7 +293,7 @@ export async function getGlobalSettlementReport(filter?: SettlementFilter): Prom
     const profile = await getPlayerFinancialProfile(userId, dateFilter);
     const entries = (profile?.totalEntryFees ?? 0) - (profile?.totalEntryFeeRefunds ?? 0);
     const winnings = profile?.totalPrizesWon ?? 0;
-    const result = winnings - entries;
+    const result = profile?.competitionNetPnL ?? winnings - entries;
     const totalCommission = profile?.totalCommissionGenerated ?? 0;
     const agentCommission = profile?.agentCommissionFromPlayer ?? 0;
     const siteCommission = totalCommission - agentCommission;

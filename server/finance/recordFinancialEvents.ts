@@ -138,7 +138,7 @@ export function refundIdempotencyKey(tournamentId: number, userId: number): stri
   return IDEMPOTENCY.refund(`tournament:${tournamentId}:${userId}`);
 }
 
-/** Append REFUND event for a tournament participant. Refund rule: ENTRY_FEE only (base entry); JACKPOT_CONTRIBUTION is not refunded and jackpot balance is not decremented. Safe to call multiple times (idempotent). */
+/** Append REFUND event for a tournament participant. Refund rule: ENTRY_FEE only (base entry). Safe to call multiple times (idempotent). */
 export async function recordRefundFinancialEvent(params: {
   tournamentId: number;
   userId: number;
@@ -161,31 +161,6 @@ export async function recordRefundFinancialEvent(params: {
     idempotencyKey: key,
     eventId,
   });
-  return eventId;
-}
-
-/** Record JACKPOT_CONTRIBUTION and add to Jackpot balance. Idempotent by submissionId. */
-export async function recordJackpotContributionFinancialEvent(params: {
-  submissionId: number;
-  tournamentId: number;
-  userId: number;
-  agentId: number | null;
-  amountPoints: number;
-}): Promise<number> {
-  if (params.amountPoints <= 0) return 0;
-  const key = IDEMPOTENCY.jackpotContribution(params.submissionId);
-  const eventId = await appendFinancialEvent({
-    eventType: "JACKPOT_CONTRIBUTION",
-    amountPoints: params.amountPoints,
-    tournamentId: params.tournamentId,
-    userId: params.userId,
-    agentId: params.agentId,
-    submissionId: params.submissionId,
-    idempotencyKey: key,
-    payloadJson: null,
-  });
-  const { incrementJackpotBalance } = await import("../jackpot/index");
-  await incrementJackpotBalance(params.amountPoints);
   return eventId;
 }
 

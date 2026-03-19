@@ -79,7 +79,7 @@ If you fix nginx but still get 413, the limit is almost certainly at the proxy/C
 Before sending the request, the app logs to the **browser console**:
 
 - File size (bytes and MB)
-- Upload type (site-background / jackpot-background / media)
+- Upload type (site-background / media)
 - Target URL (`/api/upload`)
 - Client-side limit (8 MB or 5 MB)
 

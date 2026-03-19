@@ -68,6 +68,7 @@ async function initSqlite() {
   const busyTimeoutMs = typeof process.env.SQLITE_BUSY_TIMEOUT === "string" ? parseInt(process.env.SQLITE_BUSY_TIMEOUT, 10) : 15000;
   const sqlite = new Database(dbPath, { timeout: Number.isFinite(busyTimeoutMs) && busyTimeoutMs > 0 ? busyTimeoutMs : 15000 });
   sqlite.pragma("busy_timeout = " + (Number.isFinite(busyTimeoutMs) && busyTimeoutMs > 0 ? busyTimeoutMs : 15000));
+  sqlite.pragma("foreign_keys = ON");
   const { users, tournaments, matches, submissions, agentCommissions, agentCommissionConfig, siteSettings, chanceDrawResults, lottoDrawResults, teams, players, customFootballMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog, financialEvents } = await import("../drizzle/schema-sqlite");
 
   sqlite.exec(`
@@ -330,7 +331,7 @@ async function initSqlite() {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS financial_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      eventType TEXT NOT NULL CHECK(eventType IN ('ENTRY_FEE','JACKPOT_CONTRIBUTION','PRIZE_PAYOUT','PLATFORM_COMMISSION','AGENT_COMMISSION','REFUND','ADJUSTMENT')),
+      eventType TEXT NOT NULL CHECK(eventType IN ('ENTRY_FEE','PRIZE_PAYOUT','PLATFORM_COMMISSION','AGENT_COMMISSION','REFUND','ADJUSTMENT')),
       tournamentId INTEGER,
       userId INTEGER,
       agentId INTEGER,
@@ -341,40 +342,12 @@ async function initSqlite() {
       createdAt INTEGER
     )
   `);
-  const feSql = sqlite.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='financial_events'").get() as { sql: string } | undefined;
-  if (feSql?.sql && !feSql.sql.includes("JACKPOT_CONTRIBUTION")) {
-    sqlite.exec(`
-      CREATE TABLE financial_events_new (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        eventType TEXT NOT NULL CHECK(eventType IN ('ENTRY_FEE','JACKPOT_CONTRIBUTION','PRIZE_PAYOUT','PLATFORM_COMMISSION','AGENT_COMMISSION','REFUND','ADJUSTMENT')),
-        tournamentId INTEGER,
-        userId INTEGER,
-        agentId INTEGER,
-        submissionId INTEGER,
-        amountPoints INTEGER NOT NULL,
-        idempotencyKey TEXT,
-        payloadJson TEXT,
-        createdAt INTEGER
-      )
-    `);
-    sqlite.exec(`INSERT INTO financial_events_new SELECT id, eventType, tournamentId, userId, agentId, submissionId, amountPoints, idempotencyKey, payloadJson, createdAt FROM financial_events`);
-    sqlite.exec(`DROP TABLE financial_events`);
-    sqlite.exec(`ALTER TABLE financial_events_new RENAME TO financial_events`);
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_tournamentId ON financial_events(tournamentId)`);
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_userId ON financial_events(userId)`);
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_agentId ON financial_events(agentId)`);
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_eventType ON financial_events(eventType)`);
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_createdAt ON financial_events(createdAt)`);
-    sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS financial_events_idempotencyKey ON financial_events(idempotencyKey) WHERE idempotencyKey IS NOT NULL`);
-    console.log("[DB] Migrated financial_events to include JACKPOT_CONTRIBUTION");
-  } else {
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_tournamentId ON financial_events(tournamentId)`);
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_userId ON financial_events(userId)`);
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_agentId ON financial_events(agentId)`);
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_eventType ON financial_events(eventType)`);
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_createdAt ON financial_events(createdAt)`);
-    sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS financial_events_idempotencyKey ON financial_events(idempotencyKey) WHERE idempotencyKey IS NOT NULL`);
-  }
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_tournamentId ON financial_events(tournamentId)`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_userId ON financial_events(userId)`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_agentId ON financial_events(agentId)`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_eventType ON financial_events(eventType)`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS financial_events_createdAt ON financial_events(createdAt)`);
+  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS financial_events_idempotencyKey ON financial_events(idempotencyKey) WHERE idempotencyKey IS NOT NULL`);
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS agent_commission_config (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -939,37 +912,6 @@ async function initSqlite() {
     )
   `);
   sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS jackpot_background_images (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      filename TEXT NOT NULL,
-      url TEXT NOT NULL,
-      is_active INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER
-    )
-  `);
-  const jbInfo = sqlite.prepare("PRAGMA table_info(jackpot_background_images)").all() as Array<{ name: string }>;
-  if (jbInfo.length > 0) {
-    if (!jbInfo.some((c) => c.name === "display_order")) {
-      sqlite.exec(`ALTER TABLE jackpot_background_images ADD COLUMN display_order INTEGER NOT NULL DEFAULT 0`);
-    }
-    if (!jbInfo.some((c) => c.name === "thumbnailFilename")) {
-      sqlite.exec(`ALTER TABLE jackpot_background_images ADD COLUMN thumbnailFilename TEXT`);
-    }
-    if (!jbInfo.some((c) => c.name === "thumbnailUrl")) {
-      sqlite.exec(`ALTER TABLE jackpot_background_images ADD COLUMN thumbnailUrl TEXT`);
-    }
-    if (!jbInfo.some((c) => c.name === "mobileFilename")) {
-      sqlite.exec(`ALTER TABLE jackpot_background_images ADD COLUMN mobileFilename TEXT`);
-    }
-    if (!jbInfo.some((c) => c.name === "mobileUrl")) {
-      sqlite.exec(`ALTER TABLE jackpot_background_images ADD COLUMN mobileUrl TEXT`);
-    }
-    if (!jbInfo.some((c) => c.name === "mean_luminance")) {
-      sqlite.exec(`ALTER TABLE jackpot_background_images ADD COLUMN mean_luminance INTEGER`);
-    }
-  }
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS jackpot_background_images_is_active ON jackpot_background_images(is_active)`);
-  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS automation_jobs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       jobType TEXT NOT NULL,
@@ -1137,53 +1079,10 @@ async function initSqlite() {
       updatedAt INTEGER
     )
   `);
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS jackpot_draws (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      scheduled_for INTEGER NOT NULL,
-      executed_at INTEGER,
-      calculation_window_start INTEGER NOT NULL,
-      calculation_window_end INTEGER NOT NULL,
-      ticket_step_ils INTEGER NOT NULL,
-      winner_payout_percent INTEGER NOT NULL,
-      carry_over_percent INTEGER NOT NULL,
-      total_pool_at_draw INTEGER NOT NULL,
-      eligible_users_count INTEGER NOT NULL,
-      total_tickets_count INTEGER NOT NULL,
-      trigger_type TEXT NOT NULL CHECK(trigger_type IN ('scheduled','manual')),
-      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','running','completed','failed')),
-      winner_user_id INTEGER,
-      winner_username TEXT,
-      payout_amount INTEGER,
-      carry_over_amount INTEGER,
-      error_message TEXT,
-      createdAt INTEGER,
-      updatedAt INTEGER
-    )
-  `);
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS jackpot_draws_scheduled_for ON jackpot_draws(scheduled_for)`);
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS jackpot_draws_status ON jackpot_draws(status)`);
-  const snapInfo = sqlite.prepare("PRAGMA table_info(jackpot_draw_snapshots)").all() as Array<{ name: string }>;
-  if (snapInfo.length > 0 && !snapInfo.some((c) => c.name === "draw_id")) {
-    sqlite.exec(`DROP TABLE IF EXISTS jackpot_draw_snapshots`);
-  }
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS jackpot_draw_snapshots (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      draw_id INTEGER NOT NULL REFERENCES jackpot_draws(id) ON DELETE CASCADE,
-      userId INTEGER NOT NULL,
-      approvedPlayVolume INTEGER NOT NULL,
-      ticketsCount INTEGER NOT NULL,
-      calculationWindowStart INTEGER NOT NULL,
-      calculationWindowEnd INTEGER NOT NULL,
-      createdAt INTEGER
-    )
-  `);
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS jackpot_draw_snapshots_draw_id ON jackpot_draw_snapshots(draw_id)`);
-  sqlite.exec(`DROP TABLE IF EXISTS jackpot_draw_audit`);
+  // Legacy event-type widening migrations were removed during feature decommission.
 
-  const { leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, siteBackgroundImages, jackpotBackgroundImages, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams, jackpotDraws, jackpotDrawSnapshots } = await import("../drizzle/schema-sqlite");
-  const db = drizzle(sqlite, { schema: { users, tournaments, matches, submissions, agentCommissions, agentCommissionConfig, siteSettings, chanceDrawResults, lottoDrawResults, customFootballMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog, financialEvents, leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, siteBackgroundImages, jackpotBackgroundImages, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams, jackpotDraws, jackpotDrawSnapshots } });
+  const { leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, siteBackgroundImages, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams } = await import("../drizzle/schema-sqlite");
+  const db = drizzle(sqlite, { schema: { users, tournaments, matches, submissions, agentCommissions, agentCommissionConfig, siteSettings, chanceDrawResults, lottoDrawResults, customFootballMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog, financialEvents, leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, siteBackgroundImages, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams } });
 
   // Team library: schema is migration-only. Fail at startup if tables are missing.
   const teamLibCategoriesExists = sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_library_categories'").get();
@@ -1654,6 +1553,14 @@ export async function getUserById(id: number) {
   return r[0];
 }
 
+/** Canonical display label: username ?? name ?? #id. Use everywhere we show user/agent name in UI, reports, CSV. */
+export function getDisplayName(user: { id: number; username?: string | null; name?: string | null } | null | undefined): string {
+  if (!user) return "";
+  const u = user as { id: number; username?: string | null; name?: string | null };
+  const name = u.username ?? u.name ?? null;
+  return name != null ? String(name) : `#${u.id}`;
+}
+
 export async function userHasUnlimitedPoints(userId: number): Promise<boolean> {
   const user = await getUserById(userId);
   return hasUnlimitedPointsAccess(user);
@@ -1670,53 +1577,30 @@ export async function getUserPoints(userId: number): Promise<number> {
   return Number(val);
 }
 
-/** Jackpot contribution: 2.5% = 250 basis points by default. Only applied when entry fee > 0. */
-const JACKPOT_CONTRIBUTION_BASIS_POINTS_DEFAULT = 250;
-
-/** Cost breakdown for display (entry fee + jackpot contribution when enabled). Same logic as validateTournamentEntry. */
-export async function getEntryCostBreakdown(entryFeeBase: number): Promise<{ entryFee: number; jackpotContribution: number; totalCost: number; jackpotEnabled: boolean }> {
+/** Cost breakdown for display (entry fee only). */
+export async function getEntryCostBreakdown(entryFeeBase: number): Promise<{ entryFee: number; totalCost: number; extraFeatureEnabled: boolean }> {
   const entryFee = Math.max(0, Math.floor(entryFeeBase));
-  let jackpotContribution = 0;
-  let jackpotEnabled = false;
-  if (entryFee > 0) {
-    const raw = await getSiteSettings();
-    jackpotEnabled = raw["jackpot.enabled"] !== "0" && raw["jackpot.enabled"] !== "false" && String(raw["jackpot.enabled"] ?? "").toLowerCase() !== "false";
-    if (jackpotEnabled) {
-      const bps = parseInt(raw["jackpot.contribution_basis_points"] ?? String(JACKPOT_CONTRIBUTION_BASIS_POINTS_DEFAULT), 10) || JACKPOT_CONTRIBUTION_BASIS_POINTS_DEFAULT;
-      jackpotContribution = Math.floor((entryFee * bps) / 10000);
-    }
-  }
-  return { entryFee, jackpotContribution, totalCost: entryFee + jackpotContribution, jackpotEnabled };
+  return { entryFee, totalCost: entryFee, extraFeatureEnabled: false };
 }
 
 /**
  * בדיקה מרכזית לכל סוגי התחרויות: האם למשתמש יש מספיק נקודות להשתתפות.
- * כולל תרומת ג'קפוט (אחוז מעלות הבסיס) – רק ENTRY_FEE נספר לנפח זכאות.
- * @returns { allowed, cost (total), entryFee, jackpotContribution, currentBalance }
+ * @returns { allowed, cost (total), entryFee, currentBalance }
  */
 export async function validateTournamentEntry(
   userId: number,
   tournament: { amount?: number; entryCostPoints?: number | null },
   isAdmin: boolean
-): Promise<{ allowed: boolean; cost: number; entryFee: number; jackpotContribution: number; currentBalance: number }> {
+): Promise<{ allowed: boolean; cost: number; entryFee: number; currentBalance: number }> {
   const entryFee = Number((tournament as { entryCostPoints?: number }).entryCostPoints ?? tournament.amount ?? 0);
-  let jackpotContribution = 0;
-  if (entryFee > 0) {
-    const raw = await getSiteSettings();
-    const enabled = raw["jackpot.enabled"] !== "0" && raw["jackpot.enabled"] !== "false" && String(raw["jackpot.enabled"] ?? "").toLowerCase() !== "false";
-    if (enabled) {
-      const bps = parseInt(raw["jackpot.contribution_basis_points"] ?? String(JACKPOT_CONTRIBUTION_BASIS_POINTS_DEFAULT), 10) || JACKPOT_CONTRIBUTION_BASIS_POINTS_DEFAULT;
-      jackpotContribution = Math.floor((entryFee * bps) / 10000);
-    }
-  }
-  const cost = entryFee + jackpotContribution;
+  const cost = entryFee;
   const hasUnlimitedPoints = isAdmin || await userHasUnlimitedPoints(userId);
   if (hasUnlimitedPoints || cost <= 0) {
     const currentBalance = cost <= 0 ? 0 : await getUserPoints(userId);
-    return { allowed: true, cost, entryFee, jackpotContribution, currentBalance };
+    return { allowed: true, cost, entryFee, currentBalance };
   }
   const currentBalance = await getUserPoints(userId);
-  return { allowed: currentBalance >= cost, cost, entryFee, jackpotContribution, currentBalance };
+  return { allowed: currentBalance >= cost, cost, entryFee, currentBalance };
 }
 
 export type PointActionType = "deposit" | "withdraw" | "participation" | "prize" | "admin_approval" | "refund" | "agent_transfer";
@@ -1811,13 +1695,11 @@ type ParticipationWithLockParams = {
   userId: number;
   username: string;
   tournamentId: number;
-  /** Total charge from wallet (entryFee + jackpotContribution). */
+  /** Total charge from wallet (equals entryFee). */
   cost: number;
   /** Base entry fee – recorded as ENTRY_FEE, counts toward eligibility. */
   entryFee: number;
-  /** Jackpot contribution – recorded as JACKPOT_CONTRIBUTION, does not count toward eligibility. */
-  jackpotContribution: number;
-  /** When true (e.g. unlimited user): do not deduct from wallet; still record submission + ENTRY_FEE + JACKPOT in one transaction. */
+  /** When true (e.g. unlimited user): do not deduct from wallet; still record submission + ENTRY_FEE in one transaction. */
   skipWalletDeduction?: boolean;
   agentId: number | null;
   predictions: unknown;
@@ -1892,21 +1774,6 @@ function runParticipationAtomicSqlite(
       INSERT INTO financial_events (eventType, amountPoints, tournamentId, userId, agentId, submissionId, idempotencyKey, payloadJson, createdAt)
       VALUES ('ENTRY_FEE', ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(params.entryFee, params.tournamentId, params.userId, params.agentId, submissionId, `entry:${submissionId}`, payloadJson, now);
-
-    if (params.jackpotContribution > 0) {
-      sqlite.prepare(`
-        INSERT INTO financial_events (eventType, amountPoints, tournamentId, userId, agentId, submissionId, idempotencyKey, payloadJson, createdAt)
-        VALUES ('JACKPOT_CONTRIBUTION', ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(params.jackpotContribution, params.tournamentId, params.userId, params.agentId, submissionId, `jackpot_contribution:${submissionId}`, null, now);
-      const balRow = sqlite.prepare("SELECT value FROM site_settings WHERE key = 'jackpot.balance_points'").get() as { value: string } | undefined;
-      const currentBal = balRow ? parseInt(balRow.value, 10) || 0 : 0;
-      const newBal = currentBal + params.jackpotContribution;
-      if (balRow) {
-        sqlite.prepare("UPDATE site_settings SET value = ?, updatedAt = ? WHERE key = 'jackpot.balance_points'").run(String(newBal), now);
-      } else {
-        sqlite.prepare("INSERT INTO site_settings (key, value, createdAt, updatedAt) VALUES ('jackpot.balance_points', ?, ?, ?)").run(String(newBal), now, now);
-      }
-    }
 
     if (params.agentId != null && commissionAgent > 0) {
       sqlite.prepare(`
@@ -2003,27 +1870,6 @@ export async function executeParticipationWithLock(params: ParticipationWithLock
           idempotencyKey: `entry:${submissionId}`,
           payloadJson: { commissionAmount, agentCommissionAmount },
         });
-        if (params.jackpotContribution > 0) {
-          await tx.insert(financialEvents).values({
-            eventType: "JACKPOT_CONTRIBUTION",
-            amountPoints: params.jackpotContribution,
-            tournamentId: params.tournamentId,
-            userId: params.userId,
-            agentId: params.agentId,
-            submissionId,
-            idempotencyKey: `jackpot_contribution:${submissionId}`,
-            payloadJson: null,
-          });
-          const { siteSettings } = await getSchema();
-          const [balRow] = await tx.select({ value: siteSettings.value }).from(siteSettings).where(eq(siteSettings.key, "jackpot.balance_points")).limit(1);
-          const currentBal = balRow ? parseInt(String((balRow as { value: string }).value), 10) || 0 : 0;
-          const newBal = currentBal + params.jackpotContribution;
-          if (balRow) {
-            await tx.update(siteSettings).set({ value: String(newBal), updatedAt: new Date() }).where(eq(siteSettings.key, "jackpot.balance_points"));
-          } else {
-            await tx.insert(siteSettings).values({ key: "jackpot.balance_points", value: String(newBal) });
-          }
-        }
         if (params.agentId != null && (params.commissionAgent ?? 0) > 0) {
           await tx.insert(agentCommissions).values({
             agentId: params.agentId,
@@ -6132,31 +5978,6 @@ export async function insertAnalyticsEvent(data: {
   );
 }
 
-/** Jackpot conversion stats per background: views, clicks, CTR. */
-export async function getJackpotConversionStats(): Promise<Array<{ backgroundId: number; views: number; clicks: number; ctr: number }>> {
-  const sqlite = await getSqlite();
-  if (!sqlite) return [];
-  const viewRows = sqlite.prepare(
-    `SELECT COALESCE(CAST(json_extract(payloadJson, '$.backgroundId') AS INTEGER), 0) AS bid, COUNT(*) AS cnt
-     FROM analytics_events WHERE eventName = 'jackpot_hero_view' GROUP BY bid`
-  ).all() as Array<{ bid: number; cnt: number }>;
-  const clickRows = sqlite.prepare(
-    `SELECT COALESCE(CAST(json_extract(payloadJson, '$.backgroundId') AS INTEGER), 0) AS bid, COUNT(*) AS cnt
-     FROM analytics_events WHERE eventName = 'jackpot_cta_click' GROUP BY bid`
-  ).all() as Array<{ bid: number; cnt: number }>;
-  const viewMap = new Map(viewRows.map((r) => [r.bid, r.cnt]));
-  const clickMap = new Map(clickRows.map((r) => [r.bid, r.cnt]));
-  const ids = new Set([...viewMap.keys(), ...clickMap.keys()]);
-  return Array.from(ids)
-    .filter((id) => id > 0)
-    .map((backgroundId) => {
-      const views = viewMap.get(backgroundId) ?? 0;
-      const clicks = clickMap.get(backgroundId) ?? 0;
-      return { backgroundId, views, clicks, ctr: views > 0 ? clicks / views : 0 };
-    })
-    .sort((a, b) => b.views - a.views);
-}
-
 /** Phase 11: Notifications pending for delivery (email/sms/whatsapp). For cron/job to poll and send. */
 export async function getPendingNotificationsForDelivery(limit = 50): Promise<Array<{
   id: number;
@@ -6926,7 +6747,7 @@ async function hasUserRefundForTournament(userId: number, tournamentId: number):
  * Refund all approved (paid) participants for a cancelled tournament.
  *
  * Refund rule: ENTRY_FEE only. We refund the base entry (tournament.amount) to the user's wallet.
- * JACKPOT_CONTRIBUTION is not refunded; jackpot balance is not decremented. Eligibility uses
+ * Any extra entry addon is not refunded. Eligibility uses
  * (ENTRY_FEE - REFUND) so refunded users lose that entry from their approved play volume.
  *
  * Idempotent: uses payment transaction status when available (paid → refunded); for points-only
@@ -8410,255 +8231,6 @@ export async function deleteSiteBackgroundImage(id: number): Promise<void> {
     const filePath = join(process.cwd(), "uploads", BACKGROUND_SUBDIR, row.filename);
     if (existsSync(filePath)) await unlink(filePath).catch(() => {});
     await db.delete(siteBackgroundImages).where(eq(siteBackgroundImages.id, id));
-  }
-}
-
-// ---------- Jackpot hero background images (storage abstraction, WebP, thumbnail, display_order, one active) ----------
-export async function listJackpotBackgroundImages(): Promise<Array<{
-  id: number;
-  filename: string;
-  thumbnailFilename: string | null;
-  url: string;
-  thumbnailUrl: string | null;
-  isActive: boolean;
-  displayOrder: number;
-  createdAt: Date | null;
-}>> {
-  if (!USE_SQLITE) return [];
-  const { jackpotBackgroundImages } = await getSchema();
-  const db = await getDb();
-  if (!db) return [];
-  const rows = await db.select().from(jackpotBackgroundImages).orderBy(desc(jackpotBackgroundImages.displayOrder), desc(jackpotBackgroundImages.createdAt));
-  return rows.map((r) => ({
-    id: r.id,
-    filename: r.filename,
-    thumbnailFilename: r.thumbnailFilename ?? null,
-    url: r.url,
-    thumbnailUrl: r.thumbnailUrl ?? r.url,
-    isActive: r.isActive ?? false,
-    displayOrder: r.displayOrder ?? 0,
-    createdAt: r.createdAt ?? null,
-  }));
-}
-
-export async function getActiveJackpotBackground(): Promise<{
-  id: number;
-  url: string;
-  thumbnailUrl: string;
-  mobileUrl: string | null;
-  meanLuminance: number | null;
-} | null> {
-  if (!USE_SQLITE) return null;
-  const { jackpotBackgroundImages } = await getSchema();
-  const db = await getDb();
-  if (!db) return null;
-  const rows = await db.select({
-    id: jackpotBackgroundImages.id,
-    url: jackpotBackgroundImages.url,
-    thumbnailUrl: jackpotBackgroundImages.thumbnailUrl,
-    mobileUrl: jackpotBackgroundImages.mobileUrl,
-    meanLuminance: jackpotBackgroundImages.meanLuminance,
-  }).from(jackpotBackgroundImages).where(eq(jackpotBackgroundImages.isActive, true)).limit(1);
-  const r = rows[0];
-  if (!r) return null;
-  const lum = r.meanLuminance != null ? r.meanLuminance / 1000 : null;
-  return {
-    id: r.id,
-    url: r.url,
-    thumbnailUrl: r.thumbnailUrl ?? r.url,
-    mobileUrl: r.mobileUrl ?? null,
-    meanLuminance: lum,
-  };
-}
-
-let _jackpotProcessFn: ((buf: Buffer, mime: string) => Promise<{ ok: true; result: { fullBuffer: Buffer; thumbBuffer: Buffer; mobileBuffer: Buffer; width: number; height: number; meanLuminance: number } } | { ok: false; error: string }>) | null = null;
-async function getJackpotProcessor() {
-  if (_jackpotProcessFn) return _jackpotProcessFn;
-  try {
-    const mod = await import("./storage/jackpotBackgroundImageProcess");
-    _jackpotProcessFn = mod.processJackpotBackgroundImage;
-    return _jackpotProcessFn;
-  } catch (e) {
-    console.warn("[Jackpot] Image processor (sharp) not available, using pass-through:", e instanceof Error ? e.message : String(e));
-    const { validateJackpotBackgroundBuffer } = await import("./storage/jackpotBackgroundValidate");
-    _jackpotProcessFn = async (buf: Buffer, mime: string) => {
-      const v = validateJackpotBackgroundBuffer(buf, mime);
-      if (!v.ok) return v;
-      return { ok: true, result: { fullBuffer: buf, thumbBuffer: buf, mobileBuffer: buf, width: 1920, height: 1080, meanLuminance: 0.5 } };
-    };
-    return _jackpotProcessFn;
-  }
-}
-
-export async function createJackpotBackgroundImage(data: {
-  fileBase64: string;
-  originalName: string;
-  mimeType: string;
-  activate?: boolean;
-}): Promise<{ id: number; url: string; thumbnailUrl: string }> {
-  const { jackpotBackgroundStorage } = await import("./storage/jackpotBackgroundStorage");
-  const processJackpotBackgroundImage = await getJackpotProcessor();
-  const { jackpotBackgroundImages } = await getSchema();
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const buf = Buffer.from(data.fileBase64, "base64");
-  const processed = await processJackpotBackgroundImage(buf, data.mimeType);
-  if (!processed.ok) throw new Error(processed.error);
-  const { fullBuffer, thumbBuffer, mobileBuffer, meanLuminance } = processed.result;
-  const { nanoid } = await import("nanoid");
-  const base = nanoid(12);
-  const fullKey = `${base}.webp`;
-  const thumbKey = `${base}_thumb.webp`;
-  const mobileKey = `${base}_mobile.webp`;
-  const url = await jackpotBackgroundStorage.save(fullKey, fullBuffer);
-  const thumbnailUrl = await jackpotBackgroundStorage.save(thumbKey, thumbBuffer);
-  const mobileUrl = await jackpotBackgroundStorage.save(mobileKey, mobileBuffer);
-  const maxOrder = await db.select({ maxOrder: sql<number>`COALESCE(MAX(${jackpotBackgroundImages.displayOrder}), 0)` }).from(jackpotBackgroundImages).then((r) => (r[0] as { maxOrder: number } | undefined)?.maxOrder ?? 0);
-  const displayOrder = maxOrder + 1;
-  const isActive = data.activate === true;
-  if (isActive) {
-    await db.update(jackpotBackgroundImages).set({ isActive: false });
-  }
-  const luminanceStored = Math.round(meanLuminance * 1000);
-  const [row] = await db.insert(jackpotBackgroundImages).values({
-    filename: fullKey,
-    thumbnailFilename: thumbKey,
-    mobileFilename: mobileKey,
-    url,
-    thumbnailUrl,
-    mobileUrl,
-    isActive,
-    displayOrder,
-    meanLuminance: luminanceStored,
-  }).returning({
-    id: jackpotBackgroundImages.id,
-    url: jackpotBackgroundImages.url,
-    thumbnailUrl: jackpotBackgroundImages.thumbnailUrl,
-  });
-  return { id: row!.id, url: row!.url, thumbnailUrl: row!.thumbnailUrl ?? row!.url };
-}
-
-/** Multipart upload: file at tempPath. Process with sharp from path (stream from disk), save outputs, insert row. */
-export async function createJackpotBackgroundImageFromFile(data: {
-  tempPath: string;
-  originalName: string;
-  mimeType: string;
-  activate?: boolean;
-}): Promise<{ id: number; url: string; thumbnailUrl: string }> {
-  const { jackpotBackgroundStorage } = await import("./storage/jackpotBackgroundStorage");
-  const { processJackpotBackgroundImageFromFile } = await import("./storage/jackpotBackgroundImageProcess");
-  const { jackpotBackgroundImages } = await getSchema();
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const processed = await processJackpotBackgroundImageFromFile(data.tempPath, data.mimeType);
-  if (!processed.ok) throw new Error(processed.error);
-  const { fullBuffer, thumbBuffer, mobileBuffer, meanLuminance } = processed.result;
-  const { nanoid } = await import("nanoid");
-  const base = nanoid(12);
-  const fullKey = `${base}.webp`;
-  const thumbKey = `${base}_thumb.webp`;
-  const mobileKey = `${base}_mobile.webp`;
-  const url = await jackpotBackgroundStorage.save(fullKey, fullBuffer);
-  const thumbnailUrl = await jackpotBackgroundStorage.save(thumbKey, thumbBuffer);
-  const mobileUrl = await jackpotBackgroundStorage.save(mobileKey, mobileBuffer);
-  const maxOrder = await db.select({ maxOrder: sql<number>`COALESCE(MAX(${jackpotBackgroundImages.displayOrder}), 0)` }).from(jackpotBackgroundImages).then((r) => (r[0] as { maxOrder: number } | undefined)?.maxOrder ?? 0);
-  const displayOrder = maxOrder + 1;
-  const isActive = data.activate === true;
-  if (isActive) {
-    await db.update(jackpotBackgroundImages).set({ isActive: false });
-  }
-  const luminanceStored = Math.round(meanLuminance * 1000);
-  const [row] = await db.insert(jackpotBackgroundImages).values({
-    filename: fullKey,
-    thumbnailFilename: thumbKey,
-    mobileFilename: mobileKey,
-    url,
-    thumbnailUrl,
-    mobileUrl,
-    isActive,
-    displayOrder,
-    meanLuminance: luminanceStored,
-  }).returning({
-    id: jackpotBackgroundImages.id,
-    url: jackpotBackgroundImages.url,
-    thumbnailUrl: jackpotBackgroundImages.thumbnailUrl,
-  });
-  return { id: row!.id, url: row!.url, thumbnailUrl: row!.thumbnailUrl ?? row!.url };
-}
-
-/** Transaction-safe: only one active at a time. */
-export async function setActiveJackpotBackground(id: number): Promise<void> {
-  if (!USE_SQLITE) return;
-  const { jackpotBackgroundImages } = await getSchema();
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.transaction(async (tx) => {
-    await tx.update(jackpotBackgroundImages).set({ isActive: false });
-    await tx.update(jackpotBackgroundImages).set({ isActive: true }).where(eq(jackpotBackgroundImages.id, id));
-  });
-}
-
-export async function deleteJackpotBackgroundImage(id: number): Promise<void> {
-  const { jackpotBackgroundStorage } = await import("./storage/jackpotBackgroundStorage");
-  const { jackpotBackgroundImages } = await getSchema();
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const rows = await db.select().from(jackpotBackgroundImages).where(eq(jackpotBackgroundImages.id, id)).limit(1);
-  const row = rows[0];
-  if (row) {
-    await jackpotBackgroundStorage.delete(row.filename);
-    if (row.thumbnailFilename) await jackpotBackgroundStorage.delete(row.thumbnailFilename);
-    if ((row as { mobileFilename?: string | null }).mobileFilename) await jackpotBackgroundStorage.delete((row as { mobileFilename: string }).mobileFilename);
-    await db.delete(jackpotBackgroundImages).where(eq(jackpotBackgroundImages.id, id));
-  }
-}
-
-export async function duplicateJackpotBackgroundImage(id: number): Promise<{ id: number; url: string; thumbnailUrl: string }> {
-  const { jackpotBackgroundStorage } = await import("./storage/jackpotBackgroundStorage");
-  const { jackpotBackgroundImages } = await getSchema();
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const rows = await db.select().from(jackpotBackgroundImages).where(eq(jackpotBackgroundImages.id, id)).limit(1);
-  const row = rows[0];
-  if (!row) throw new Error("תמונת רקע לא נמצאה");
-  const { nanoid } = await import("nanoid");
-  const base = nanoid(12);
-  const fullKey = `${base}.webp`;
-  const thumbKey = `${base}_thumb.webp`;
-  const url = await jackpotBackgroundStorage.duplicate(row.filename, fullKey);
-  const thumbnailUrl = row.thumbnailFilename
-    ? await jackpotBackgroundStorage.duplicate(row.thumbnailFilename, thumbKey)
-    : url;
-  const mobileRow = row as { mobileFilename?: string | null; mobileUrl?: string | null };
-  const mobileKey = `${base}_mobile.webp`;
-  const mobileUrl = mobileRow.mobileFilename
-    ? await jackpotBackgroundStorage.duplicate(mobileRow.mobileFilename, mobileKey)
-    : url;
-  const maxOrder = await db.select({ maxOrder: sql<number>`COALESCE(MAX(${jackpotBackgroundImages.displayOrder}), 0)` }).from(jackpotBackgroundImages).then((r) => (r[0] as { maxOrder: number } | undefined)?.maxOrder ?? 0);
-  const [newRow] = await db.insert(jackpotBackgroundImages).values({
-    filename: fullKey,
-    thumbnailFilename: thumbKey,
-    mobileFilename: mobileRow.mobileFilename ? mobileKey : null,
-    url,
-    thumbnailUrl,
-    mobileUrl: mobileRow.mobileFilename ? mobileUrl : null,
-    isActive: false,
-    displayOrder: maxOrder + 1,
-    meanLuminance: (row as { meanLuminance?: number | null }).meanLuminance ?? null,
-  }).returning({
-    id: jackpotBackgroundImages.id,
-    url: jackpotBackgroundImages.url,
-    thumbnailUrl: jackpotBackgroundImages.thumbnailUrl,
-  });
-  return { id: newRow!.id, url: newRow!.url, thumbnailUrl: newRow!.thumbnailUrl ?? newRow!.url };
-}
-
-export async function reorderJackpotBackgroundImages(updates: Array<{ id: number; displayOrder: number }>): Promise<void> {
-  const { jackpotBackgroundImages } = await getSchema();
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  for (const { id, displayOrder } of updates) {
-    await db.update(jackpotBackgroundImages).set({ displayOrder }).where(eq(jackpotBackgroundImages.id, id));
   }
 }
 

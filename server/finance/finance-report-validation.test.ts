@@ -30,13 +30,11 @@ describe("General report financial consistency", () => {
     expect(sumProfitLoss).toBe(report.summary.totalSiteLoss - report.summary.totalSiteProfit);
   });
 
-  it("each row profitLoss equals wins - bets + refunds (competitionNetPnL) via profile", async () => {
+  it("each row profitLoss equals profile.competitionNetPnL (competitions only)", async () => {
     const report = await getGeneralFinanceReport({});
     for (const row of report.rows.slice(0, 20)) {
       const profile = await getPlayerFinancialProfile(row.userId);
-      const expectedPnL = profile
-        ? profile.totalPrizesWon - profile.totalEntryFees + profile.totalEntryFeeRefunds
-        : 0;
+      const expectedPnL = profile ? profile.competitionNetPnL : 0;
       expect(row.profitLoss).toBe(expectedPnL);
     }
   });
@@ -67,12 +65,14 @@ describe("Player report financial consistency", () => {
       if (!report || report.rows.length === 0) continue;
       const { summary } = report;
       const expectedNet =
-        summary.totalWinningsPaid - summary.totalEntryFees + summary.totalRefunds;
+        summary.totalWinningsPaid -
+        summary.totalEntryFees +
+        summary.totalRefunds;
       expect(summary.netProfitLoss).toBe(expectedNet);
     }
   });
 
-  it("sum(rows.netResult) equals summary.netProfitLoss", async () => {
+  it("sum(rows.netResult) equals summary.netProfitLoss (competitions only)", async () => {
     const db = await getDb();
     if (!db) return;
     const { getAllUsers } = await import("../db");
@@ -162,7 +162,7 @@ describe("No double counting", () => {
     expect(set.size).toBe(userIds.length);
   });
 
-  it("Player report rows are one per ENTRY_FEE (participation)", async () => {
+  it("Player report rows are one per ENTRY_FEE (participation), plus at most one synthetic 'יתר זכיות' row", async () => {
     const db = await getDb();
     if (!db) return;
     const { getAllUsers } = await import("../db");
@@ -174,7 +174,11 @@ describe("No double counting", () => {
       if (!report) continue;
       const profile = await getPlayerFinancialProfile(userId);
       if (!profile) continue;
-      expect(report.rows.length).toBe(profile.totalParticipations);
+      const syntheticRowId = -1;
+      const participationRows = report.rows.filter((r) => r.tournamentId !== syntheticRowId);
+      expect(participationRows.length).toBe(profile.totalParticipations);
+      const syntheticRows = report.rows.filter((r) => r.tournamentId === syntheticRowId);
+      expect(syntheticRows.length).toBeLessThanOrEqual(1);
     }
   });
 });

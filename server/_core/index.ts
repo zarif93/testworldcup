@@ -97,11 +97,6 @@ async function startServer() {
     fs.mkdirSync(backgroundsDir, { recursive: true });
     logger.info("Created uploads/backgrounds directory", { backgroundsDir });
   }
-  const jackpotBackgroundsDir = path.join(uploadsDir, "jackpot-backgrounds");
-  if (!fs.existsSync(jackpotBackgroundsDir)) {
-    fs.mkdirSync(jackpotBackgroundsDir, { recursive: true });
-    logger.info("Created uploads/jackpot-backgrounds directory", { jackpotBackgroundsDir });
-  }
   const uploadTempDir = path.join(uploadsDir, "temp");
   if (!fs.existsSync(uploadTempDir)) {
     fs.mkdirSync(uploadTempDir, { recursive: true });
@@ -323,24 +318,6 @@ async function startServer() {
         }
       } catch (e) {
         logger.warn("Automation (retry) error", { error: String(e) });
-      }
-    }, 60 * 1000);
-    setInterval(async () => {
-      try {
-        const { getJackpotSettings, runJackpotDraw } = await import("../jackpot");
-        const settings = await getJackpotSettings();
-        if (!settings.nextDrawAt) return;
-        const now = Date.now();
-        const drawAt = settings.nextDrawAt.getTime();
-        if (drawAt > now) return;
-        const result = await runJackpotDraw(settings.nextDrawAt, "scheduled");
-        if (result.success) {
-          logger.info("Jackpot: scheduled draw executed", { drawId: result.drawId, winnerUserId: result.winnerUserId });
-        } else if (result.error && !result.error.includes("idempotency")) {
-          logger.warn("Jackpot: scheduled draw failed", { error: result.error });
-        }
-      } catch (e) {
-        logger.warn("Jackpot (scheduled) error", { error: String(e) });
       }
     }, 60 * 1000);
     setInterval(async () => {

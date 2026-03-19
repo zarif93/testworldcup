@@ -627,7 +627,6 @@ export default function PredictionForm() {
   const styles = getTournamentStyles(tournament.amount);
   const entryFeeBase = (tournament as { entryCostPoints?: number }).entryCostPoints ?? (tournament as { amount?: number }).amount ?? 0;
   const entryFee = costBreakdown?.entryFee ?? entryFeeBase;
-  const jackpotContribution = costBreakdown?.jackpotContribution ?? 0;
   const totalCost = costBreakdown?.totalCost ?? entryFeeBase;
   const isFreeroll = totalCost === 0;
   const countPendingApproved = (list: Array<{ status?: string }> | undefined) =>
@@ -660,18 +659,13 @@ export default function PredictionForm() {
           </Button>
         </div>
 
-        {/* Phase 32: tournament hero – entry, prize, urgency, why join; Phase 2: cost breakdown with Jackpot */}
+        {/* Tournament hero – entry, prize, urgency, cost breakdown */}
         <div className="mb-6 rounded-2xl border border-slate-600/60 bg-gradient-to-b from-slate-800/80 to-slate-800/50 overflow-hidden card-tournament-live">
           <div className="p-4 sm:p-5 flex flex-wrap items-center gap-4 gap-y-3">
             {totalCost > 0 ? (
               <div className="flex flex-col gap-0.5 text-right">
                 <span className="text-amber-400 font-bold">
                   מחיר תחרות: ₪{entryFee.toLocaleString("he-IL")}
-                  {jackpotContribution > 0 && (
-                    <span className="block text-sm font-normal text-amber-300/90 mt-0.5">
-                      תרומה לג&#39;קפוט: ₪{jackpotContribution.toLocaleString("he-IL")}
-                    </span>
-                  )}
                 </span>
                 <span className="text-white font-bold">סה&quot;כ לחיוב: ₪{totalCost.toLocaleString("he-IL")}</span>
               </div>

@@ -1,13 +1,10 @@
 /**
  * Shared upload constants and error handling for all image upload flows.
- * Use for: site background, jackpot background, media manager, media picker.
+ * Use for: site background, media manager, media picker.
  */
 
 /** Max file size for site background images (bytes). */
 export const MAX_SITE_BACKGROUND_BYTES = 8 * 1024 * 1024; // 8MB
-
-/** Max file size for jackpot background images (bytes). */
-export const MAX_JACKPOT_BACKGROUND_BYTES = 8 * 1024 * 1024; // 8MB
 
 /** Max file size for media library images (bytes). */
 export const MAX_MEDIA_ASSET_BYTES = 5 * 1024 * 1024; // 5MB
@@ -49,7 +46,7 @@ export function validateImageFile(
   return { ok: true };
 }
 
-export type UploadType = "site-background" | "jackpot-background" | "media";
+export type UploadType = "site-background" | "media";
 
 export type UploadResult =
   | { id: number; url: string }
@@ -61,7 +58,7 @@ const UPLOAD_DEBUG_413 = typeof window !== "undefined" && (window as unknown as 
 function logUploadDiagnostics(params: { type: UploadType; file: File; target: string }) {
   const sizeBytes = params.file.size;
   const sizeMB = (sizeBytes / (1024 * 1024)).toFixed(2);
-  const limits = { "site-background": "8MB", "jackpot-background": "8MB", media: "5MB" };
+  const limits = { "site-background": "8MB", media: "5MB" };
   console.log("[upload] file size:", sizeBytes, "bytes (" + sizeMB + " MB)", "| type:", params.type, "| mime:", params.file.type, "| client limit:", limits[params.type], "| target:", params.target);
 }
 
@@ -120,7 +117,7 @@ export async function uploadImage(params: {
   if (!json?.success || json.id == null || json.url == null) {
     throw new Error(json?.message ?? "תגובת שרת לא תקינה.");
   }
-  if (params.type === "jackpot-background" && json.thumbnailUrl != null) {
+  if (json.thumbnailUrl != null) {
     return { id: json.id, url: json.url, thumbnailUrl: json.thumbnailUrl };
   }
   return { id: json.id, url: json.url };

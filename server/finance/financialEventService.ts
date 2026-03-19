@@ -3,7 +3,7 @@
  * Every monetary action is recorded; no updates/deletes.
  */
 
-import { eq, desc, gte, lte, or, and, inArray } from "drizzle-orm";
+import { eq, desc, gte, lte, and, inArray } from "drizzle-orm";
 import { getSchema, getDb } from "../db";
 import type { FinancialEventType } from "./types";
 /** Transaction or db client (same interface for select/insert). */
@@ -135,9 +135,11 @@ export interface GetFinancialEventsFilter {
   from?: string;
   to?: string;
   limit?: number;
+  /** When set, only events with these eventType values. */
+  eventTypes?: string[];
 }
 
-/** All financial events, optionally filtered by date. For global settlement aggregation by tournament. */
+/** All financial events, optionally filtered by date and event type. */
 export async function getFinancialEventsFiltered(filter: GetFinancialEventsFilter = {}): Promise<
   Array<{
     id: number;
@@ -160,6 +162,9 @@ export async function getFinancialEventsFiltered(filter: GetFinancialEventsFilte
     const end = new Date(filter.to);
     end.setHours(23, 59, 59, 999);
     conditions.push(lte(financialEvents.createdAt, end));
+  }
+  if (filter.eventTypes != null && filter.eventTypes.length > 0) {
+    conditions.push(inArray(financialEvents.eventType, filter.eventTypes));
   }
   const limit = filter.limit ?? 100_000;
   let q = db

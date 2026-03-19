@@ -118,11 +118,19 @@ export async function getPlayerReportDetailed(
   }> = [];
   const prizeBySubmission = new Map<number, number>();
   const refundByTournament = new Map<number, number>();
+  /** Sum of all PRIZE_PAYOUT amounts (canonical total winnings from events) */
+  let totalPrizesFromEvents = 0;
 
   for (const e of events) {
     const amt = e.amountPoints ?? 0;
     const payload = (e.payloadJson ?? {}) as { commissionAmount?: number; agentCommissionAmount?: number };
     switch (e.eventType) {
+      case "PRIZE_PAYOUT":
+        totalPrizesFromEvents += amt;
+        if (e.submissionId != null) {
+          prizeBySubmission.set(e.submissionId, (prizeBySubmission.get(e.submissionId) ?? 0) + amt);
+        }
+        break;
       case "ENTRY_FEE":
         entryRows.push({
           submissionId: e.submissionId ?? null,
@@ -132,11 +140,6 @@ export async function getPlayerReportDetailed(
           commissionAmount: typeof payload.commissionAmount === "number" ? payload.commissionAmount : 0,
           agentCommissionAmount: typeof payload.agentCommissionAmount === "number" ? payload.agentCommissionAmount : 0,
         });
-        break;
-      case "PRIZE_PAYOUT":
-        if (e.submissionId != null) {
-          prizeBySubmission.set(e.submissionId, (prizeBySubmission.get(e.submissionId) ?? 0) + amt);
-        }
         break;
       case "REFUND":
         if (e.tournamentId != null) {
@@ -150,6 +153,7 @@ export async function getPlayerReportDetailed(
 
   const tournamentCache = new Map<number, { name: string; type: string }>();
   const getTournamentInfo = async (tournamentId: number) => {
+    if (tournamentId === 0) return { name: "יתר זכיות", type: "other" };
     let c = tournamentCache.get(tournamentId);
     if (!c) {
       const t = await getTournamentById(tournamentId);
@@ -189,7 +193,7 @@ export async function getPlayerReportDetailed(
 
     let totalCommission = entry.commissionAmount;
     let agentShare = entry.agentCommissionAmount;
-    if (totalCommission === 0 && entryFee > 0) {
+    if (totalCommission === 0 && entryFee > 0 && tournamentId !== 0) {
       const tournament = await getTournamentById(tournamentId);
       if (!tournament) throw new Error("Tournament not found for report: " + tournamentId);
       const bps = getCommissionBasisPoints(tournament as { id?: number; name?: string; commissionPercentBasisPoints?: number | null });
@@ -221,9 +225,33 @@ export async function getPlayerReportDetailed(
     });
   }
 
+  const totalWinningsInRows = rows.reduce((s, r) => s + r.winnings, 0);
+  const orphanPrizes = totalPrizesFromEvents - totalWinningsInRows;
+  /** Sentinel: synthetic row for orphan prizes (not from ENTRY_FEE); 0 is used for null tournamentId from events */
+  const SYNTHETIC_ROW_TOURNAMENT_ID = -1;
+  if (orphanPrizes > 0) {
+    rows.push({
+      tournamentId: SYNTHETIC_ROW_TOURNAMENT_ID,
+      tournamentName: "יתר זכיות",
+      tournamentType: "other",
+      date: null,
+      entryFee: 0,
+      winnings: orphanPrizes,
+      refund: 0,
+      netResult: orphanPrizes,
+      totalCommission: 0,
+      agentShare: 0,
+      platformShare: 0,
+      status: "profit",
+      submissionId: null,
+      submissionStatus: "—",
+      resultDisplay: "Win",
+    });
+  }
+
   const totalParticipations = rows.length;
   const totalEntryFees = rows.reduce((s, r) => s + r.entryFee, 0);
-  const totalWinningsPaid = rows.reduce((s, r) => s + r.winnings, 0);
+  const totalWinningsPaid = totalPrizesFromEvents;
   const totalRefunds = rows.reduce((s, r) => s + r.refund, 0);
   const netProfitLoss = totalWinningsPaid - totalEntryFees + totalRefunds;
   const totalCommissionGenerated = rows.reduce((s, r) => s + r.totalCommission, 0);
@@ -232,7 +260,9 @@ export async function getPlayerReportDetailed(
 
   const netFromRows = rows.reduce((s, r) => s + r.netResult, 0);
   if (netFromRows !== netProfitLoss) {
-    throw new Error(`Player report consistency: sum(rows.netResult)=${netFromRows} must equal netProfitLoss=${netProfitLoss} (winnings−bets+refunds)`);
+    throw new Error(
+      `Player report consistency: sum(rows.netResult)=${netFromRows} must equal netProfitLoss=${netProfitLoss}`
+    );
   }
   if (platformShareSum + agentShareSum !== totalCommissionGenerated) {
     throw new Error(`Player report commission: agentShare+platformShare=${agentShareSum + platformShareSum} must equal totalCommissionGenerated=${totalCommissionGenerated}`);
