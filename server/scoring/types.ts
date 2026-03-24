@@ -2,7 +2,9 @@
  * Phase 4: Shared types for schema-driven scoring engine.
  */
 
-export const SCORING_ENGINE_VERSION = "4.0-schema";
+import type { MatchMarketMeta } from "../matchMarkets/types";
+
+export const SCORING_ENGINE_VERSION = "4.2-match-markets";
 
 export type ScoringSource = "schema" | "legacy";
 
@@ -18,11 +20,14 @@ export interface SchemaScoreResult {
   metadata?: Record<string, unknown>;
 }
 
-/** Context for football scoring: match results + predictions. */
+/** Context for match-list scoring (World Cup + custom tournaments): results + per-match market metadata. */
 export interface FootballScoringContext {
   type: "football";
   matchResults: Map<number, { homeScore: number; awayScore: number }>;
-  predictions: Array<{ matchId: number; prediction: "1" | "X" | "2" }>;
+  /** Stored pick string — market-specific (1/X/2, HOME/DRAW/AWAY, moneyline HOME/AWAY, spread sides). */
+  predictions: Array<{ matchId: number; prediction: string }>;
+  /** Per custom match: market + lines. Omitted for legacy World Cup (all REGULAR_1X2). */
+  matchMarkets?: Map<number, MatchMarketMeta>;
 }
 
 /** Context for lotto scoring: draw result + prediction. */

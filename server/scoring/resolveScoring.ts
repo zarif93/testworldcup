@@ -110,7 +110,7 @@ function resolveLegacyScoring(
   existingWarnings: string[]
 ): ResolvedScoreResult {
   if (context.type === "football") {
-    const pts = calcSubmissionPoints(context.predictions, context.matchResults);
+    const pts = calcSubmissionPoints(context.predictions, context.matchResults, context.matchMarkets);
     return {
       points: pts,
       scoringSource: "legacy",

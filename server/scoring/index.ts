@@ -5,6 +5,7 @@
 export type { SchemaScoreResult, ScoringSource, ScoringContext, FootballScoringContext, LottoScoringContext, ChanceScoringContext } from "./types";
 export { SCORING_ENGINE_VERSION } from "./types";
 export { scoreFootballBySchema } from "./scoreFootballBySchema";
+export { scoreMatchPredictionsBySchema } from "./scoreMatchPredictionsBySchema";
 export { scoreLottoBySchema } from "./scoreLottoBySchema";
 export { scoreChanceBySchema } from "./scoreChanceBySchema";
 export { scoreBySchema } from "./schemaScoringEngine";

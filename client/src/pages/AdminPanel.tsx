@@ -38,6 +38,8 @@ import {
   CreditCard,
 } from "lucide-react";
 import { useLocation } from "wouter";
+import { formatMatchPairingTitle } from "@/lib/spreadDisplay";
+import { normalizeMarketKind, marketKindLabel } from "@/lib/marketDisplay";
 import {
   Dialog,
   DialogContent,
@@ -75,11 +77,35 @@ import { TeamPicker } from "@/components/admin/TeamPicker";
 type AdminSection = "dashboard" | "analytics" | "ops" | "finance" | "autoFill" | "submissions" | "competitions" | "agents" | "players" | "admins" | "roles" | "cms" | "media" | "notifications" | "payments" | "settings";
 type CompetitionSubType = "lotto" | "chance" | "mondial" | "football_custom" | null;
 
+/** Prefer TRPC/server message for admin toasts; Hebrew fallback when missing. */
+function adminMutationErrorMessage(err: unknown, fallbackHebrew: string): string {
+  if (err && typeof err === "object" && "message" in err) {
+    const m = (err as { message?: unknown }).message;
+    if (typeof m === "string") {
+      const t = m.trim();
+      if (t.length > 0) return t;
+    }
+  }
+  if (err instanceof Error && err.message.trim()) return err.message.trim();
+  return fallbackHebrew;
+}
+
+const SPREAD_PAIR_EPS = 1e-9;
+
+type SportsCreateMatchRow = {
+  homeTeam: string;
+  awayTeam: string;
+  homeTeamId?: number;
+  awayTeamId?: number;
+  homeCategoryName?: string;
+  awayCategoryName?: string;
+  marketType: "REGULAR_1X2" | "MONEYLINE" | "SPREAD";
+  homeSpread: string;
+  awaySpread: string;
+};
+
 /** Inline reasons why תחרויות ספורט create submit is blocked (matches button + server checks). */
-function getFootballCustomCreateIssues(
-  numberOfGamesStr: string,
-  matches: Array<{ homeTeam: string; awayTeam: string }>
-): string[] {
+function getFootballCustomCreateIssues(numberOfGamesStr: string, matches: SportsCreateMatchRow[]): string[] {
   const issues: string[] = [];
   const ng = numberOfGamesStr.trim() ? parseInt(numberOfGamesStr, 10) : NaN;
   if (!Number.isInteger(ng) || ng < 1 || ng > 30) {
@@ -96,6 +122,16 @@ function getFootballCustomCreateIssues(
     if (!r.awayTeam?.trim()) issues.push(`משחק #${num}: חסרה קבוצת חוץ.`);
     if (r.homeTeam?.trim() && r.awayTeam?.trim() && r.homeTeam.trim() === r.awayTeam.trim()) {
       issues.push(`משחק #${num}: אותה קבוצה לבית ולחוץ — יש לבחור או להזין שני שמות שונים.`);
+    }
+    const mt = r.marketType ?? "REGULAR_1X2";
+    if (mt === "SPREAD") {
+      const hs = parseFloat(String(r.homeSpread ?? "").trim().replace(",", "."));
+      const as = parseFloat(String(r.awaySpread ?? "").trim().replace(",", "."));
+      if (!Number.isFinite(hs) || !Number.isFinite(as)) {
+        issues.push(`משחק #${num}: בשוק פר ספרד יש למלא קו בית וקו חוץ (מספרים, למשל −5.5 ו־5.5).`);
+      } else if (Math.abs(hs + as) > SPREAD_PAIR_EPS) {
+        issues.push(`משחק #${num}: הקווים חייבים להיות מראה (סכום בית + חוץ = 0).`);
+      }
     }
   });
   return issues;
@@ -170,12 +206,18 @@ export default function AdminPanel() {
     homeTeam: string; awayTeam: string;
     homeTeamId?: number; awayTeamId?: number;
     homeCategoryName?: string; awayCategoryName?: string;
-  }>({ homeTeam: "", awayTeam: "" });
+    marketType: "REGULAR_1X2" | "MONEYLINE" | "SPREAD";
+    homeSpread: string;
+    awaySpread: string;
+  }>({ homeTeam: "", awayTeam: "", marketType: "REGULAR_1X2", homeSpread: "", awaySpread: "" });
   const [footballCustomResultEdit, setFootballCustomResultEdit] = useState<Record<number, { homeScore: string; awayScore: string }>>({});
   const [editCustomMatch, setEditCustomMatch] = useState<{
     id: number; homeTeam: string; awayTeam: string;
     homeTeamId?: number; awayTeamId?: number;
     homeCategoryName?: string; awayCategoryName?: string;
+    marketType: "REGULAR_1X2" | "MONEYLINE" | "SPREAD";
+    homeSpread: string;
+    awaySpread: string;
   } | null>(null);
 
   const [pointsSelectedUserId, setPointsSelectedUserId] = useState<number | "">("");
@@ -307,7 +349,7 @@ export default function AdminPanel() {
     { tournamentId: prizeLogTournamentId ?? undefined, limit: 200 },
     { enabled: (!!status?.verified || !status?.codeRequired) && section === "players" && prizeLogTournamentId != null }
   );
-  const { data: customFootballMatches } = trpc.admin.getCustomFootballMatches.useQuery(
+  const { data: customMatchRows } = trpc.admin.getCustomMatches.useQuery(
     { tournamentId: typeof footballCustomSelectedId === "number" ? footballCustomSelectedId : 0 },
     { enabled: section === "competitions" && competitionSubType === "football_custom" && typeof footballCustomSelectedId === "number" }
   );
@@ -345,6 +387,21 @@ export default function AdminPanel() {
   });
   const deletePointsLogsHistoryMut = trpc.admin.deletePointsLogsHistory.useMutation();
   const utils = trpc.useUtils();
+
+  /** After custom match scores change: refresh matches, points, leaderboards, and open submission views. */
+  async function invalidateAfterCustomMatchResultChange(tournamentId: number) {
+    await Promise.all([
+      utils.admin.getCustomMatches.refetch({ tournamentId }),
+      utils.admin.getCustomMatchLeaderboard.refetch({ tournamentId }),
+      utils.submissions.getCustomMatchLeaderboard.refetch({ tournamentId }),
+      utils.tournaments.getCustomMatches.invalidate({ tournamentId }),
+      utils.tournaments.getById.invalidate({ id: tournamentId }),
+      utils.submissions.getByTournament.invalidate({ tournamentId }),
+      utils.submissions.getById.invalidate(),
+      utils.submissions.getMine.invalidate(),
+      utils.admin.getAllSubmissions.invalidate(),
+    ]);
+  }
 
   const { data: adminsList, refetch: refetchAdmins } = trpc.admin.getAdmins.useQuery(undefined, {
     enabled: (!!status?.verified || !status?.codeRequired) && section === "admins" && !!user?.isSuperAdmin,
@@ -403,15 +460,15 @@ export default function AdminPanel() {
   const updateLottoResultsMut = trpc.admin.updateLottoResults.useMutation();
   const lockLottoDrawMut = trpc.admin.lockLottoDraw.useMutation();
 
-  const { data: customFootballLeaderboard } = trpc.admin.getCustomFootballLeaderboard.useQuery(
+  const { data: customMatchLeaderboard } = trpc.admin.getCustomMatchLeaderboard.useQuery(
     { tournamentId: typeof footballCustomSelectedId === "number" ? footballCustomSelectedId : 0 },
     { enabled: section === "competitions" && competitionSubType === "football_custom" && typeof footballCustomSelectedId === "number" }
   );
-  const addCustomFootballMatchMut = trpc.admin.addCustomFootballMatch.useMutation();
-  const updateCustomFootballMatchResultMut = trpc.admin.updateCustomFootballMatchResult.useMutation();
-  const updateCustomFootballMatchMut = trpc.admin.updateCustomFootballMatch.useMutation();
-  const deleteCustomFootballMatchMut = trpc.admin.deleteCustomFootballMatch.useMutation();
-  const recalcCustomFootballPointsMut = trpc.admin.recalcCustomFootballPoints.useMutation();
+  const addCustomMatchMut = trpc.admin.addCustomMatch.useMutation();
+  const updateCustomMatchResultMut = trpc.admin.updateCustomMatchResult.useMutation();
+  const updateCustomMatchMut = trpc.admin.updateCustomMatch.useMutation();
+  const deleteCustomMatchMut = trpc.admin.deleteCustomMatch.useMutation();
+  const recalcCustomMatchPointsMut = trpc.admin.recalcCustomMatchPoints.useMutation();
   const [agentForm, setAgentForm] = useState({ username: "", phone: "", password: "", name: "" });
   const [adminForm, setAdminForm] = useState({ username: "", password: "", name: "" });
   const [adminEditId, setAdminEditId] = useState<number | null>(null);
@@ -445,11 +502,7 @@ export default function AdminPanel() {
     numberOfGames: "",
   });
   /** תחרויות ספורט: שורות משחקים בטופס היצירה (מתעדכן לפי numberOfGames). teamId/categoryName for library picker. */
-  const [sportsCreateMatches, setSportsCreateMatches] = useState<Array<{
-    homeTeam: string; awayTeam: string;
-    homeTeamId?: number; awayTeamId?: number;
-    homeCategoryName?: string; awayCategoryName?: string;
-  }>>([]);
+  const [sportsCreateMatches, setSportsCreateMatches] = useState<SportsCreateMatchRow[]>([]);
 
   const footballCustomCreateIssues = useMemo(
     () =>
@@ -808,6 +861,11 @@ export default function AdminPanel() {
         toast.error("מלא את כל שורות המשחקים לפי מספר המשחקים שבחרת");
         return;
       }
+      const createIssues = getFootballCustomCreateIssues(newTournament.numberOfGames, sportsCreateMatches);
+      if (createIssues.length > 0) {
+        toast.error(createIssues[0]);
+        return;
+      }
       for (let i = 0; i < sportsCreateMatches.length; i++) {
         const r = sportsCreateMatches[i];
         if (!(r.homeTeam?.trim()) || !(r.awayTeam?.trim())) {
@@ -848,12 +906,25 @@ export default function AdminPanel() {
       const numberOfGamesNum = tournamentType === "football_custom" && newTournament.numberOfGames.trim()
         ? parseInt(newTournament.numberOfGames, 10) : undefined;
       const matchesPayload = tournamentType === "football_custom" && numberOfGamesNum != null && sportsCreateMatches.length === numberOfGamesNum
-        ? sportsCreateMatches.map((r) => ({
-            homeTeam: r.homeTeam.trim(),
-            awayTeam: r.awayTeam.trim(),
-            homeTeamId: r.homeTeamId ?? undefined,
-            awayTeamId: r.awayTeamId ?? undefined,
-          }))
+        ? sportsCreateMatches.map((r) => {
+            const mt = r.marketType ?? "REGULAR_1X2";
+            const spread =
+              mt === "SPREAD"
+                ? {
+                    homeSpread: parseFloat(String(r.homeSpread).trim().replace(",", ".")),
+                    awaySpread: parseFloat(String(r.awaySpread).trim().replace(",", ".")),
+                  }
+                : null;
+            return {
+              homeTeam: r.homeTeam.trim(),
+              awayTeam: r.awayTeam.trim(),
+              homeTeamId: r.homeTeamId ?? undefined,
+              awayTeamId: r.awayTeamId ?? undefined,
+              marketType: mt,
+              homeSpread: spread ? spread.homeSpread : null,
+              awaySpread: spread ? spread.awaySpread : null,
+            };
+          })
         : undefined;
       await createTournamentMut.mutateAsync({
         name: newTournament.name.trim(),
@@ -1832,8 +1903,14 @@ export default function AdminPanel() {
                             const n = parseInt(v, 10);
                             if (Number.isInteger(n) && n >= 1 && n <= 30) {
                               setSportsCreateMatches((prev) => {
-                                const next = Array.from({ length: n }, (_, i) => prev[i] ?? { homeTeam: "", awayTeam: "" });
-                                return next;
+                                const empty: SportsCreateMatchRow = {
+                                  homeTeam: "",
+                                  awayTeam: "",
+                                  marketType: "REGULAR_1X2",
+                                  homeSpread: "",
+                                  awaySpread: "",
+                                };
+                                return Array.from({ length: n }, (_, i) => prev[i] ?? { ...empty });
                               });
                             } else {
                               setSportsCreateMatches([]);
@@ -1846,37 +1923,92 @@ export default function AdminPanel() {
                       {sportsCreateMatches.length > 0 && (
                         <div className="space-y-2">
                           <h4 className="text-amber-400 text-sm font-medium">משחקים – בחר קבוצות מהספרייה (חיפוש) או הזן ידנית</h4>
-                          <div className="flex flex-wrap gap-2 items-center p-2 text-slate-400 text-xs">
-                            <span className="w-6">#</span>
-                            <span className="min-w-[180px] max-w-[220px]">קבוצת בית</span>
-                            <span className="min-w-[180px] max-w-[220px]">קבוצת חוץ</span>
+                          <div className="flex flex-wrap gap-2 items-end p-2 text-slate-400 text-xs">
+                            <span className="w-6 shrink-0">#</span>
+                            <span className="min-w-[140px] max-w-[200px]">שוק</span>
+                            <span className="min-w-[160px] max-w-[200px]">קבוצת בית</span>
+                            <span className="min-w-[160px] max-w-[200px]">קבוצת חוץ</span>
+                            <span className="min-w-[100px] hidden sm:inline text-slate-500" title="רק לפר ספרד">קו בית / חוץ</span>
                           </div>
-                          <div className="space-y-2">
+                          <div className="space-y-3">
                             {sportsCreateMatches.map((row, i) => (
-                              <div key={i} className="flex flex-wrap gap-2 items-center p-2 rounded bg-slate-800/50">
-                                <span className="text-slate-500 text-sm w-6">#{i + 1}</span>
-                                <TeamPicker
-                                  placeholder="חיפוש או הזנה ידנית — קבוצת בית"
-                                  className="min-w-[180px] max-w-[220px]"
-                                  value={row.homeTeam ? { teamName: row.homeTeam, teamId: row.homeTeamId, categoryName: row.homeCategoryName } : null}
-                                  onChange={(v) => setSportsCreateMatches((prev) => {
-                                    const n = [...prev];
-                                    n[i] = { ...n[i], homeTeam: v.teamName, homeTeamId: v.teamId, homeCategoryName: v.categoryName };
-                                    return n;
-                                  })}
-                                  excludeTeamId={row.awayTeamId ?? null}
-                                />
-                                <TeamPicker
-                                  placeholder="חיפוש או הזנה ידנית — קבוצת חוץ"
-                                  className="min-w-[180px] max-w-[220px]"
-                                  value={row.awayTeam ? { teamName: row.awayTeam, teamId: row.awayTeamId, categoryName: row.awayCategoryName } : null}
-                                  onChange={(v) => setSportsCreateMatches((prev) => {
-                                    const n = [...prev];
-                                    n[i] = { ...n[i], awayTeam: v.teamName, awayTeamId: v.teamId, awayCategoryName: v.categoryName };
-                                    return n;
-                                  })}
-                                  excludeTeamId={row.homeTeamId ?? null}
-                                />
+                              <div key={i} className="flex flex-col gap-2 p-3 rounded bg-slate-800/50 border border-slate-700/40">
+                                <div className="flex flex-wrap gap-2 items-center">
+                                  <span className="text-slate-500 text-sm w-6 shrink-0">#{i + 1}</span>
+                                  <select
+                                    className="bg-slate-900 border border-slate-600 text-slate-200 text-sm rounded-lg px-2 py-2 min-w-[140px] max-w-[200px]"
+                                    value={row.marketType}
+                                    onChange={(e) => {
+                                      const v = e.target.value as SportsCreateMatchRow["marketType"];
+                                      setSportsCreateMatches((prev) => {
+                                        const n = [...prev];
+                                        n[i] = {
+                                          ...n[i],
+                                          marketType: v,
+                                          homeSpread: v === "SPREAD" ? n[i].homeSpread : "",
+                                          awaySpread: v === "SPREAD" ? n[i].awaySpread : "",
+                                        };
+                                        return n;
+                                      });
+                                    }}
+                                  >
+                                    <option value="REGULAR_1X2">1X2 (כולל תיקו)</option>
+                                    <option value="MONEYLINE">מונייליין (מנצח בלבד)</option>
+                                    <option value="SPREAD">פר ספרד (מול הקו)</option>
+                                  </select>
+                                  <TeamPicker
+                                    placeholder="חיפוש או הזנה ידנית — קבוצת בית"
+                                    className="min-w-[160px] max-w-[200px]"
+                                    value={row.homeTeam ? { teamName: row.homeTeam, teamId: row.homeTeamId, categoryName: row.homeCategoryName } : null}
+                                    onChange={(v) => setSportsCreateMatches((prev) => {
+                                      const n = [...prev];
+                                      n[i] = { ...n[i], homeTeam: v.teamName, homeTeamId: v.teamId, homeCategoryName: v.categoryName };
+                                      return n;
+                                    })}
+                                    excludeTeamId={row.awayTeamId ?? null}
+                                  />
+                                  <TeamPicker
+                                    placeholder="חיפוש או הזנה ידנית — קבוצת חוץ"
+                                    className="min-w-[160px] max-w-[200px]"
+                                    value={row.awayTeam ? { teamName: row.awayTeam, teamId: row.awayTeamId, categoryName: row.awayCategoryName } : null}
+                                    onChange={(v) => setSportsCreateMatches((prev) => {
+                                      const n = [...prev];
+                                      n[i] = { ...n[i], awayTeam: v.teamName, awayTeamId: v.teamId, awayCategoryName: v.categoryName };
+                                      return n;
+                                    })}
+                                    excludeTeamId={row.homeTeamId ?? null}
+                                  />
+                                </div>
+                                {row.marketType === "SPREAD" && (
+                                  <div className="flex flex-wrap gap-2 items-center mr-0 sm:mr-8 text-xs text-slate-400">
+                                    <span className="text-cyan-400/90 shrink-0">קו בית (למשל −5.5)</span>
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      className="bg-slate-900 border border-slate-600 text-slate-200 rounded px-2 py-1.5 w-24 font-mono"
+                                      value={row.homeSpread}
+                                      onChange={(e) => setSportsCreateMatches((prev) => {
+                                        const n = [...prev];
+                                        n[i] = { ...n[i], homeSpread: e.target.value };
+                                        return n;
+                                      })}
+                                      placeholder="−5.5"
+                                    />
+                                    <span className="text-cyan-400/90 shrink-0">קו חוץ (מראה, למשל 5.5)</span>
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      className="bg-slate-900 border border-slate-600 text-slate-200 rounded px-2 py-1.5 w-24 font-mono"
+                                      value={row.awaySpread}
+                                      onChange={(e) => setSportsCreateMatches((prev) => {
+                                        const n = [...prev];
+                                        n[i] = { ...n[i], awaySpread: e.target.value };
+                                        return n;
+                                      })}
+                                      placeholder="5.5"
+                                    />
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -4168,18 +4300,42 @@ export default function AdminPanel() {
                                   return;
                                 }
                                 try {
-                                  await addCustomFootballMatchMut.mutateAsync({
+                                  const base = {
                                     tournamentId: t.id,
                                     homeTeam: footballCustomNewMatch.homeTeam.trim(),
                                     awayTeam: footballCustomNewMatch.awayTeam.trim(),
                                     homeTeamId: footballCustomNewMatch.homeTeamId ?? undefined,
                                     awayTeamId: footballCustomNewMatch.awayTeamId ?? undefined,
-                                  });
+                                  };
+                                  if (footballCustomNewMatch.marketType === "SPREAD") {
+                                    const hs = parseFloat(String(footballCustomNewMatch.homeSpread).replace(",", "."));
+                                    const as = parseFloat(String(footballCustomNewMatch.awaySpread).replace(",", "."));
+                                    if (!Number.isFinite(hs) || !Number.isFinite(as)) {
+                                      toast.error("הזן קו בית וקו חוץ (מספרים, למשל -15 ו-+15)");
+                                      return;
+                                    }
+                                    await addCustomMatchMut.mutateAsync({
+                                      ...base,
+                                      marketType: "SPREAD",
+                                      homeSpread: hs,
+                                      awaySpread: as,
+                                    });
+                                  } else if (footballCustomNewMatch.marketType === "MONEYLINE") {
+                                    await addCustomMatchMut.mutateAsync({ ...base, marketType: "MONEYLINE" });
+                                  } else {
+                                    await addCustomMatchMut.mutateAsync({ ...base, marketType: "REGULAR_1X2" });
+                                  }
                                   toast.success("משחק נוסף");
-                                  setFootballCustomNewMatch({ homeTeam: "", awayTeam: "" });
-                                  await utils.admin.getCustomFootballMatches.invalidate();
-                                } catch {
-                                  toast.error("שגיאה");
+                                  setFootballCustomNewMatch({
+                                    homeTeam: "",
+                                    awayTeam: "",
+                                    marketType: "REGULAR_1X2",
+                                    homeSpread: "",
+                                    awaySpread: "",
+                                  });
+                                  await utils.admin.getCustomMatches.invalidate();
+                                } catch (e) {
+                                  toast.error(e instanceof Error ? e.message : "שגיאה");
                                 }
                               }}
                             >
@@ -4197,13 +4353,55 @@ export default function AdminPanel() {
                                 onChange={(v) => setFootballCustomNewMatch((p) => ({ ...p, awayTeam: v.teamName, awayTeamId: v.teamId, awayCategoryName: v.categoryName }))}
                                 excludeTeamId={footballCustomNewMatch.homeTeamId ?? null}
                               />
-                              <Button type="submit" size="sm" disabled={addCustomFootballMatchMut.isPending}>הוסף משחק</Button>
+                              <select
+                                className="bg-slate-800 text-white text-sm rounded border border-slate-600 px-2 py-1.5"
+                                value={footballCustomNewMatch.marketType}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setFootballCustomNewMatch((p) => ({
+                                    ...p,
+                                    marketType:
+                                      v === "SPREAD" ? "SPREAD" : v === "MONEYLINE" ? "MONEYLINE" : "REGULAR_1X2",
+                                  }));
+                                }}
+                              >
+                                <option value="REGULAR_1X2">שוק: 1X2</option>
+                                <option value="MONEYLINE">שוק: מונייליין (מנצח)</option>
+                                <option value="SPREAD">שוק: פר ספרד (האנדיקאפ)</option>
+                              </select>
+                              {footballCustomNewMatch.marketType === "SPREAD" ? (
+                                <>
+                                  <Input
+                                    className="bg-slate-800 text-white w-24 text-center"
+                                    placeholder="בית"
+                                    value={footballCustomNewMatch.homeSpread}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setFootballCustomNewMatch((p) => ({
+                                        ...p,
+                                        homeSpread: v,
+                                        awaySpread: v.trim() === "" ? "" : String(-parseFloat(v.replace(",", ".")) || 0),
+                                      }));
+                                    }}
+                                  />
+                                  <Input
+                                    className="bg-slate-800 text-white w-24 text-center"
+                                    placeholder="חוץ"
+                                    value={footballCustomNewMatch.awaySpread}
+                                    onChange={(e) => setFootballCustomNewMatch((p) => ({ ...p, awaySpread: e.target.value }))}
+                                  />
+                                  <span className="text-slate-500 text-xs max-w-[200px]">
+                                    דוגמה: בית -15 → חוץ +15 (חייב להסתכם ל-0)
+                                  </span>
+                                </>
+                              ) : null}
+                              <Button type="submit" size="sm" disabled={addCustomMatchMut.isPending}>הוסף משחק</Button>
                             </form>
-                            {customFootballMatches && customFootballMatches.length > 0 && (
+                            {customMatchRows && customMatchRows.length > 0 && (
                               <>
                                 <h4 className="text-amber-400 text-sm font-medium">משחקים – עריכה ותוצאות</h4>
                                 <div className="space-y-2">
-                                  {customFootballMatches.map((m) => (
+                                  {customMatchRows.map((m) => (
                                     <div key={m.id} className="flex flex-wrap items-center gap-2 p-2 rounded bg-slate-800/50">
                                       {editCustomMatch?.id === m.id ? (
                                         <>
@@ -4221,6 +4419,58 @@ export default function AdminPanel() {
                                             onChange={(v) => setEditCustomMatch((x) => (x ? { ...x, awayTeam: v.teamName, awayTeamId: v.teamId, awayCategoryName: v.categoryName } : null))}
                                             excludeTeamId={editCustomMatch.homeTeamId ?? null}
                                           />
+                                          <select
+                                            className="bg-slate-800 text-white text-sm rounded border border-slate-600 px-2 py-1.5"
+                                            value={editCustomMatch.marketType}
+                                            onChange={(e) => {
+                                              const v = e.target.value;
+                                              setEditCustomMatch((x) =>
+                                                x
+                                                  ? {
+                                                      ...x,
+                                                      marketType:
+                                                        v === "SPREAD" ? "SPREAD" : v === "MONEYLINE" ? "MONEYLINE" : "REGULAR_1X2",
+                                                    }
+                                                  : null
+                                              );
+                                            }}
+                                          >
+                                            <option value="REGULAR_1X2">1X2</option>
+                                            <option value="MONEYLINE">מונייליין</option>
+                                            <option value="SPREAD">פר ספרד</option>
+                                          </select>
+                                          {editCustomMatch.marketType === "SPREAD" ? (
+                                            <>
+                                              <Input
+                                                className="bg-slate-800 text-white w-20 text-center text-sm"
+                                                placeholder="בית"
+                                                value={editCustomMatch.homeSpread}
+                                                onChange={(e) => {
+                                                  const v = e.target.value;
+                                                  setEditCustomMatch((x) =>
+                                                    x
+                                                      ? {
+                                                          ...x,
+                                                          homeSpread: v,
+                                                          awaySpread:
+                                                            v.trim() === ""
+                                                              ? ""
+                                                              : String(-parseFloat(v.replace(",", ".")) || 0),
+                                                        }
+                                                      : null
+                                                  );
+                                                }}
+                                              />
+                                              <Input
+                                                className="bg-slate-800 text-white w-20 text-center text-sm"
+                                                placeholder="חוץ"
+                                                value={editCustomMatch.awaySpread}
+                                                onChange={(e) =>
+                                                  setEditCustomMatch((x) => (x ? { ...x, awaySpread: e.target.value } : null))
+                                                }
+                                              />
+                                            </>
+                                          ) : null}
                                           <Button size="sm" onClick={async () => {
                                             if (!editCustomMatch) return;
                                             if (editCustomMatch.homeTeam.trim() === editCustomMatch.awayTeam.trim()) {
@@ -4228,28 +4478,79 @@ export default function AdminPanel() {
                                               return;
                                             }
                                             try {
-                                              await updateCustomFootballMatchMut.mutateAsync({
+                                              const payload = {
                                                 matchId: m.id,
                                                 homeTeam: editCustomMatch.homeTeam.trim(),
                                                 awayTeam: editCustomMatch.awayTeam.trim(),
                                                 homeTeamId: editCustomMatch.homeTeamId ?? undefined,
                                                 awayTeamId: editCustomMatch.awayTeamId ?? undefined,
-                                              });
+                                                marketType: editCustomMatch.marketType,
+                                              } as {
+                                                matchId: number;
+                                                homeTeam: string;
+                                                awayTeam: string;
+                                                homeTeamId?: number;
+                                                awayTeamId?: number;
+                                                marketType: "REGULAR_1X2" | "MONEYLINE" | "SPREAD";
+                                                homeSpread?: number;
+                                                awaySpread?: number;
+                                              };
+                                              if (editCustomMatch.marketType === "SPREAD") {
+                                                const hs = parseFloat(String(editCustomMatch.homeSpread).replace(",", "."));
+                                                const as = parseFloat(String(editCustomMatch.awaySpread).replace(",", "."));
+                                                if (!Number.isFinite(hs) || !Number.isFinite(as)) {
+                                                  toast.error("הזן קו בית וקו חוץ");
+                                                  return;
+                                                }
+                                                payload.homeSpread = hs;
+                                                payload.awaySpread = as;
+                                              }
+                                              await updateCustomMatchMut.mutateAsync(payload);
                                               toast.success("משחק עודכן");
                                               setEditCustomMatch(null);
-                                              await utils.admin.getCustomFootballMatches.invalidate();
-                                            } catch {
-                                              toast.error("שגיאה");
+                                              await utils.admin.getCustomMatches.invalidate();
+                                            } catch (e) {
+                                              toast.error(e instanceof Error ? e.message : "שגיאה");
                                             }
-                                          }} disabled={updateCustomFootballMatchMut.isPending}>
-                                            {updateCustomFootballMatchMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "שמור"}
+                                          }} disabled={updateCustomMatchMut.isPending}>
+                                            {updateCustomMatchMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "שמור"}
                                           </Button>
                                           <Button size="sm" variant="outline" onClick={() => setEditCustomMatch(null)}>ביטול</Button>
                                         </>
                                       ) : (
                                         <>
-                                          <span className="text-slate-300 text-sm min-w-[140px]">{m.homeTeam} – {m.awayTeam}</span>
-                                          <Button size="sm" variant="outline" className="text-slate-400" onClick={() => setEditCustomMatch({ id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam, homeTeamId: (m as { homeTeamId?: number }).homeTeamId, awayTeamId: (m as { awayTeamId?: number }).awayTeamId })} title="ערוך משחק">
+                                          <span className="text-slate-300 text-sm min-w-[140px]">
+                                            {formatMatchPairingTitle(
+                                              {
+                                                homeTeam: m.homeTeam,
+                                                awayTeam: m.awayTeam,
+                                                marketType: (m as { marketType?: string }).marketType,
+                                                homeSpread: (m as { homeSpread?: number | null }).homeSpread ?? null,
+                                                awaySpread: (m as { awaySpread?: number | null }).awaySpread ?? null,
+                                              },
+                                              " – "
+                                            )}
+                                            <span className="text-slate-500 text-xs mr-2">
+                                              {" "}
+                                              · {marketKindLabel(normalizeMarketKind((m as { marketType?: string }).marketType))}
+                                            </span>
+                                          </span>
+                                          <Button size="sm" variant="outline" className="text-slate-400" onClick={() => setEditCustomMatch({
+                                            id: m.id,
+                                            homeTeam: m.homeTeam,
+                                            awayTeam: m.awayTeam,
+                                            homeTeamId: (m as { homeTeamId?: number }).homeTeamId,
+                                            awayTeamId: (m as { awayTeamId?: number }).awayTeamId,
+                                            marketType: normalizeMarketKind((m as { marketType?: string }).marketType),
+                                            homeSpread:
+                                              (m as { homeSpread?: number | null }).homeSpread != null
+                                                ? String((m as { homeSpread?: number | null }).homeSpread)
+                                                : "",
+                                            awaySpread:
+                                              (m as { awaySpread?: number | null }).awaySpread != null
+                                                ? String((m as { awaySpread?: number | null }).awaySpread)
+                                                : "",
+                                          })} title="ערוך משחק">
                                             <Pencil className="w-3.5 h-3.5 ml-1" />
                                             ערוך משחק
                                           </Button>
@@ -4259,36 +4560,49 @@ export default function AdminPanel() {
                                           <Button
                                             size="sm"
                                             onClick={async () => {
-                                              const h = footballCustomResultEdit[m.id]?.homeScore != null ? parseInt(footballCustomResultEdit[m.id].homeScore, 10) : m.homeScore;
-                                              const a = footballCustomResultEdit[m.id]?.awayScore != null ? parseInt(footballCustomResultEdit[m.id].awayScore, 10) : m.awayScore;
-                                              if (h == null || a == null || isNaN(h) || isNaN(a)) {
+                                              const edit = footballCustomResultEdit[m.id];
+                                              const homeStr = edit?.homeScore ?? (m.homeScore != null ? String(m.homeScore) : "");
+                                              const awayStr = edit?.awayScore ?? (m.awayScore != null ? String(m.awayScore) : "");
+                                              const h = parseInt(homeStr, 10);
+                                              const a = parseInt(awayStr, 10);
+                                              if (homeStr.trim() === "" || awayStr.trim() === "" || isNaN(h) || isNaN(a)) {
                                                 toast.error("הזן תוצאה למשחק");
                                                 return;
                                               }
                                               try {
-                                                await updateCustomFootballMatchResultMut.mutateAsync({ matchId: m.id, homeScore: h, awayScore: a });
+                                                await updateCustomMatchResultMut.mutateAsync({ matchId: m.id, homeScore: h, awayScore: a });
+                                                utils.admin.getCustomMatches.setData({ tournamentId: t.id }, (old) => {
+                                                  if (!old) return old;
+                                                  return old.map((row) =>
+                                                    Number(row.id) === Number(m.id) ? { ...row, homeScore: h, awayScore: a } : row
+                                                  );
+                                                });
                                                 toast.success("תוצאה נשמרה, נקודות חושבו מחדש");
-                                                await utils.admin.getCustomFootballMatches.invalidate();
-                                                await utils.admin.getCustomFootballLeaderboard.invalidate();
-                                              } catch {
-                                                toast.error("שגיאה");
+                                                setFootballCustomResultEdit((p) => {
+                                                  const next = { ...p };
+                                                  delete next[m.id];
+                                                  return next;
+                                                });
+                                                await invalidateAfterCustomMatchResultChange(t.id);
+                                              } catch (e) {
+                                                toast.error(adminMutationErrorMessage(e, "לא ניתן לשמור את התוצאה. נסה שוב."));
                                               }
                                             }}
-                                            disabled={updateCustomFootballMatchResultMut.isPending}
+                                            disabled={updateCustomMatchResultMut.isPending}
                                           >
                                             שמור תוצאה
                                           </Button>
                                           <Button size="sm" variant="outline" className="text-red-400" onClick={async () => {
                                             if (!confirm("למחוק משחק?")) return;
                                             try {
-                                              await deleteCustomFootballMatchMut.mutateAsync({ matchId: m.id });
+                                              await deleteCustomMatchMut.mutateAsync({ matchId: m.id });
                                               toast.success("משחק נמחק");
                                               setEditCustomMatch(null);
-                                              await utils.admin.getCustomFootballMatches.invalidate();
-                                            } catch {
-                                              toast.error("שגיאה");
+                                              await utils.admin.getCustomMatches.invalidate();
+                                            } catch (e) {
+                                              toast.error(adminMutationErrorMessage(e, "לא ניתן למחוק את המשחק."));
                                             }
-                                          }} disabled={deleteCustomFootballMatchMut.isPending}><Trash2 className="w-4 h-4" /></Button>
+                                          }} disabled={deleteCustomMatchMut.isPending}><Trash2 className="w-4 h-4" /></Button>
                                         </>
                                       )}
                                     </div>
@@ -4296,16 +4610,16 @@ export default function AdminPanel() {
                                 </div>
                                 <Button size="sm" variant="outline" onClick={async () => {
                                   try {
-                                    await recalcCustomFootballPointsMut.mutateAsync({ tournamentId: t.id });
+                                    await recalcCustomMatchPointsMut.mutateAsync({ tournamentId: t.id });
                                     toast.success("נקודות חושבו מחדש");
-                                    await utils.admin.getCustomFootballLeaderboard.invalidate();
-                                  } catch {
-                                    toast.error("שגיאה");
+                                    await invalidateAfterCustomMatchResultChange(t.id);
+                                  } catch (e) {
+                                    toast.error(adminMutationErrorMessage(e, "לא ניתן לחשב מחדש נקודות."));
                                   }
-                                }} disabled={recalcCustomFootballPointsMut.isPending}>חשב מחדש נקודות</Button>
+                                }} disabled={recalcCustomMatchPointsMut.isPending}>חשב מחדש נקודות</Button>
                               </>
                             )}
-                            {customFootballMatches && customFootballLeaderboard && (
+                            {customMatchRows && customMatchLeaderboard && (
                               <div className="border-t border-slate-600 pt-3">
                                 <h4 className="text-amber-400 text-sm font-medium mb-2">דירוג</h4>
                                 <div className="overflow-x-auto">
@@ -4320,7 +4634,7 @@ export default function AdminPanel() {
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {customFootballLeaderboard.rows.map((r) => (
+                                      {customMatchLeaderboard.rows.map((r) => (
                                         <tr key={r.submissionId} className="border-t border-slate-700">
                                           <td className="p-2 text-white">{r.rank}</td>
                                           <td className="p-2 text-white">{r.username}</td>
@@ -4332,7 +4646,7 @@ export default function AdminPanel() {
                                     </tbody>
                                   </table>
                                 </div>
-                                <p className="text-slate-500 text-xs mt-2">קופת פרסים: ₪{customFootballLeaderboard.prizePool.toLocaleString("he-IL")} • {customFootballLeaderboard.winnerCount} זוכים</p>
+                                <p className="text-slate-500 text-xs mt-2">קופת פרסים: ₪{customMatchLeaderboard.prizePool.toLocaleString("he-IL")} • {customMatchLeaderboard.winnerCount} זוכים</p>
                               </div>
                             )}
                           </div>

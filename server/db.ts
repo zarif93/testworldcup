@@ -3,6 +3,8 @@
 import { eq, and, desc, asc, inArray, gte, lte, or, isNull, isNotNull, like, sql, notInArray, ne } from "drizzle-orm";
 import { ENV } from "./_core/env";
 import { WORLD_CUP_2026_MATCHES } from "@shared/matchesData";
+import { normalizeMarketTypeForStorage, normalizeStoredMarketType } from "./matchMarkets/marketMeta";
+import { validateSpreadPairForMarket } from "./matchMarkets/marketGrading";
 
 const USE_SQLITE = !process.env.DATABASE_URL;
 export { USE_SQLITE };
@@ -69,7 +71,7 @@ async function initSqlite() {
   const sqlite = new Database(dbPath, { timeout: Number.isFinite(busyTimeoutMs) && busyTimeoutMs > 0 ? busyTimeoutMs : 15000 });
   sqlite.pragma("busy_timeout = " + (Number.isFinite(busyTimeoutMs) && busyTimeoutMs > 0 ? busyTimeoutMs : 15000));
   sqlite.pragma("foreign_keys = ON");
-  const { users, tournaments, matches, submissions, agentCommissions, agentCommissionConfig, siteSettings, chanceDrawResults, lottoDrawResults, teams, players, customFootballMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog, financialEvents } = await import("../drizzle/schema-sqlite");
+  const { users, tournaments, matches, submissions, agentCommissions, agentCommissionConfig, siteSettings, chanceDrawResults, lottoDrawResults, teams, players, customMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog, financialEvents } = await import("../drizzle/schema-sqlite");
 
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -283,28 +285,75 @@ async function initSqlite() {
       updatedAt INTEGER
     )
   `);
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS custom_football_matches (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      tournamentId INTEGER NOT NULL,
-      homeTeamId INTEGER,
-      awayTeamId INTEGER,
-      homeTeam TEXT NOT NULL,
-      awayTeam TEXT NOT NULL,
-      matchDate TEXT,
-      matchTime TEXT,
-      homeScore INTEGER,
-      awayScore INTEGER,
-      displayOrder INTEGER DEFAULT 0,
-      createdAt INTEGER,
-      updatedAt INTEGER
-    )
-  `);
-  const cfmCols = sqlite.prepare("PRAGMA table_info(custom_football_matches)").all() as Array<{ name: string }>;
-  if (!cfmCols.some((c) => c.name === "homeTeamId")) {
-    sqlite.exec(`ALTER TABLE custom_football_matches ADD COLUMN homeTeamId INTEGER`);
-    sqlite.exec(`ALTER TABLE custom_football_matches ADD COLUMN awayTeamId INTEGER`);
-    console.log("[DB] Added columns custom_football_matches.homeTeamId, awayTeamId");
+  {
+    const tblRows = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND (name='custom_football_matches' OR name='custom_matches')").all() as { name: string }[];
+    const hasOld = tblRows.some((t) => t.name === "custom_football_matches");
+    const hasNew = tblRows.some((t) => t.name === "custom_matches");
+    if (hasOld && !hasNew) {
+      const cfmCols0 = sqlite.prepare("PRAGMA table_info(custom_football_matches)").all() as Array<{ name: string }>;
+      if (!cfmCols0.some((c) => c.name === "homeTeamId")) {
+        sqlite.exec(`ALTER TABLE custom_football_matches ADD COLUMN homeTeamId INTEGER`);
+        sqlite.exec(`ALTER TABLE custom_football_matches ADD COLUMN awayTeamId INTEGER`);
+        console.log("[DB] Added columns custom_football_matches.homeTeamId, awayTeamId");
+      }
+      const cfmColsAfter0 = sqlite.prepare("PRAGMA table_info(custom_football_matches)").all() as Array<{ name: string }>;
+      if (!cfmColsAfter0.some((c) => c.name === "marketType")) {
+        sqlite.exec(`ALTER TABLE custom_football_matches ADD COLUMN marketType TEXT NOT NULL DEFAULT 'REGULAR_WINNER'`);
+        console.log("[DB] Added column custom_football_matches.marketType");
+      }
+      const cfmColsSpread0 = sqlite.prepare("PRAGMA table_info(custom_football_matches)").all() as Array<{ name: string }>;
+      if (!cfmColsSpread0.some((c) => c.name === "homeSpread")) {
+        sqlite.exec(`ALTER TABLE custom_football_matches ADD COLUMN homeSpread REAL`);
+        sqlite.exec(`ALTER TABLE custom_football_matches ADD COLUMN awaySpread REAL`);
+        console.log("[DB] Added columns custom_football_matches.homeSpread, awaySpread");
+      }
+      sqlite.exec(`ALTER TABLE custom_football_matches RENAME TO custom_matches`);
+      console.log("[DB] Renamed custom_football_matches -> custom_matches");
+    }
+    if (!hasNew && !hasOld) {
+      sqlite.exec(`
+        CREATE TABLE custom_matches (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tournamentId INTEGER NOT NULL,
+          homeTeamId INTEGER,
+          awayTeamId INTEGER,
+          homeTeam TEXT NOT NULL,
+          awayTeam TEXT NOT NULL,
+          matchDate TEXT,
+          matchTime TEXT,
+          homeScore INTEGER,
+          awayScore INTEGER,
+          displayOrder INTEGER DEFAULT 0,
+          marketType TEXT NOT NULL DEFAULT 'REGULAR_1X2',
+          homeSpread REAL,
+          awaySpread REAL,
+          createdAt INTEGER,
+          updatedAt INTEGER
+        )
+      `);
+    }
+    const cfmCols = sqlite.prepare("PRAGMA table_info(custom_matches)").all() as Array<{ name: string }>;
+    if (!cfmCols.some((c) => c.name === "homeTeamId")) {
+      sqlite.exec(`ALTER TABLE custom_matches ADD COLUMN homeTeamId INTEGER`);
+      sqlite.exec(`ALTER TABLE custom_matches ADD COLUMN awayTeamId INTEGER`);
+      console.log("[DB] Added columns custom_matches.homeTeamId, awayTeamId");
+    }
+    const cfmColsAfter = sqlite.prepare("PRAGMA table_info(custom_matches)").all() as Array<{ name: string }>;
+    if (!cfmColsAfter.some((c) => c.name === "marketType")) {
+      sqlite.exec(`ALTER TABLE custom_matches ADD COLUMN marketType TEXT NOT NULL DEFAULT 'REGULAR_1X2'`);
+      console.log("[DB] Added column custom_matches.marketType");
+    }
+    const cfmColsSpread = sqlite.prepare("PRAGMA table_info(custom_matches)").all() as Array<{ name: string }>;
+    if (!cfmColsSpread.some((c) => c.name === "homeSpread")) {
+      sqlite.exec(`ALTER TABLE custom_matches ADD COLUMN homeSpread REAL`);
+      sqlite.exec(`ALTER TABLE custom_matches ADD COLUMN awaySpread REAL`);
+      console.log("[DB] Added columns custom_matches.homeSpread, awaySpread");
+    }
+    try {
+      sqlite.prepare(`UPDATE custom_matches SET marketType = 'REGULAR_1X2' WHERE marketType = 'REGULAR_WINNER' OR TRIM(COALESCE(marketType,'')) = ''`).run();
+    } catch {
+      /* ignore */
+    }
   }
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS financial_records (
@@ -1082,7 +1131,7 @@ async function initSqlite() {
   // Legacy event-type widening migrations were removed during feature decommission.
 
   const { leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, siteBackgroundImages, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams } = await import("../drizzle/schema-sqlite");
-  const db = drizzle(sqlite, { schema: { users, tournaments, matches, submissions, agentCommissions, agentCommissionConfig, siteSettings, chanceDrawResults, lottoDrawResults, customFootballMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog, financialEvents, leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, siteBackgroundImages, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams } });
+  const db = drizzle(sqlite, { schema: { users, tournaments, matches, submissions, agentCommissions, agentCommissionConfig, siteSettings, chanceDrawResults, lottoDrawResults, customMatches, pointTransactions, pointTransferLog, adminAuditLog, financialRecords, financialTransparencyLog, financialEvents, leagues, competitionTypes, results, settlement, ledgerTransactions, auditLogs, roles, permissions, rolePermissions, userRoles, competitionItemSets, competitionItems, contentPages, contentSections, siteBanners, siteAnnouncements, mediaAssets, siteBackgroundImages, automationJobs, notifications, competitionTemplates, tournamentTemplateCategories, tournamentTemplates, paymentTransactions, teamLibraryCategories, teamLibraryTeams } });
 
   // Team library: schema is migration-only. Fail at startup if tables are missing.
   const teamLibCategoriesExists = sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_library_categories'").get();
@@ -2310,7 +2359,7 @@ export async function fullResetForSuperAdmin(): Promise<{ keptAdminUsernames: st
     sqlite.prepare("DELETE FROM submissions").run();
     sqlite.prepare("DELETE FROM chance_draw_results").run();
     sqlite.prepare("DELETE FROM lotto_draw_results").run();
-    sqlite.prepare("DELETE FROM custom_football_matches").run();
+    sqlite.prepare("DELETE FROM custom_matches").run();
     sqlite.prepare("DELETE FROM tournaments").run();
     sqlite.prepare("DELETE FROM matches").run();
     sqlite.prepare("DELETE FROM admin_audit_log").run();
@@ -3280,7 +3329,7 @@ export async function createCompetitionItemSet(data: CreateCompetitionItemSetInp
     const vsIndex = title.indexOf(" vs ");
     const homeTeam = vsIndex > 0 ? title.slice(0, vsIndex).trim() : title;
     const awayTeam = vsIndex > 0 ? title.slice(vsIndex + 4).trim() : "TBD";
-    await addCustomFootballMatch({
+    await addCustomMatch({
       tournamentId: data.tournamentId,
       homeTeam: homeTeam || "TBD",
       awayTeam: awayTeam || "TBD",
@@ -6641,7 +6690,15 @@ export async function createTournament(data: {
   /** תחרויות ספורט: מספר משחקים (1–30). כשמועבר matches – נוצרות שורות בהתאם ב־custom_football_matches. */
   numberOfGames?: number | null;
   /** תחרויות ספורט: רשימת משחקים ליצירה במקביל לתחרות (צעד אחד). */
-  matches?: Array<{ homeTeam: string; awayTeam: string; homeTeamId?: number | null; awayTeamId?: number | null }> | null;
+  matches?: Array<{
+    homeTeam: string;
+    awayTeam: string;
+    homeTeamId?: number | null;
+    awayTeamId?: number | null;
+    marketType?: "REGULAR_1X2" | "REGULAR_WINNER" | "MONEYLINE" | "SPREAD";
+    homeSpread?: number | null;
+    awaySpread?: number | null;
+  }> | null;
 }): Promise<number> {
   const { validateCreateTournamentPayload } = await import("./tournamentCreateValidator");
   const validation = validateCreateTournamentPayload({
@@ -6663,7 +6720,7 @@ export async function createTournament(data: {
   if (!validation.valid) throw new Error(validation.message);
   const typeVal = validation.normalizedType;
   const schema = await getSchema();
-  const { tournaments, customFootballMatches } = schema;
+  const { tournaments, customMatches } = schema;
   const db = await getDb();
   if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const amountNum = Number(data.amount);
@@ -6725,6 +6782,12 @@ export async function createTournament(data: {
       const away = (m.awayTeam ?? "").trim();
       if (!home || !away) throw new Error(`משחק ${i + 1}: חובה למלא קבוצה ביתית ואורחת`);
       if (home === away) throw new Error(`משחק ${i + 1}: קבוצה ביתית ואורחת לא יכולות להיות אותו שם`);
+      const stored = normalizeMarketTypeForStorage((m as { marketType?: string }).marketType);
+      const kind = normalizeStoredMarketType(stored);
+      const hs = (m as { homeSpread?: number | null }).homeSpread ?? null;
+      const as = (m as { awaySpread?: number | null }).awaySpread ?? null;
+      const spreadErr = validateSpreadPairForMarket(kind, hs, as);
+      if (spreadErr) throw new Error(`משחק ${i + 1}: ${spreadErr}`);
     }
     row.numberOfGames = numGames;
     row.status = "OPEN";
@@ -6762,13 +6825,20 @@ export async function createTournament(data: {
         createdTournamentId = tournamentId;
         for (let i = 0; i < data.matches!.length; i++) {
           const m = data.matches![i];
-          tx.insert(customFootballMatches)
+          const stored = normalizeMarketTypeForStorage((m as { marketType?: string }).marketType);
+          const kind = normalizeStoredMarketType(stored);
+          const hs = (m as { homeSpread?: number | null }).homeSpread ?? null;
+          const as = (m as { awaySpread?: number | null }).awaySpread ?? null;
+          tx.insert(customMatches)
             .values({
               tournamentId,
               homeTeam: (m.homeTeam ?? "").trim(),
               awayTeam: (m.awayTeam ?? "").trim(),
               homeTeamId: (m as { homeTeamId?: number | null }).homeTeamId ?? null,
               awayTeamId: (m as { awayTeamId?: number | null }).awayTeamId ?? null,
+              marketType: stored,
+              homeSpread: kind === "SPREAD" ? hs : null,
+              awaySpread: kind === "SPREAD" ? as : null,
               matchDate: null,
               matchTime: null,
               displayOrder: i,
@@ -6783,12 +6853,19 @@ export async function createTournament(data: {
         if (tournamentId == null) throw new Error("Failed to get tournament id after insert");
         for (let i = 0; i < data.matches!.length; i++) {
           const m = data.matches![i];
-          await tx.insert(customFootballMatches).values({
+          const stored = normalizeMarketTypeForStorage((m as { marketType?: string }).marketType);
+          const kind = normalizeStoredMarketType(stored);
+          const hs = (m as { homeSpread?: number | null }).homeSpread ?? null;
+          const as = (m as { awaySpread?: number | null }).awaySpread ?? null;
+          await tx.insert(customMatches).values({
             tournamentId,
             homeTeam: (m.homeTeam ?? "").trim(),
             awayTeam: (m.awayTeam ?? "").trim(),
             homeTeamId: (m as { homeTeamId?: number | null }).homeTeamId ?? null,
             awayTeamId: (m as { awayTeamId?: number | null }).awayTeamId ?? null,
+            marketType: stored,
+            homeSpread: kind === "SPREAD" ? hs : null,
+            awaySpread: kind === "SPREAD" ? as : null,
             matchDate: null,
             matchTime: null,
             displayOrder: i,
@@ -7106,7 +7183,7 @@ export async function getForensicCancelledCompetitionsReport(): Promise<Forensic
 }
 
 export async function deleteTournament(id: number): Promise<{ refundedCount: number; totalRefunded: number; refundedUserIds: number[]; amountPerUser: number }> {
-  const { tournaments, submissions, agentCommissions, customFootballMatches, financialRecords } = await getSchema();
+  const { tournaments, submissions, agentCommissions, customMatches, financialRecords } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
   const tournament = await getTournamentById(id);
@@ -7160,7 +7237,7 @@ export async function deleteTournament(id: number): Promise<{ refundedCount: num
     await db.delete(agentCommissions).where(inArray(agentCommissions.submissionId, submissionIds));
   }
   await db.delete(submissions).where(eq(submissions.tournamentId, id));
-  await db.delete(customFootballMatches).where(eq(customFootballMatches.tournamentId, id));
+  await db.delete(customMatches).where(eq(customMatches.tournamentId, id));
   await db.delete(tournaments).where(eq(tournaments.id, id));
   return { refundedCount, totalRefunded, refundedUserIds, amountPerUser: refundedCount > 0 ? Math.floor(totalRefunded / refundedCount) : 0 };
 }
@@ -8654,11 +8731,15 @@ export async function getLottoLeaderboard(tournamentId: number): Promise<{
 
 // ——— תחרויות ספורט (משחקים מוגדרים ידנית) ———
 
-export type CustomFootballMatchRow = {
+export type CustomMatchRow = {
   id: number;
   tournamentId: number;
   homeTeam: string;
   awayTeam: string;
+  /** REGULAR_1X2 | MONEYLINE | SPREAD (legacy rows may still say REGULAR_WINNER until backfilled) */
+  marketType: string;
+  homeSpread: number | null;
+  awaySpread: number | null;
   matchDate: string | null;
   matchTime: string | null;
   homeScore: number | null;
@@ -8666,16 +8747,19 @@ export type CustomFootballMatchRow = {
   displayOrder: number;
 };
 
-export async function getCustomFootballMatches(tournamentId: number): Promise<CustomFootballMatchRow[]> {
-  const { customFootballMatches } = await getSchema();
+export async function getCustomMatches(tournamentId: number): Promise<CustomMatchRow[]> {
+  const { customMatches } = await getSchema();
   const db = await getDb();
   if (!db) return [];
-  const rows = await db.select().from(customFootballMatches).where(eq(customFootballMatches.tournamentId, tournamentId)).orderBy(customFootballMatches.displayOrder, customFootballMatches.id);
+  const rows = await db.select().from(customMatches).where(eq(customMatches.tournamentId, tournamentId)).orderBy(customMatches.displayOrder, customMatches.id);
   return rows.map((r) => ({
     id: r.id,
     tournamentId: r.tournamentId,
     homeTeam: r.homeTeam,
     awayTeam: r.awayTeam,
+    marketType: (r as { marketType?: string }).marketType ?? "REGULAR_1X2",
+    homeSpread: (r as { homeSpread?: number | null }).homeSpread ?? null,
+    awaySpread: (r as { awaySpread?: number | null }).awaySpread ?? null,
     matchDate: r.matchDate ?? null,
     matchTime: r.matchTime ?? null,
     homeScore: r.homeScore ?? null,
@@ -8684,65 +8768,99 @@ export async function getCustomFootballMatches(tournamentId: number): Promise<Cu
   }));
 }
 
-export async function addCustomFootballMatch(data: {
+export async function addCustomMatch(data: {
   tournamentId: number;
   homeTeam: string;
   awayTeam: string;
   homeTeamId?: number | null;
   awayTeamId?: number | null;
   displayOrder?: number;
+  marketType?: string;
+  homeSpread?: number | null;
+  awaySpread?: number | null;
 }) {
-  const { customFootballMatches } = await getSchema();
+  const stored = normalizeMarketTypeForStorage(data.marketType);
+  const kind = normalizeStoredMarketType(stored);
+  const hs = data.homeSpread ?? null;
+  const as = data.awaySpread ?? null;
+  const err = validateSpreadPairForMarket(kind, hs, as);
+  if (err) throw new Error(err);
+  const { customMatches } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
-  await db.insert(customFootballMatches).values({
+  await db.insert(customMatches).values({
     tournamentId: data.tournamentId,
     homeTeam: data.homeTeam.trim(),
     awayTeam: data.awayTeam.trim(),
     homeTeamId: data.homeTeamId ?? null,
     awayTeamId: data.awayTeamId ?? null,
+    marketType: stored,
+    homeSpread: kind === "SPREAD" ? hs : null,
+    awaySpread: kind === "SPREAD" ? as : null,
     matchDate: null,
     matchTime: null,
     displayOrder: data.displayOrder ?? 0,
   });
 }
 
-export async function updateCustomFootballMatchResult(matchId: number, homeScore: number, awayScore: number) {
-  const { customFootballMatches } = await getSchema();
+export async function updateCustomMatchResult(matchId: number, homeScore: number, awayScore: number) {
+  const { customMatches } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
-  await db.update(customFootballMatches).set({ homeScore, awayScore, updatedAt: new Date() }).where(eq(customFootballMatches.id, matchId));
+  await db.update(customMatches).set({ homeScore, awayScore, updatedAt: new Date() }).where(eq(customMatches.id, matchId));
 }
 
-export async function updateCustomFootballMatch(matchId: number, data: {
+export async function updateCustomMatch(matchId: number, data: {
   homeTeam?: string;
   awayTeam?: string;
   homeTeamId?: number | null;
   awayTeamId?: number | null;
+  marketType?: string;
+  homeSpread?: number | null;
+  awaySpread?: number | null;
 }) {
-  const { customFootballMatches } = await getSchema();
+  const { customMatches } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
+  const existing = await getCustomMatchById(matchId);
+  if (!existing) throw new Error("משחק לא נמצא");
+  const ex = existing as { marketType?: string | null; homeSpread?: number | null; awaySpread?: number | null };
+  const nextStored =
+    data.marketType !== undefined ? normalizeMarketTypeForStorage(data.marketType) : normalizeMarketTypeForStorage(ex.marketType ?? undefined);
+  const kind = normalizeStoredMarketType(nextStored);
+  let nextHs = data.homeSpread !== undefined ? data.homeSpread : ex.homeSpread ?? null;
+  let nextAs = data.awaySpread !== undefined ? data.awaySpread : ex.awaySpread ?? null;
+  if (kind !== "SPREAD") {
+    nextHs = null;
+    nextAs = null;
+  }
+  const err = validateSpreadPairForMarket(kind, nextHs, nextAs);
+  if (err) throw new Error(err);
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (data.homeTeam !== undefined) set.homeTeam = data.homeTeam.trim();
   if (data.awayTeam !== undefined) set.awayTeam = data.awayTeam.trim();
   if (data.homeTeamId !== undefined) set.homeTeamId = data.homeTeamId ?? null;
   if (data.awayTeamId !== undefined) set.awayTeamId = data.awayTeamId ?? null;
-  await db.update(customFootballMatches).set(set).where(eq(customFootballMatches.id, matchId));
+  if (data.marketType !== undefined || data.homeSpread !== undefined || data.awaySpread !== undefined) {
+    set.marketType = nextStored;
+    set.homeSpread = kind === "SPREAD" ? nextHs : null;
+    set.awaySpread = kind === "SPREAD" ? nextAs : null;
+  }
+  await db.update(customMatches).set(set).where(eq(customMatches.id, matchId));
 }
 
-export async function deleteCustomFootballMatch(matchId: number) {
-  const { customFootballMatches } = await getSchema();
+export async function deleteCustomMatch(matchId: number) {
+  const { customMatches } = await getSchema();
   const db = await getDb();
   if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
-  await db.delete(customFootballMatches).where(eq(customFootballMatches.id, matchId));
+  await db.delete(customMatches).where(eq(customMatches.id, matchId));
 }
 
-export async function getCustomFootballMatchById(matchId: number) {
-  const { customFootballMatches } = await getSchema();
+export async function getCustomMatchById(matchId: number) {
+  const { customMatches } = await getSchema();
   const db = await getDb();
   if (!db) return undefined;
-  const r = await db.select().from(customFootballMatches).where(eq(customFootballMatches.id, matchId)).limit(1);
+  const r = await db.select().from(customMatches).where(eq(customMatches.id, matchId)).limit(1);
   return r[0];
 }
 
@@ -8853,27 +8971,71 @@ export async function searchTeamLibraryTeamsGlobal(search: string): Promise<Team
   return rows as TeamLibrarySearchHit[];
 }
 
-export async function recalcCustomFootballPoints(tournamentId: number) {
-  const matches = await getCustomFootballMatches(tournamentId);
+export async function recalcCustomMatchPoints(tournamentId: number) {
+  if (await isTournamentResultsFinalized(tournamentId)) {
+    throw new Error("Cannot recalculate points: tournament results are finalized");
+  }
+  const matches = await getCustomMatches(tournamentId);
+  const { matchMarketsMapFromRows, normalizeMatchIdKey } = await import("./matchMarkets/marketMeta");
+  const matchMarkets = matchMarketsMapFromRows(matches);
   const results = new Map<number, { homeScore: number; awayScore: number }>();
   for (const m of matches) {
-    if (m.homeScore != null && m.awayScore != null) results.set(m.id, { homeScore: m.homeScore, awayScore: m.awayScore });
+    const mid = normalizeMatchIdKey((m as { id: unknown }).id);
+    if (mid == null) continue;
+    if (m.homeScore != null && m.awayScore != null) results.set(mid, { homeScore: m.homeScore, awayScore: m.awayScore });
   }
   const subs = await getSubmissionsByTournament(tournamentId);
   const tournament = await getTournamentById(tournamentId);
   const { resolveScoring } = await import("./scoring/resolveScoring");
+  const updates: Array<{ id: number; points: number }> = [];
   for (const s of subs) {
     const preds = s.predictions as unknown;
-    if (!Array.isArray(preds) || !preds.every((p: unknown) => p && typeof (p as { matchId?: number }).matchId === "number")) continue;
+    if (!Array.isArray(preds)) continue;
+    const normalizedPreds: Array<{ matchId: number; prediction: string }> = [];
+    for (const pr of preds) {
+      if (!pr || typeof pr !== "object") continue;
+      const mid = normalizeMatchIdKey((pr as { matchId?: unknown }).matchId);
+      if (mid == null) continue;
+      const predStr = (pr as { prediction?: unknown }).prediction;
+      normalizedPreds.push({
+        matchId: mid,
+        prediction: typeof predStr === "string" ? predStr : String(predStr ?? ""),
+      });
+    }
+    if (normalizedPreds.length === 0) continue;
     const resolved = await resolveScoring(
       tournament ?? { type: "football_custom", id: tournamentId },
-      { type: "football", matchResults: results, predictions: preds as Array<{ matchId: number; prediction: "1" | "X" | "2" }> }
+      {
+        type: "football",
+        matchResults: results,
+        predictions: normalizedPreds,
+        matchMarkets,
+      }
     );
-    await updateSubmissionPoints(s.id, resolved.points);
+    updates.push({ id: s.id, points: resolved.points });
+  }
+  if (updates.length === 0) return;
+  const { submissions } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available" + (getDbInitError() ? ": " + String(getDbInitError()) : ""));
+  const now = new Date();
+  // better-sqlite3: transaction callback must be synchronous (no async / returned Promise).
+  if (USE_SQLITE) {
+    db.transaction((tx) => {
+      for (const u of updates) {
+        tx.update(submissions).set({ points: u.points, updatedAt: now }).where(eq(submissions.id, u.id)).run();
+      }
+    });
+  } else {
+    await db.transaction(async (tx) => {
+      for (const u of updates) {
+        await tx.update(submissions).set({ points: u.points, updatedAt: now }).where(eq(submissions.id, u.id));
+      }
+    });
   }
 }
 
-export type CustomFootballLeaderboardRow = {
+export type CustomMatchLeaderboardRow = {
   submissionId: number;
   userId: number;
   username: string;
@@ -8883,8 +9045,8 @@ export type CustomFootballLeaderboardRow = {
   prizeAmount: number;
 };
 
-export async function getCustomFootballLeaderboard(tournamentId: number): Promise<{
-  rows: CustomFootballLeaderboardRow[];
+export async function getCustomMatchLeaderboard(tournamentId: number): Promise<{
+  rows: CustomMatchLeaderboardRow[];
   prizePool: number;
   winnerCount: number;
 }> {
@@ -8901,7 +9063,7 @@ export async function getCustomFootballLeaderboard(tournamentId: number): Promis
   const winners = subs.filter((s) => s.points === maxPoints && maxPoints > 0);
   const winnerCount = winners.length;
   const prizePerWinner = winnerCount > 0 ? Math.round(prizePool / winnerCount) : 0;
-  const rows: CustomFootballLeaderboardRow[] = subs
+  const rows: CustomMatchLeaderboardRow[] = subs
     .sort((a, b) => b.points - a.points)
     .map((s, i) => ({
       submissionId: s.id,
@@ -8987,7 +9149,7 @@ export async function getNearWinMessage(userId: number, tournamentId: number): P
     }
     ({ position, userPoints, firstPlacePoints } = info);
   } else if (type === "football_custom") {
-    const { rows } = await getCustomFootballLeaderboard(tournamentId);
+    const { rows } = await getCustomMatchLeaderboard(tournamentId);
     const info = userRankFromRows(rows.map((r) => ({ userId: r.userId, points: r.points })), userId);
     if (!info) {
       setCachedNearWin(userId, tournamentId, null);
@@ -9069,7 +9231,7 @@ async function getLeaderboardRowsForRival(tournamentId: number): Promise<RivalLe
     return sortedRivalRowsFromRows(rows.map((r) => ({ userId: r.userId, username: r.username ?? `#${r.userId}`, points: r.points })));
   }
   if (type === "football_custom") {
-    const { rows } = await getCustomFootballLeaderboard(tournamentId);
+    const { rows } = await getCustomMatchLeaderboard(tournamentId);
     return sortedRivalRowsFromRows(rows.map((r) => ({ userId: r.userId, username: r.username ?? `#${r.userId}`, points: r.points })));
   }
   const subs = (await getSubmissionsByTournament(tournamentId)).filter((s) => s.status === "approved");

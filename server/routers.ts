@@ -101,14 +101,15 @@ import {
   getDisplayName,
   recordAgentCommission,
   hasCommissionForSubmission,
-  getCustomFootballMatches,
-  addCustomFootballMatch,
-  updateCustomFootballMatchResult,
-  updateCustomFootballMatch,
-  deleteCustomFootballMatch,
-  recalcCustomFootballPoints,
-  getCustomFootballLeaderboard,
-  getCustomFootballMatchById,
+  getCustomMatches,
+  addCustomMatch,
+  updateCustomMatchResult,
+  updateCustomMatch,
+  deleteCustomMatch,
+  recalcCustomMatchPoints,
+  getCustomMatchLeaderboard,
+  getCustomMatchById,
+  isTournamentResultsFinalized,
   listTeamLibraryCategories,
   getTeamLibraryCategoryById,
   listTeamLibraryTeams,
@@ -212,6 +213,7 @@ import {
 import { getLegacyTypeFromCompetitionType } from "./competitionTypeUtils";
 import { resolveTournamentSchemas, resolveTournamentFormSchema, validateEntryAgainstFormSchema } from "./schema";
 import { resolveScoring, getLegacyScoreForContext } from "./scoring/resolveScoring";
+import { matchMarketsMapFromRows, validateCustomMatchPredictionsAgainstMarkets } from "./matchMarkets/marketGrading";
 import { scoreBySchema } from "./scoring/schemaScoringEngine";
 import { resolveTournamentScoringConfig } from "./schema/resolveTournamentSchemas";
 import { TRPCError } from "@trpc/server";
@@ -277,6 +279,7 @@ function tournamentMatchesPublicType(t: { type?: unknown }, want: PublicTourname
 const ADMIN_CODE_MSG = "גישה אסורה – אין הרשאות";
 
 /** Phase 12: Rate limits – submissions and leaderboard from _core/rateLimits. */
+import { mapSubmissionToPublicLeaderboardRow, mapSubmissionToPublicView } from "./submissionPublic";
 import { checkSubmissionRateLimit, checkLeaderboardRateLimit } from "./_core/rateLimits";
 import { assertTeamLibraryScope } from "./teamLibraryScope";
 
@@ -639,10 +642,10 @@ export const appRouter = router({
         })();
         return { formSchema: schema, legacyType, warnings };
       }),
-    getCustomFootballMatches: publicProcedure.input(z.object({ tournamentId: z.number() })).query(async ({ input }) => {
+    getCustomMatches: publicProcedure.input(z.object({ tournamentId: z.number() })).query(async ({ input }) => {
       const t = await getTournamentById(input.tournamentId);
       if (!t || (t as { type?: string }).type !== "football_custom") return [];
-      return getCustomFootballMatches(input.tournamentId);
+      return getCustomMatches(input.tournamentId);
     }),
     /** Phase 34 Step 5: Loss Aversion / FOMO – only when joinable and user has not participated. */
     getLossAversionMessage: protectedProcedure
@@ -706,7 +709,16 @@ export const appRouter = router({
         tournamentId: z.number(),
         predictions: z.array(z.object({
           matchId: z.coerce.number(),
-          prediction: z.enum(["1", "X", "2"]),
+          prediction: z.enum([
+            "1",
+            "X",
+            "2",
+            "HOME",
+            "DRAW",
+            "AWAY",
+            "HOME_SPREAD",
+            "AWAY_SPREAD",
+          ]),
         })).optional(),
         predictionsChance: z.object({
           heart: z.enum(["7", "8", "9", "10", "J", "Q", "K", "A"]),
@@ -931,7 +943,7 @@ export const appRouter = router({
         }
         const tType = (tournament as { type?: string }).type;
         if (tType === "football_custom") {
-          const customMatches = await getCustomFootballMatches(input.tournamentId);
+          const customMatches = await getCustomMatches(input.tournamentId);
           if (customMatches.length === 0) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "אין משחקים בתחרות זו" });
           }
@@ -942,6 +954,10 @@ export const appRouter = router({
           for (const p of predictions) {
             const mid = Number(p.matchId);
             if (!matchIds.has(mid)) throw new TRPCError({ code: "BAD_REQUEST", message: "משחק לא תקין" });
+          }
+          const pickErr = validateCustomMatchPredictionsAgainstMarkets(predictions, customMatches);
+          if (pickErr) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: pickErr });
           }
           const { newSubId, balanceAfter } = await runParticipationWithLock(predictions);
           if (paymentStatus === "pending" && newSubId) {
@@ -1028,7 +1044,16 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
         submissionId: z.number(),
         predictions: z.array(z.object({
           matchId: z.coerce.number(),
-          prediction: z.enum(["1", "X", "2"]),
+          prediction: z.enum([
+            "1",
+            "X",
+            "2",
+            "HOME",
+            "DRAW",
+            "AWAY",
+            "HOME_SPREAD",
+            "AWAY_SPREAD",
+          ]),
         })).optional(),
         predictionsChance: z.object({
           heart: z.enum(["7", "8", "9", "10", "J", "Q", "K", "A"]),
@@ -1091,7 +1116,7 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
           diffJson = { old: oldPred, new: newPredictions };
         } else if (input.predictions && input.predictions.length > 0) {
           if (tType === "football_custom") {
-            const customMatches = await getCustomFootballMatches(submission.tournamentId);
+            const customMatches = await getCustomMatches(submission.tournamentId);
             if (customMatches.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "אין משחקים בתחרות זו" });
             if (input.predictions.length !== customMatches.length) {
               throw new TRPCError({ code: "BAD_REQUEST", message: `יש למלא ניחוש לכל ${customMatches.length} המשחקים` });
@@ -1099,6 +1124,10 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
             const matchIds = new Set(customMatches.map((m) => m.id));
             for (const p of input.predictions) {
               if (!matchIds.has(Number(p.matchId))) throw new TRPCError({ code: "BAD_REQUEST", message: "משחק לא תקין" });
+            }
+            const editPickErr = validateCustomMatchPredictionsAgainstMarkets(input.predictions, customMatches);
+            if (editPickErr) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: editPickErr });
             }
           } else {
             const matches = await getMatches();
@@ -1147,9 +1176,29 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
       const deletedMap = await getTournamentDeletedAtMap([tournamentId]);
       return { ...s, tournamentRemoved: deletedMap.get(tournamentId) ?? false };
     }),
+    /** רשימת טפסים לטורניר – שדות בטוחים לציבור (ללא agentId, תשלומים, מזהה משתמש פנימי). */
     getByTournament: publicProcedure
       .input(z.object({ tournamentId: z.number() }))
-      .query(({ input }) => getSubmissionsByTournament(input.tournamentId)),
+      .query(async ({ input }) => {
+        const raw = await getSubmissionsByTournament(input.tournamentId);
+        if (raw.length === 0) return [];
+        const deletedMap = await getTournamentDeletedAtMap([input.tournamentId]);
+        const tournamentRemoved = deletedMap.get(input.tournamentId) ?? false;
+        return raw.map((s) => mapSubmissionToPublicLeaderboardRow(s as never, tournamentRemoved));
+      }),
+    /** צפייה בניחושים של טופס אחר – קריאה ציבורית (מודל דירוג / שקיפות); ללא מטא-דאטה פנימי. */
+    getPublicSubmissionView: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (!checkLeaderboardRateLimit(ctx)) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "יותר מדי בקשות – נסה שוב בעוד רגע" });
+        }
+        const s = await getSubmissionById(input.id);
+        if (!s) throw new TRPCError({ code: "NOT_FOUND", message: "טופס לא נמצא" });
+        const tournamentId = (s as { tournamentId: number }).tournamentId;
+        const deletedMap = await getTournamentDeletedAtMap([tournamentId]);
+        return mapSubmissionToPublicView(s as never, deletedMap.get(tournamentId) ?? false);
+      }),
     getChanceLeaderboard: publicProcedure
       .input(z.object({ tournamentId: z.number() }))
       .query(({ input, ctx }) => {
@@ -1168,9 +1217,9 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
         trackLeaderboardView(ctx.user?.id ?? null, input.tournamentId);
         return getLottoLeaderboard(input.tournamentId);
       }),
-    getCustomFootballLeaderboard: publicProcedure
+    getCustomMatchLeaderboard: publicProcedure
       .input(z.object({ tournamentId: z.number() }))
-      .query(({ input }) => getCustomFootballLeaderboard(input.tournamentId)),
+      .query(({ input }) => getCustomMatchLeaderboard(input.tournamentId)),
     getTournamentSettlementWinners: publicProcedure
       .input(z.object({ tournamentId: z.number() }))
       .query(({ input }) => getTournamentSettlementWinners(input.tournamentId)),
@@ -2046,6 +2095,9 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
           awayTeam: z.string().min(1),
           homeTeamId: z.number().int().positive().optional().nullable(),
           awayTeamId: z.number().int().positive().optional().nullable(),
+          marketType: z.enum(["REGULAR_1X2", "REGULAR_WINNER", "MONEYLINE", "SPREAD"]).optional(),
+          homeSpread: z.number().finite().optional().nullable(),
+          awaySpread: z.number().finite().optional().nullable(),
         })).optional(),
       }))
       .mutation(async ({ input }) => {
@@ -2116,6 +2168,8 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
           }
         }
         if (input.type === "football_custom" && input.matches != null && input.matches.length > 0) {
+          const { validateSpreadPairForMarket } = await import("./matchMarkets/marketGrading");
+          const { normalizeStoredMarketType } = await import("./matchMarkets/marketMeta");
           const ng = input.numberOfGames;
           if (ng == null || !Number.isInteger(ng) || ng < 1 || ng > 30) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "מספר משחקים חייב להיות בין 1 ל־30" });
@@ -2130,6 +2184,11 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
             }
             if (m.homeTeam.trim() === m.awayTeam.trim()) {
               throw new TRPCError({ code: "BAD_REQUEST", message: `משחק ${i + 1}: קבוצה ביתית ואורחת לא יכולות להיות אותו שם` });
+            }
+            const kind = normalizeStoredMarketType(m.marketType);
+            const spreadErr = validateSpreadPairForMarket(kind, m.homeSpread ?? null, m.awaySpread ?? null);
+            if (spreadErr) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: `משחק ${i + 1}: ${spreadErr}` });
             }
           }
         }
@@ -2661,9 +2720,9 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
         }
         return { success: true, ...refund };
       }),
-    getCustomFootballMatches: adminProcedure
+    getCustomMatches: adminProcedure
       .input(z.object({ tournamentId: z.number() }))
-      .query(({ input }) => getCustomFootballMatches(input.tournamentId)),
+      .query(({ input }) => getCustomMatches(input.tournamentId)),
     /** Team library (football_custom / תחרויות ספורט only): scope guard enforced at backend */
     listTeamLibraryCategories: adminProcedure
       .input(z.object({ scope: z.literal("football_custom") }))
@@ -2774,14 +2833,22 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
         let configMode: string | null = null;
 
         if (tType === "football" || tType === "football_custom") {
-          const matches = tType === "football" ? await getMatches() : await getCustomFootballMatches(input.tournamentId);
+          const matches = tType === "football" ? await getMatches() : await getCustomMatches(input.tournamentId);
           const results = new Map<number, { homeScore: number; awayScore: number }>();
           for (const m of matches) {
             const hm = m as { homeScore?: number | null; awayScore?: number | null };
             if (hm.homeScore != null && hm.awayScore != null) results.set(m.id, { homeScore: hm.homeScore, awayScore: hm.awayScore });
           }
-          const preds = Array.isArray(pred) ? (pred as Array<{ matchId: number; prediction: "1" | "X" | "2" }>) : [];
-          const ctx = { type: "football" as const, matchResults: results, predictions: preds };
+          const preds = Array.isArray(pred)
+            ? (pred as Array<{ matchId: number; prediction: string }>)
+            : [];
+          const matchMarkets =
+            tType === "football_custom"
+              ? matchMarketsMapFromRows(
+                  matches as Array<{ id: number; marketType: string; homeSpread: number | null; awaySpread: number | null }>
+                )
+              : undefined;
+          const ctx = { type: "football" as const, matchResults: results, predictions: preds, matchMarkets };
           const legacy = getLegacyScoreForContext(ctx);
           legacyPoints = legacy.points;
           try {
@@ -2892,7 +2959,7 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
           configMode,
         };
       }),
-    addCustomFootballMatch: adminProcedure
+    addCustomMatch: adminProcedure
       .input(z.object({
         tournamentId: z.number(),
         homeTeam: z.string().min(1),
@@ -2900,40 +2967,60 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
         homeTeamId: z.number().int().positive().optional().nullable(),
         awayTeamId: z.number().int().positive().optional().nullable(),
         displayOrder: z.number().optional(),
+        marketType: z.enum(["REGULAR_1X2", "REGULAR_WINNER", "MONEYLINE", "SPREAD"]).optional(),
+        homeSpread: z.number().finite().optional().nullable(),
+        awaySpread: z.number().finite().optional().nullable(),
       }))
-      .mutation(({ input }) => addCustomFootballMatch(input)),
-    updateCustomFootballMatchResult: adminProcedure
+      .mutation(({ input }) => addCustomMatch(input)),
+    updateCustomMatchResult: adminProcedure
       .input(z.object({ matchId: z.number(), homeScore: z.number(), awayScore: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        const match = await getCustomFootballMatchById(input.matchId);
+        const match = await getCustomMatchById(input.matchId);
         if (!match) throw new TRPCError({ code: "NOT_FOUND", message: "משחק לא נמצא" });
-        await updateCustomFootballMatchResult(input.matchId, input.homeScore, input.awayScore);
-        await recalcCustomFootballPoints(match.tournamentId);
+        if (await isTournamentResultsFinalized(match.tournamentId)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "לא ניתן לעדכן תוצאות לאחר סגירה וסיכום תחרות",
+          });
+        }
+        await updateCustomMatchResult(input.matchId, input.homeScore, input.awayScore);
+        await recalcCustomMatchPoints(match.tournamentId);
         logger.info("Updated custom football match", { matchId: input.matchId });
         return { success: true };
       }),
-    updateCustomFootballMatch: adminProcedure
+    updateCustomMatch: adminProcedure
       .input(z.object({
         matchId: z.number(),
         homeTeam: z.string().min(1).optional(),
         awayTeam: z.string().min(1).optional(),
         homeTeamId: z.number().int().positive().optional().nullable(),
         awayTeamId: z.number().int().positive().optional().nullable(),
+        marketType: z.enum(["REGULAR_1X2", "REGULAR_WINNER", "MONEYLINE", "SPREAD"]).optional(),
+        homeSpread: z.number().finite().optional().nullable(),
+        awaySpread: z.number().finite().optional().nullable(),
       }))
-      .mutation(({ input }) => updateCustomFootballMatch(input.matchId, input)),
-    deleteCustomFootballMatch: adminProcedure
+      .mutation(({ input }) => {
+        const { matchId, ...rest } = input;
+        return updateCustomMatch(matchId, rest);
+      }),
+    deleteCustomMatch: adminProcedure
       .input(z.object({ matchId: z.number() }))
-      .mutation(({ input }) => deleteCustomFootballMatch(input.matchId)),
-    recalcCustomFootballPoints: adminProcedure
+      .mutation(({ input }) => deleteCustomMatch(input.matchId)),
+    recalcCustomMatchPoints: adminProcedure
       .input(z.object({ tournamentId: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        await recalcCustomFootballPoints(input.tournamentId);
+        try {
+          await recalcCustomMatchPoints(input.tournamentId);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          throw new TRPCError({ code: "BAD_REQUEST", message: msg });
+        }
         logger.info("Recalculated custom football points", { tournamentId: input.tournamentId });
         return { success: true };
       }),
-    getCustomFootballLeaderboard: adminProcedure
+    getCustomMatchLeaderboard: adminProcedure
       .input(z.object({ tournamentId: z.number() }))
-      .query(({ input }) => getCustomFootballLeaderboard(input.tournamentId)),
+      .query(({ input }) => getCustomMatchLeaderboard(input.tournamentId)),
     getSiteSettings: adminProcedure.use(usePermission("settings.manage")).query(() => getSiteSettings()),
     setSiteSetting: adminProcedure.use(usePermission("settings.manage"))
       .input(z.object({ key: z.string().min(1), value: z.string() }))
@@ -3203,12 +3290,20 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
               predictions,
             });
           } else if (tType === "football_custom") {
-            const customMatches = await getCustomFootballMatches(input.tournamentId);
+            const customMatches = await getCustomMatches(input.tournamentId);
             if (customMatches.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "אין משחקים בתחרות זו" });
-            const predictions = customMatches.map((m) => ({
-              matchId: m.id,
-              prediction: pick(CHOICES),
-            }));
+            const predictions = customMatches.map((m) => {
+              const mt = m.marketType;
+              let prediction: string;
+              if (mt === "SPREAD") {
+                prediction = Math.random() < 0.5 ? "HOME_SPREAD" : "AWAY_SPREAD";
+              } else if (mt === "MONEYLINE") {
+                prediction = Math.random() < 0.5 ? "HOME" : "AWAY";
+              } else {
+                prediction = pick(CHOICES);
+              }
+              return { matchId: m.id, prediction };
+            });
             await insertAutoSubmission({
               userId: virtualUserId,
               username: displayName,
@@ -3242,7 +3337,7 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
           }
         }
         if (tType === "football" || tType === "football_custom") {
-          const matches = tType === "football" ? await getMatches() : await getCustomFootballMatches(input.tournamentId);
+          const matches = tType === "football" ? await getMatches() : await getCustomMatches(input.tournamentId);
           const results = new Map<number, { homeScore: number; awayScore: number }>();
           for (const m of matches) {
             const hm = m as { homeScore?: number | null; awayScore?: number | null };
@@ -3250,12 +3345,23 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
           }
           if (results.size > 0) {
             const subs = await getSubmissionsByTournament(input.tournamentId);
+            const mm =
+              tType === "football_custom"
+                ? matchMarketsMapFromRows(
+                    matches as Array<{ id: number; marketType: string; homeSpread: number | null; awaySpread: number | null }>
+                  )
+                : undefined;
             for (const s of subs) {
               const preds = s.predictions as unknown;
               if (Array.isArray(preds) && preds.every((p: unknown) => p && typeof (p as { matchId?: number }).matchId === "number")) {
                 const resolved = await resolveScoring(
                   tournament,
-                  { type: "football", matchResults: results, predictions: preds as Array<{ matchId: number; prediction: "1" | "X" | "2" }> }
+                  {
+                    type: "football",
+                    matchResults: results,
+                    predictions: preds as Array<{ matchId: number; prediction: string }>,
+                    matchMarkets: mm,
+                  }
                 );
                 await updateSubmissionPoints(s.id, resolved.points);
               }

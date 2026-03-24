@@ -160,7 +160,7 @@ function SingleTournamentLeaderboardCard({
     { tournamentId: t.id },
     { enabled: isLotto && t.id > 0 }
   );
-  const { data: customFootballLeaderboard } = trpc.submissions.getCustomFootballLeaderboard.useQuery(
+  const { data: customMatchLeaderboard } = trpc.submissions.getCustomMatchLeaderboard.useQuery(
     { tournamentId: t.id },
     { enabled: isFootballCustom && t.id > 0 }
   );
@@ -494,15 +494,15 @@ function SingleTournamentLeaderboardCard({
             </>
           )
         ) : isFootballCustom ? (
-          !customFootballLeaderboard ? (
+          !customMatchLeaderboard ? (
             <p className="text-slate-500 text-center py-12">טוען דירוג...</p>
           ) : (
             <>
               <div className="md:hidden space-y-3 p-2">
-                {customFootballLeaderboard.rows.length === 0 ? (
+                {customMatchLeaderboard.rows.length === 0 ? (
                   <p className="text-slate-500 text-center py-8">אין משתתפים מאושרים.</p>
                 ) : (
-                  customFootballLeaderboard.rows.map((row) => (
+                  customMatchLeaderboard.rows.map((row) => (
                     <div key={row.submissionId} onClick={() => onViewSubmission(row.submissionId)} className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-4 shadow-lg active:scale-[0.99] cursor-pointer">
                       <div className="flex justify-between items-center gap-2 mb-1">
                         <span className="text-slate-400 font-bold">#{row.rank}</span>
@@ -531,10 +531,10 @@ function SingleTournamentLeaderboardCard({
                   </tr>
                 </thead>
                 <tbody>
-                  {customFootballLeaderboard.rows.length === 0 ? (
+                  {customMatchLeaderboard.rows.length === 0 ? (
                     <tr><td colSpan={showLeaderboardPrizeAndWinner ? 6 : 5} className="p-8 text-center text-slate-500">אין משתתפים מאושרים.</td></tr>
                   ) : (
-                    customFootballLeaderboard.rows.map((row) => (
+                    customMatchLeaderboard.rows.map((row) => (
                       <tr key={row.submissionId} onClick={() => onViewSubmission(row.submissionId)} className="border-b border-slate-700/40 hover:bg-slate-700/40 transition-colors cursor-pointer">
                         <td className="p-3"><span className="text-slate-400 font-bold">#{row.rank}</span></td>
                         <td className="p-3 text-white font-medium">{row.username}</td>
@@ -548,7 +548,7 @@ function SingleTournamentLeaderboardCard({
                 </tbody>
               </table>
               <div className="p-3 border-t border-slate-600/50 text-sm text-slate-400">
-                {showLeaderboardPrizeAndWinner ? <>קופת פרסים: ₪{customFootballLeaderboard.prizePool.toLocaleString("he-IL")}{customFootballLeaderboard.winnerCount > 0 && ` • ${customFootballLeaderboard.winnerCount} זוכים`}</> : "דירוג לפי ניקוד בלבד – תוצאות חלוקת הפרסים למעלה"}
+                {showLeaderboardPrizeAndWinner ? <>קופת פרסים: ₪{customMatchLeaderboard.prizePool.toLocaleString("he-IL")}{customMatchLeaderboard.winnerCount > 0 && ` • ${customMatchLeaderboard.winnerCount} זוכים`}</> : "דירוג לפי ניקוד בלבד – תוצאות חלוקת הפרסים למעלה"}
               </div>
             </div>
             </>

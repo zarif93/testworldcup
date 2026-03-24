@@ -42,8 +42,18 @@ export function validateEntryAgainstFormSchema(
         errors.push({ path: `[${i}].matchId`, message: "matchId must be a number" });
       }
       const pred = o.prediction;
-      if (!options.includes(String(pred))) {
-        errors.push({ path: `[${i}].prediction`, message: `prediction must be one of: ${options.join(", ")}` });
+      const predStr = String(pred);
+      const extraMarketOk =
+        predStr === "HOME_SPREAD" ||
+        predStr === "AWAY_SPREAD" ||
+        predStr === "HOME" ||
+        predStr === "AWAY" ||
+        predStr === "DRAW";
+      if (!options.includes(predStr) && !extraMarketOk) {
+        errors.push({
+          path: `[${i}].prediction`,
+          message: `prediction must be one of: ${options.join(", ")} (or HOME/DRAW/AWAY, HOME/AWAY, or HOME_SPREAD/AWAY_SPREAD for other markets)`,
+        });
       }
     }
     return { valid: errors.length === 0, errors };

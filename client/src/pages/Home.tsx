@@ -137,7 +137,7 @@ function LeaderboardTopTeaser({
     { tournamentId },
     { enabled: type === "lotto" }
   );
-  const { data: custom } = trpc.submissions.getCustomFootballLeaderboard.useQuery(
+  const { data: custom } = trpc.submissions.getCustomMatchLeaderboard.useQuery(
     { tournamentId },
     { enabled: type === "football_custom" }
   );

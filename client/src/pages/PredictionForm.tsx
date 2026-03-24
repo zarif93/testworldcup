@@ -25,6 +25,9 @@ import {
 import { toast } from "sonner";
 import { Loader2, Send, LogIn, Trophy } from "lucide-react";
 import { getTournamentStyles } from "@/lib/tournamentStyles";
+import { formatSpreadLine, formatMatchPairingTitle } from "@/lib/spreadDisplay";
+import { normalizeMarketKind, marketKindLabel } from "@/lib/marketDisplay";
+import { sanitizePickForMatchRow, validatePredictionsPayloadAgainstMatches } from "@/lib/customMatchPickValidation";
 import { DynamicPredictionForm } from "@/components/DynamicPredictionForm";
 import { LossAversionBanner } from "@/components/LossAversionBanner";
 import { SocialProofStrip } from "@/components/SocialProofStrip";
@@ -46,6 +49,118 @@ function useDynamicFormPath(
 
 const PREDICTIONS_STORAGE_KEY = (tid: number) => `worldcup_predictions_${tid}`;
 const RETURN_PATH_KEY = "worldcup_return_path";
+
+type FootballPredictionChoice =
+  | "1"
+  | "X"
+  | "2"
+  | "HOME"
+  | "DRAW"
+  | "AWAY"
+  | "HOME_SPREAD"
+  | "AWAY_SPREAD";
+
+function defaultPickForRow(
+  m: { marketType?: string; homeSpread?: number | null; awaySpread?: number | null },
+  isFootballCustom: boolean
+): FootballPredictionChoice {
+  if (!isFootballCustom) return "1";
+  const kind = normalizeMarketKind(m.marketType);
+  if (kind === "MONEYLINE") return "HOME";
+  return "1";
+}
+
+function MoneylinePickToggle({
+  homeName,
+  awayName,
+  value,
+  onChange,
+  disabled,
+}: {
+  homeName: string;
+  awayName: string;
+  value: "HOME" | "AWAY";
+  onChange: (v: "HOME" | "AWAY") => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className={`flex flex-col gap-2 min-w-0 ${disabled ? "opacity-75 pointer-events-none" : ""}`}>
+      <p className="text-[11px] text-violet-400/95 font-medium">מונייליין — מנצח בלבד (ללא תיקו)</p>
+      <div className="flex rounded-xl overflow-hidden border border-violet-600/40 bg-slate-800/50 p-0.5 gap-0.5 flex-wrap sm:flex-nowrap">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => !disabled && onChange("HOME")}
+          className={`flex flex-col flex-1 min-w-[120px] py-2 px-2 font-bold text-sm transition-all rounded-lg ${
+            value === "HOME" ? "bg-emerald-600 text-white shadow-md" : "text-emerald-300/90 hover:bg-emerald-500/15"
+          }`}
+        >
+          <span className="break-words text-xs leading-tight">{homeName}</span>
+          <span className="text-[10px] font-normal opacity-90">ניצחון בית</span>
+        </button>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => !disabled && onChange("AWAY")}
+          className={`flex flex-col flex-1 min-w-[120px] py-2 px-2 font-bold text-sm transition-all rounded-lg ${
+            value === "AWAY" ? "bg-blue-600 text-white shadow-md" : "text-blue-300/90 hover:bg-blue-500/15"
+          }`}
+        >
+          <span className="break-words text-xs leading-tight">{awayName}</span>
+          <span className="text-[10px] font-normal opacity-90">ניצחון חוץ</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SpreadPickToggle({
+  homeName,
+  awayName,
+  homeSpread,
+  awaySpread,
+  value,
+  onChange,
+  disabled,
+}: {
+  homeName: string;
+  awayName: string;
+  homeSpread: number;
+  awaySpread: number;
+  value: "HOME_SPREAD" | "AWAY_SPREAD" | null;
+  onChange: (v: "HOME_SPREAD" | "AWAY_SPREAD") => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className={`flex flex-col gap-2 min-w-0 ${disabled ? "opacity-75 pointer-events-none" : ""}`}>
+      <p className="text-[11px] text-cyan-400/95 font-medium">פר ספרד — בחירה מול הקו</p>
+      <div className="flex rounded-xl overflow-hidden border border-cyan-600/40 bg-slate-800/50 p-0.5 gap-0.5 flex-wrap sm:flex-nowrap">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => !disabled && onChange("HOME_SPREAD")}
+          className={`flex flex-col flex-1 min-w-[120px] py-2 px-2 font-bold text-sm transition-all rounded-lg ${
+            value === "HOME_SPREAD" ? "bg-emerald-600 text-white shadow-md" : "text-emerald-300/90 hover:bg-emerald-500/15"
+          }`}
+        >
+          <span className="break-words text-xs leading-tight">{homeName}</span>
+          <span className="text-[11px] font-mono opacity-95">{formatSpreadLine(homeSpread)}</span>
+        </button>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => !disabled && onChange("AWAY_SPREAD")}
+          className={`flex flex-col flex-1 min-w-[120px] py-2 px-2 font-bold text-sm transition-all rounded-lg ${
+            value === "AWAY_SPREAD" ? "bg-blue-600 text-white shadow-md" : "text-blue-300/90 hover:bg-blue-500/15"
+          }`}
+        >
+          <span className="break-words text-xs leading-tight">{awayName}</span>
+          <span className="text-[11px] font-mono opacity-95">{formatSpreadLine(awaySpread)}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /** 1X2 prediction: Home win (1) / Draw (X) / Away win (2). Correct = 3 points, wrong = 0. */
 function Toggle12X({
@@ -170,7 +285,7 @@ export default function PredictionForm() {
   const { data: matches, isLoading } = trpc.matches.getAll.useQuery(undefined, {
     enabled: validId > 0 && (!tournament || (tournamentType !== "chance" && tournamentType !== "lotto" && tournamentType !== "football_custom")),
   });
-  const { data: customMatches } = trpc.tournaments.getCustomFootballMatches.useQuery(
+  const { data: customMatches } = trpc.tournaments.getCustomMatches.useQuery(
     { tournamentId: validId },
     { enabled: validId > 0 && !!isFootballCustom }
   );
@@ -239,7 +354,7 @@ export default function PredictionForm() {
     }
   }, [isChance, countdownMs, notified30, notified10, notified1]);
 
-  const [predictions, setPredictions] = useState<Record<number, "1" | "X" | "2">>({});
+  const [predictions, setPredictions] = useState<Partial<Record<number, FootballPredictionChoice>>>({});
   const [chanceCards, setChanceCards] = useState({ heart: "", club: "", diamond: "", spade: "" });
   const [lottoNumbers, setLottoNumbers] = useState<number[]>([]);
   const [lottoStrong, setLottoStrong] = useState<number | null>(null);
@@ -265,12 +380,31 @@ export default function PredictionForm() {
       if (Array.isArray(p.numbers)) setLottoNumbers([...p.numbers]);
       if (typeof p.strongNumber === "number") setLottoStrong(p.strongNumber);
     } else if (Array.isArray(pred) && (t === "football" || t === "football_custom" || !t)) {
-      const byId: Record<number, "1" | "X" | "2"> = {};
+      const byId: Partial<Record<number, FootballPredictionChoice>> = {};
       if (matchesList.length > 0) {
-        for (const m of matchesList) byId[m.id] = "1";
+        for (const m of matchesList) {
+          const kind = normalizeMarketKind((m as { marketType?: string }).marketType);
+          if (t === "football_custom" && kind === "SPREAD") continue;
+          byId[m.id] = defaultPickForRow(m as { marketType?: string }, t === "football_custom");
+        }
       }
-      for (const x of pred as Array<{ matchId: number; prediction: "1" | "X" | "2" }>) {
-        byId[x.matchId] = x.prediction;
+      const allowed = new Set([
+        "1",
+        "X",
+        "2",
+        "HOME",
+        "DRAW",
+        "AWAY",
+        "HOME_SPREAD",
+        "AWAY_SPREAD",
+      ]);
+      for (const x of pred as Array<{ matchId: number; prediction: string }>) {
+        if (allowed.has(x.prediction)) {
+          const row = matchesList.find((mm) => mm.id === x.matchId);
+          byId[x.matchId] = (row
+            ? sanitizePickForMatchRow(row as { marketType?: string }, x.prediction)
+            : x.prediction) as FootballPredictionChoice;
+        }
       }
       setPredictions(byId);
     }
@@ -297,13 +431,24 @@ export default function PredictionForm() {
       latest &&
       latest.predictions &&
       Array.isArray(latest.predictions) &&
-      (latest.predictions as Array<{ matchId: number; prediction: "1" | "X" | "2" }>).length === matchesList.length &&
+      (latest.predictions as Array<{ matchId: number; prediction: string }>).length === matchesList.length &&
       (!hasEntriesAlready || isChance || isLotto);
     if (shouldPreloadFromLatest) {
-      const byId: Record<number, "1" | "X" | "2"> = {};
-      for (const m of matchesList) byId[m.id] = "1";
-      for (const p of latest.predictions as Array<{ matchId: number; prediction: "1" | "X" | "2" }>) {
-        byId[p.matchId] = p.prediction;
+      const byId: Partial<Record<number, FootballPredictionChoice>> = {};
+      for (const m of matchesList) {
+        const kind = normalizeMarketKind((m as { marketType?: string }).marketType);
+        if (isFootballCustom && kind === "SPREAD") continue;
+        byId[m.id] = defaultPickForRow(m as { marketType?: string }, isFootballCustom);
+      }
+      for (const p of latest.predictions as Array<{ matchId: number; prediction: string }>) {
+        if (
+          ["1", "X", "2", "HOME", "DRAW", "AWAY", "HOME_SPREAD", "AWAY_SPREAD"].includes(p.prediction)
+        ) {
+          const row = matchesList.find((mm) => mm.id === p.matchId);
+          byId[p.matchId] = (row
+            ? sanitizePickForMatchRow(row as { marketType?: string }, p.prediction)
+            : p.prediction) as FootballPredictionChoice;
+        }
       }
       setPredictions(byId);
       setHasPreloadedExisting(true);
@@ -315,8 +460,8 @@ export default function PredictionForm() {
     const stored = sessionStorage.getItem(PREDICTIONS_STORAGE_KEY(validId));
     if (stored) {
       try {
-        const parsed = JSON.parse(stored) as Record<string, "1" | "X" | "2">;
-        const byNum: Record<number, "1" | "X" | "2"> = {};
+        const parsed = JSON.parse(stored) as Record<string, FootballPredictionChoice>;
+        const byNum: Record<number, FootballPredictionChoice> = {};
         for (const [k, v] of Object.entries(parsed)) byNum[parseInt(k)] = v;
         setPredictions(byNum);
         return;
@@ -324,10 +469,14 @@ export default function PredictionForm() {
         /* ignore */
       }
     }
-    const init: Record<number, "1" | "X" | "2"> = {};
-    for (const m of matchesList) init[m.id] = "1";
+    const init: Partial<Record<number, FootballPredictionChoice>> = {};
+    for (const m of matchesList) {
+      const kind = normalizeMarketKind((m as { marketType?: string }).marketType);
+      if (isFootballCustom && kind === "SPREAD") continue;
+      init[m.id] = defaultPickForRow(m as { marketType?: string }, isFootballCustom);
+    }
     setPredictions(init);
-  }, [matchesList, validId, isAuthenticated, mySubmissions, myEntriesForTournament, hasPreloadedExisting, isChance, isLotto]);
+  }, [matchesList, validId, isAuthenticated, mySubmissions, myEntriesForTournament, hasPreloadedExisting, isChance, isLotto, isFootballCustom]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -409,6 +558,9 @@ export default function PredictionForm() {
       matchNumber: "matchNumber" in m ? (m as { matchNumber?: number }).matchNumber : undefined,
       matchDate: isFootballCustom ? undefined : ("matchDate" in m ? (m as { matchDate?: string }).matchDate : undefined),
       matchTime: isFootballCustom ? undefined : ("matchTime" in m ? (m as { matchTime?: string }).matchTime : undefined),
+      marketType: isFootballCustom ? (m as { marketType?: string }).marketType : undefined,
+      homeSpread: isFootballCustom ? (m as { homeSpread?: number | null }).homeSpread ?? null : undefined,
+      awaySpread: isFootballCustom ? (m as { awaySpread?: number | null }).awaySpread ?? null : undefined,
     }));
     return (
       <DynamicPredictionForm
@@ -573,6 +725,16 @@ export default function PredictionForm() {
       toast.error(`יש למלא ניחוש לכל ${matchesList.length} המשחקים`);
       return;
     }
+    if (isFootballCustom) {
+      const err = validatePredictionsPayloadAgainstMatches(
+        matchesList as Array<{ id: number; marketType?: string | null }>,
+        preds
+      );
+      if (err) {
+        toast.error(err);
+        return;
+      }
+    }
     try {
       const result = await submitMutation.mutateAsync({
         tournamentId: validId,
@@ -623,7 +785,16 @@ export default function PredictionForm() {
     ? !!(chanceCards.heart && chanceCards.club && chanceCards.diamond && chanceCards.spade)
     : isLotto
       ? lottoNumbers.length === 6 && lottoStrong != null && lottoStrong >= 1 && lottoStrong <= 7
-      : matchesList.length > 0 && Object.keys(predictions).length === matchesList.length;
+      : matchesList.length > 0 &&
+        matchesList.every((m) => {
+          const p = predictions[m.id];
+          if (p === undefined) return false;
+          if (!isFootballCustom) return p === "1" || p === "X" || p === "2";
+          const kind = normalizeMarketKind((m as { marketType?: string }).marketType);
+          if (kind === "SPREAD") return p === "HOME_SPREAD" || p === "AWAY_SPREAD";
+          if (kind === "MONEYLINE") return p === "HOME" || p === "AWAY";
+          return p === "1" || p === "X" || p === "2" || p === "HOME" || p === "DRAW" || p === "AWAY";
+        });
   const styles = getTournamentStyles(tournament.amount);
   const entryFeeBase = (tournament as { entryCostPoints?: number }).entryCostPoints ?? (tournament as { amount?: number }).amount ?? 0;
   const entryFee = costBreakdown?.entryFee ?? entryFeeBase;
@@ -848,7 +1019,11 @@ export default function PredictionForm() {
           <Loader2 className="w-12 h-12 animate-spin text-amber-500 mx-auto block" />
         ) : (
           <div className="space-y-4 min-w-0">
-            <p className="text-slate-400 text-center mb-2">בחרו 1 / X / 2 לכל משחק. בסיום לחצו &quot;שלח והשתתף&quot;.</p>
+            <p className="text-slate-400 text-center mb-2">
+              {isFootballCustom
+                ? "בחרו תוצאה לפי סוג השוק לכל משחק (1X2, מונייליין או פר ספרד). בסיום לחצו \"שלח והשתתף\"."
+                : "בחרו 1 / X / 2 לכל משחק. בסיום לחצו \"שלח והשתתף\"."}
+            </p>
             {/* Phase 32: progress – reduce cognitive load for large competitions */}
             <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-800/60 border border-slate-600/50 px-4 py-2">
               <span className="text-slate-400 text-sm font-medium">
@@ -862,7 +1037,25 @@ export default function PredictionForm() {
               </div>
             </div>
             <div className="space-y-3 max-h-[65vh] overflow-y-auto overflow-x-hidden pr-2 min-w-0">
-            {matchesList.map((m, idx) => (
+            {matchesList.map((m, idx) => {
+              const row = m as {
+                marketType?: string;
+                homeSpread?: number | null;
+                awaySpread?: number | null;
+                matchNumber?: number;
+              };
+              const kind = isFootballCustom ? normalizeMarketKind(row.marketType) : "REGULAR_1X2";
+              const hs = Number(row.homeSpread);
+              const aspr = Number(row.awaySpread);
+              const isSpread =
+                isFootballCustom &&
+                kind === "SPREAD" &&
+                row.homeSpread != null &&
+                row.awaySpread != null &&
+                Number.isFinite(hs) &&
+                Number.isFinite(aspr);
+              const isMoneyline = isFootballCustom && kind === "MONEYLINE";
+              return (
               <Card
                 key={m.id}
                 className="card-sport bg-slate-800/60 border-slate-600/50 hover:border-slate-500/60 transition-colors min-w-0 max-w-full overflow-x-hidden"
@@ -871,24 +1064,77 @@ export default function PredictionForm() {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex-1 min-w-0 overflow-hidden">
                       <span className="text-amber-400 text-sm font-mono font-bold mr-2">#{("matchNumber" in m ? m.matchNumber : idx + 1)}</span>
-                      <span className="text-white font-medium break-words">{m.homeTeam}</span>
-                      <span className="text-slate-500 mx-2 font-medium">vs</span>
-                      <span className="text-white font-medium break-words">{m.awayTeam}</span>
+                      {isFootballCustom ? (
+                        <span className="text-slate-400 text-xs font-semibold ml-2">{marketKindLabel(kind)}</span>
+                      ) : null}
+                      {isSpread ? (
+                        <span className="text-white font-medium break-words">
+                          {formatMatchPairingTitle(
+                            {
+                              homeTeam: m.homeTeam,
+                              awayTeam: m.awayTeam,
+                              marketType: row.marketType,
+                              homeSpread: row.homeSpread ?? null,
+                              awaySpread: row.awaySpread ?? null,
+                            },
+                            " vs "
+                          )}
+                        </span>
+                      ) : (
+                        <>
+                          <span className="text-white font-medium break-words">{m.homeTeam}</span>
+                          <span className="text-slate-500 mx-2 font-medium">vs</span>
+                          <span className="text-white font-medium break-words">{m.awayTeam}</span>
+                        </>
+                      )}
                       {!isFootballCustom && (((m as { matchDate?: string; matchTime?: string }).matchDate || (m as { matchTime?: string }).matchTime)) && (
                         <span className="text-slate-500 text-sm mr-2 block sm:inline mt-1 sm:mt-0">
                           {[(m as { matchDate?: string }).matchDate, (m as { matchTime?: string }).matchTime].filter(Boolean).join(" • ")}
                         </span>
                       )}
                     </div>
-                    <Toggle12X
-                      value={predictions[m.id] || "1"}
-                      onChange={(v) => setPredictions((p) => ({ ...p, [m.id]: v }))}
-                      disabled={tournament.isLocked}
-                    />
+                    {isSpread ? (
+                      <SpreadPickToggle
+                        homeName={m.homeTeam}
+                        awayName={m.awayTeam}
+                        homeSpread={hs}
+                        awaySpread={aspr}
+                        value={
+                          predictions[m.id] === "AWAY_SPREAD"
+                            ? "AWAY_SPREAD"
+                            : predictions[m.id] === "HOME_SPREAD"
+                              ? "HOME_SPREAD"
+                              : null
+                        }
+                        onChange={(v) => setPredictions((p) => ({ ...p, [m.id]: v }))}
+                        disabled={tournament.isLocked}
+                      />
+                    ) : isMoneyline ? (
+                      <MoneylinePickToggle
+                        homeName={m.homeTeam}
+                        awayName={m.awayTeam}
+                        value={predictions[m.id] === "AWAY" ? "AWAY" : "HOME"}
+                        onChange={(v) => setPredictions((p) => ({ ...p, [m.id]: v }))}
+                        disabled={tournament.isLocked}
+                      />
+                    ) : (
+                      <Toggle12X
+                        value={(() => {
+                          const p = predictions[m.id];
+                          if (p === "1" || p === "X" || p === "2") return p;
+                          if (p === "HOME") return "1";
+                          if (p === "DRAW") return "X";
+                          if (p === "AWAY") return "2";
+                          return "1";
+                        })()}
+                        onChange={(v) => setPredictions((p) => ({ ...p, [m.id]: v }))}
+                        disabled={tournament.isLocked}
+                      />
+                    )}
                   </div>
                 </CardContent>
               </Card>
-            ))}
+            );})}
             </div>
           </div>
         )

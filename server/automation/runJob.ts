@@ -14,7 +14,7 @@ import {
   getLottoDrawResult,
   getChanceDrawResult,
   getMatches,
-  getCustomFootballMatches,
+  getCustomMatches,
   getParticipantUserIdsForTournament,
 } from "../db";
 import { AUTOMATION_JOB_TYPES, type AutomationJobType } from "./jobTypes";
@@ -160,7 +160,7 @@ export async function runAutomationJob(
             return { executed: false, status: "skipped", message: "Chance draw result not locked" };
           }
         } else if (type === "football" || type === "football_custom") {
-          const matches = type === "football" ? await getMatches() : await getCustomFootballMatches(tournamentId);
+          const matches = type === "football" ? await getMatches() : await getCustomMatches(tournamentId);
           const hasResults = matches.some((m) => (m as { homeScore?: number | null; awayScore?: number | null }).homeScore != null && (m as { awayScore?: number | null }).awayScore != null);
           if (!hasResults) {
             await logAndRecord("skipped", "Match results not in");

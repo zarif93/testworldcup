@@ -32,10 +32,23 @@ import {
 import { toast } from "sonner";
 import { Loader2, Send, LogIn, Trophy } from "lucide-react";
 import { getTournamentStyles } from "@/lib/tournamentStyles";
+import { formatSpreadLine, formatMatchPairingTitle } from "@/lib/spreadDisplay";
+import { normalizeMarketKind, marketKindLabel } from "@/lib/marketDisplay";
+import { sanitizePickForMatchRow, validatePredictionsPayloadAgainstMatches } from "@/lib/customMatchPickValidation";
 
 type ResolvedFormSchemaResult = RouterOutputs["tournaments"]["getResolvedFormSchema"];
 type FormSchema = ResolvedFormSchemaResult["formSchema"];
 type LegacyType = ResolvedFormSchemaResult["legacyType"];
+
+export type FootballPredictionChoice =
+  | "1"
+  | "X"
+  | "2"
+  | "HOME"
+  | "DRAW"
+  | "AWAY"
+  | "HOME_SPREAD"
+  | "AWAY_SPREAD";
 
 export interface MatchItem {
   id: number;
@@ -44,6 +57,60 @@ export interface MatchItem {
   matchNumber?: number;
   matchDate?: string;
   matchTime?: string;
+  marketType?: string;
+  homeSpread?: number | null;
+  awaySpread?: number | null;
+  homeScore?: number | null;
+  awayScore?: number | null;
+}
+
+function defaultPickForMatchItem(m: MatchItem, isFootballCustom: boolean): FootballPredictionChoice {
+  if (!isFootballCustom) return "1";
+  const kind = normalizeMarketKind(m.marketType);
+  if (kind === "MONEYLINE") return "HOME";
+  return "1";
+}
+
+function MoneylinePickToggle({
+  homeName,
+  awayName,
+  value,
+  onChange,
+  disabled,
+}: {
+  homeName: string;
+  awayName: string;
+  value: "HOME" | "AWAY";
+  onChange: (v: "HOME" | "AWAY") => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className={`flex flex-col gap-2 min-w-0 ${disabled ? "opacity-75 pointer-events-none" : ""}`}>
+      <p className="text-[11px] text-violet-400/95 font-medium">מונייליין — מנצח בלבד</p>
+      <div className="flex rounded-xl overflow-hidden border border-violet-600/40 bg-slate-800/50 p-0.5 gap-0.5 flex-wrap sm:flex-nowrap">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => !disabled && onChange("HOME")}
+          className={`flex flex-col flex-1 min-w-[120px] py-2 px-2 font-bold text-sm transition-all rounded-lg ${
+            value === "HOME" ? "bg-emerald-600 text-white shadow-md" : "text-emerald-300/90 hover:bg-emerald-500/15"
+          }`}
+        >
+          <span className="break-words text-xs leading-tight">{homeName}</span>
+        </button>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => !disabled && onChange("AWAY")}
+          className={`flex flex-col flex-1 min-w-[120px] py-2 px-2 font-bold text-sm transition-all rounded-lg ${
+            value === "AWAY" ? "bg-blue-600 text-white shadow-md" : "text-blue-300/90 hover:bg-blue-500/15"
+          }`}
+        >
+          <span className="break-words text-xs leading-tight">{awayName}</span>
+        </button>
+      </div>
+    </div>
+  );
 }
 
 const PREDICTIONS_STORAGE_KEY = (tid: number) => `worldcup_predictions_${tid}`;
@@ -112,6 +179,59 @@ function Toggle12X({
         <span>2</span>
         <span className="text-[10px] font-normal opacity-90">ניצחון חוץ</span>
       </button>
+    </div>
+  );
+}
+
+function SpreadPickToggle({
+  homeName,
+  awayName,
+  homeSpread,
+  awaySpread,
+  value,
+  onChange,
+  disabled,
+}: {
+  homeName: string;
+  awayName: string;
+  homeSpread: number;
+  awaySpread: number;
+  /** null = no side chosen yet — do not default to HOME (avoids silent HOME_SPREAD submits). */
+  value: "HOME_SPREAD" | "AWAY_SPREAD" | null;
+  onChange: (v: "HOME_SPREAD" | "AWAY_SPREAD") => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className={`flex flex-col gap-2 min-w-0 ${disabled ? "opacity-75 pointer-events-none" : ""}`}>
+      <p className="text-[11px] text-cyan-400/95 font-medium">פר ספרד — בחירה מול הקו (לא ניצחון משחק בלבד)</p>
+      <div className="flex rounded-xl overflow-hidden border border-cyan-600/40 bg-slate-800/50 p-0.5 gap-0.5 flex-wrap sm:flex-nowrap">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => !disabled && onChange("HOME_SPREAD")}
+          className={`flex flex-col flex-1 min-w-[120px] py-2 px-2 font-bold text-sm transition-all rounded-lg ${
+            value === "HOME_SPREAD"
+              ? "bg-emerald-600 text-white shadow-md"
+              : "text-emerald-300/90 hover:bg-emerald-500/15"
+          }`}
+        >
+          <span className="break-words text-xs leading-tight">{homeName}</span>
+          <span className="text-[11px] font-mono opacity-95">{formatSpreadLine(homeSpread)}</span>
+        </button>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => !disabled && onChange("AWAY_SPREAD")}
+          className={`flex flex-col flex-1 min-w-[120px] py-2 px-2 font-bold text-sm transition-all rounded-lg ${
+            value === "AWAY_SPREAD"
+              ? "bg-blue-600 text-white shadow-md"
+              : "text-blue-300/90 hover:bg-blue-500/15"
+          }`}
+        >
+          <span className="break-words text-xs leading-tight">{awayName}</span>
+          <span className="text-[11px] font-mono opacity-95">{formatSpreadLine(awaySpread)}</span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -191,7 +311,7 @@ export function DynamicPredictionForm({
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   })();
 
-  const [predictions, setPredictions] = useState<Record<number, "1" | "X" | "2">>({});
+  const [predictions, setPredictions] = useState<Partial<Record<number, FootballPredictionChoice>>>({});
   const [chanceCards, setChanceCards] = useState<Record<string, string>>({ heart: "", club: "", diamond: "", spade: "" });
   const [lottoNumbers, setLottoNumbers] = useState<number[]>([]);
   const [lottoStrong, setLottoStrong] = useState<number | null>(null);
@@ -224,24 +344,46 @@ export function DynamicPredictionForm({
       if (Array.isArray(p.numbers)) setLottoNumbers([...p.numbers]);
       if (typeof p.strongNumber === "number") setLottoStrong(p.strongNumber);
     } else if (Array.isArray(pred) && isFootball) {
-      const byId: Record<number, "1" | "X" | "2"> = {};
-      for (const m of matchesList) byId[m.id] = "1";
-      for (const x of pred as Array<{ matchId: number; prediction: "1" | "X" | "2" }>) {
-        byId[x.matchId] = x.prediction;
+      const byId: Partial<Record<number, FootballPredictionChoice>> = {};
+      for (const m of matchesList) {
+        const kind = normalizeMarketKind((m as MatchItem).marketType);
+        if (isFootballCustom && kind === "SPREAD") continue;
+        byId[m.id] = defaultPickForMatchItem(m as MatchItem, isFootballCustom);
+      }
+      const allowed = new Set([
+        "1",
+        "X",
+        "2",
+        "HOME",
+        "DRAW",
+        "AWAY",
+        "HOME_SPREAD",
+        "AWAY_SPREAD",
+      ]);
+      for (const x of pred as Array<{ matchId: number; prediction: string }>) {
+        if (!allowed.has(x.prediction)) continue;
+        const row = matchesList.find((mm) => mm.id === x.matchId);
+        byId[x.matchId] = (row && isFootballCustom
+          ? sanitizePickForMatchRow(row, x.prediction)
+          : x.prediction) as FootballPredictionChoice;
       }
       setPredictions(byId);
     }
     setHasPreloadedExisting(true);
-  }, [submissionIdToLoad, loadedSubmission, validId, isChance, isLotto, isFootball, matchesList]);
+  }, [submissionIdToLoad, loadedSubmission, validId, isChance, isLotto, isFootball, isFootballCustom, matchesList]);
 
   // Init football predictions when matches load
   useEffect(() => {
     if (!isFootball || !matchesList.length) return;
     if (hasPreloadedExisting) return;
-    const init: Record<number, "1" | "X" | "2"> = {};
-    for (const m of matchesList) init[m.id] = "1";
+    const init: Partial<Record<number, FootballPredictionChoice>> = {};
+    for (const m of matchesList) {
+      const kind = normalizeMarketKind((m as MatchItem).marketType);
+      if (isFootballCustom && kind === "SPREAD") continue;
+      init[m.id] = defaultPickForMatchItem(m as MatchItem, isFootballCustom);
+    }
     setPredictions((prev) => (Object.keys(prev).length === 0 ? init : prev));
-  }, [isFootball, matchesList, hasPreloadedExisting]);
+  }, [isFootball, isFootballCustom, matchesList, hasPreloadedExisting]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -253,7 +395,22 @@ export function DynamicPredictionForm({
 
   const buildPayload = (): unknown => {
     if (formSchema.kind === "football_match_predictions") {
-      return matchesList.map((m) => ({ matchId: m.id, prediction: predictions[m.id] ?? "1" }));
+      return matchesList.map((m) => {
+        const mi = m as MatchItem;
+        const kind = isFootballCustom ? normalizeMarketKind(mi.marketType) : "REGULAR_1X2";
+        let raw: string;
+        if (isFootballCustom && kind === "SPREAD") {
+          const p = predictions[m.id];
+          if (p !== "HOME_SPREAD" && p !== "AWAY_SPREAD") {
+            throw new Error("יש לבחור כיסוי בית או חוץ מול הקו (פר ספרד)");
+          }
+          raw = p;
+        } else {
+          raw = (predictions[m.id] ?? "1") as string;
+        }
+        const prediction = isFootballCustom ? sanitizePickForMatchRow(m, raw) : raw;
+        return { matchId: m.id, prediction };
+      });
     }
     if (formSchema.kind === "lotto") {
       return { numbers: lottoNumbers, strongNumber: lottoStrong };
@@ -303,12 +460,19 @@ export function DynamicPredictionForm({
             },
           });
         } else {
-          const preds = (buildPayload() as Array<{ matchId: number; prediction: "1" | "X" | "2" }>).filter(
+          const preds = (buildPayload() as Array<{ matchId: number; prediction: FootballPredictionChoice }>).filter(
             (p) => matchesList.some((m) => m.id === p.matchId)
           );
           if (preds.length !== matchesList.length) {
             toast.error(`יש למלא ניחוש לכל ${matchesList.length} המשחקים`);
             return;
+          }
+          if (isFootballCustom) {
+            const err = validatePredictionsPayloadAgainstMatches(matchesList, preds);
+            if (err) {
+              toast.error(err);
+              return;
+            }
           }
           await updateMutation.mutateAsync({ submissionId: editSubmissionId, predictions: preds });
         }
@@ -341,6 +505,14 @@ export function DynamicPredictionForm({
     }
 
     try {
+      if (formSchema.kind === "football_match_predictions" && isFootballCustom) {
+        const preds = payload as Array<{ matchId: number; prediction: string }>;
+        const err = validatePredictionsPayloadAgainstMatches(matchesList, preds);
+        if (err) {
+          toast.error(err);
+          return;
+        }
+      }
       const validation = await utils.submissions.validateEntrySchema.fetch({ tournamentId: validId, payload });
       if (!validation.valid) {
         setValidationErrors(validation.errors);
@@ -357,7 +529,7 @@ export function DynamicPredictionForm({
       const idempotencyKey = `sub-${validId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       let result: { balanceAfter?: number; pendingApproval?: boolean } = {};
       if (formSchema.kind === "football_match_predictions") {
-        const preds = payload as Array<{ matchId: number; prediction: "1" | "X" | "2" }>;
+        const preds = payload as Array<{ matchId: number; prediction: FootballPredictionChoice }>;
         result = (await submitMutation.mutateAsync({ tournamentId: validId, predictions: preds, idempotencyKey })) as typeof result;
       } else if (formSchema.kind === "lotto") {
         const p = payload as { numbers: number[]; strongNumber: number | null };
@@ -428,7 +600,16 @@ export function DynamicPredictionForm({
           lottoStrong != null &&
           lottoStrong >= lottoStrongMin &&
           lottoStrong <= lottoStrongMax
-        : matchesList.length > 0 && Object.keys(predictions).length === matchesList.length;
+        : matchesList.length > 0 &&
+          matchesList.every((m) => {
+            const p = predictions[m.id];
+            if (p === undefined) return false;
+            if (!isFootballCustom) return p === "1" || p === "X" || p === "2";
+            const kind = normalizeMarketKind((m as MatchItem).marketType);
+            if (kind === "SPREAD") return p === "HOME_SPREAD" || p === "AWAY_SPREAD";
+            if (kind === "MONEYLINE") return p === "HOME" || p === "AWAY";
+            return p === "1" || p === "X" || p === "2" || p === "HOME" || p === "DRAW" || p === "AWAY";
+          });
 
   const styles = getTournamentStyles(tournament.amount);
   const isLocked = tournament.isLocked;
@@ -632,7 +813,18 @@ export function DynamicPredictionForm({
               </div>
             </div>
             <div className="space-y-3 max-h-[65vh] overflow-y-auto overflow-x-hidden pr-2 min-w-0">
-            {matchesList.map((m, idx) => (
+            {matchesList.map((m, idx) => {
+              const mi = m as MatchItem;
+              const kind = isFootballCustom ? normalizeMarketKind(mi.marketType) : "REGULAR_1X2";
+              const isSpread =
+                isFootballCustom &&
+                kind === "SPREAD" &&
+                mi.homeSpread != null &&
+                mi.awaySpread != null &&
+                Number.isFinite(mi.homeSpread) &&
+                Number.isFinite(mi.awaySpread);
+              const isMoneyline = isFootballCustom && kind === "MONEYLINE";
+              return (
               <Card
                 key={m.id}
                 className="card-sport bg-slate-800/60 border-slate-600/50 hover:border-slate-500/60 transition-colors min-w-0 max-w-full overflow-x-hidden"
@@ -641,24 +833,77 @@ export function DynamicPredictionForm({
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex-1 min-w-0 overflow-hidden">
                       <span className="text-amber-400 text-sm font-mono font-bold mr-2">#{m.matchNumber ?? idx + 1}</span>
-                      <span className="text-white font-medium break-words">{m.homeTeam}</span>
-                      <span className="text-slate-500 mx-2 font-medium">vs</span>
-                      <span className="text-white font-medium break-words">{m.awayTeam}</span>
+                      {isFootballCustom ? (
+                        <span className="text-slate-400 text-xs font-semibold ml-2">{marketKindLabel(kind)}</span>
+                      ) : null}
+                      {isSpread ? (
+                        <span className="text-white font-medium break-words">
+                          {formatMatchPairingTitle(
+                            {
+                              homeTeam: m.homeTeam,
+                              awayTeam: m.awayTeam,
+                              marketType: mi.marketType,
+                              homeSpread: mi.homeSpread ?? null,
+                              awaySpread: mi.awaySpread ?? null,
+                            },
+                            " vs "
+                          )}
+                        </span>
+                      ) : (
+                        <>
+                          <span className="text-white font-medium break-words">{m.homeTeam}</span>
+                          <span className="text-slate-500 mx-2 font-medium">vs</span>
+                          <span className="text-white font-medium break-words">{m.awayTeam}</span>
+                        </>
+                      )}
                       {!isFootballCustom && (m.matchDate || m.matchTime) && (
                         <span className="text-slate-500 text-sm mr-2 block sm:inline mt-1 sm:mt-0">
                           {[m.matchDate, m.matchTime].filter(Boolean).join(" • ")}
                         </span>
                       )}
                     </div>
-                    <Toggle12X
-                      value={predictions[m.id] ?? "1"}
-                      onChange={(v) => setPredictions((p) => ({ ...p, [m.id]: v }))}
-                      disabled={isLocked}
-                    />
+                    {isSpread ? (
+                      <SpreadPickToggle
+                        homeName={m.homeTeam}
+                        awayName={m.awayTeam}
+                        homeSpread={mi.homeSpread!}
+                        awaySpread={mi.awaySpread!}
+                        value={
+                          predictions[m.id] === "AWAY_SPREAD"
+                            ? "AWAY_SPREAD"
+                            : predictions[m.id] === "HOME_SPREAD"
+                              ? "HOME_SPREAD"
+                              : null
+                        }
+                        onChange={(v) => setPredictions((p) => ({ ...p, [m.id]: v }))}
+                        disabled={isLocked}
+                      />
+                    ) : isMoneyline ? (
+                      <MoneylinePickToggle
+                        homeName={m.homeTeam}
+                        awayName={m.awayTeam}
+                        value={predictions[m.id] === "AWAY" ? "AWAY" : "HOME"}
+                        onChange={(v) => setPredictions((p) => ({ ...p, [m.id]: v }))}
+                        disabled={isLocked}
+                      />
+                    ) : (
+                      <Toggle12X
+                        value={(() => {
+                          const p = predictions[m.id];
+                          if (p === "1" || p === "X" || p === "2") return p;
+                          if (p === "HOME") return "1";
+                          if (p === "DRAW") return "X";
+                          if (p === "AWAY") return "2";
+                          return "1";
+                        })()}
+                        onChange={(v) => setPredictions((p) => ({ ...p, [m.id]: v }))}
+                        disabled={isLocked}
+                      />
+                    )}
                   </div>
                 </CardContent>
               </Card>
-            ))}
+            );})}
             </div>
           </div>
         )}

@@ -5,7 +5,7 @@
 
 import {
   getMatches,
-  getCustomFootballMatches,
+  getCustomMatches,
   getTournamentById,
 } from "../db";
 import type {
@@ -64,7 +64,7 @@ export async function resolveLegacyMatchesAsCompetitionItems(): Promise<Competit
 export async function resolveLegacyCustomMatchesAsCompetitionItems(
   tournamentId: number
 ): Promise<CompetitionItemSetResolved> {
-  const rows = await getCustomFootballMatches(tournamentId);
+  const rows = await getCustomMatches(tournamentId);
   const items: CompetitionItemResolved[] = rows.map((m, idx) => {
     const id = `legacy:custom:${m.id}`;
     return {

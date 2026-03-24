@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -145,7 +145,7 @@ export const tournaments = sqliteTable("tournaments", {
   archivedAt: integer("archivedAt", { mode: "timestamp" }),
   /** מחיקה רכה – תחרות שמנהל "מחק" (לא מוצגת ברשימות; נתונים פיננסיים נשמרים) */
   deletedAt: integer("deletedAt", { mode: "timestamp" }),
-  /** תחרויות ספורט: מספר משחקים (1–30). מוגדר בעת יצירה; יוצר N שורות ב־custom_football_matches. */
+  /** תחרויות ספורט: מספר משחקים (1–30). מוגדר בעת יצירה; יוצר N שורות ב־custom_matches. */
   numberOfGames: integer("numberOfGames"),
   /** צילום כספי בעת סיום – נשמר לצמיתות לדוחות מנהל */
   financialParticipantCount: integer("financialParticipantCount"),
@@ -399,13 +399,17 @@ export type TeamLibraryTeam = typeof teamLibraryTeams.$inferSelect;
 export type InsertTeamLibraryTeam = typeof teamLibraryTeams.$inferInsert;
 
 /** משחקים בתחרות ספורט (מנהל מגדיר ידנית – לא מונדיאל). homeTeam/awayTeam תאימות לאחור כשחסר teamId */
-export const customFootballMatches = sqliteTable("custom_football_matches", {
+export const customMatches = sqliteTable("custom_matches", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   tournamentId: integer("tournamentId").notNull(),
   homeTeamId: integer("homeTeamId"),
   awayTeamId: integer("awayTeamId"),
   homeTeam: text("homeTeam").notNull(),
   awayTeam: text("awayTeam").notNull(),
+  /** REGULAR_1X2 | MONEYLINE | SPREAD (legacy DB may still hold REGULAR_WINNER — normalized at read) */
+  marketType: text("marketType").default("REGULAR_1X2").notNull(),
+  homeSpread: real("homeSpread"),
+  awaySpread: real("awaySpread"),
   matchDate: text("matchDate"),
   matchTime: text("matchTime"),
   homeScore: integer("homeScore"),
@@ -414,8 +418,8 @@ export const customFootballMatches = sqliteTable("custom_football_matches", {
   createdAt: integer("createdAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
   updatedAt: integer("updatedAt", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
-export type CustomFootballMatch = typeof customFootballMatches.$inferSelect;
-export type InsertCustomFootballMatch = typeof customFootballMatches.$inferInsert;
+export type CustomMatch = typeof customMatches.$inferSelect;
+export type InsertCustomMatch = typeof customMatches.$inferInsert;
 
 /** יומן תנועות נקודות – הפקדה, משיכה, השתתפות, זכייה, אישור טופס */
 export const pointTransactions = sqliteTable("point_transactions", {
