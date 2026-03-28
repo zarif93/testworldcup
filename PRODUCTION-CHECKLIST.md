@@ -6,7 +6,7 @@
 |------|--------|
 | `.env.production.example` | **נוצר** – תבנית משתני סביבה ל-Production |
 | `.gitignore` | **עודכן** – הוספת `.env.production` (לא לעשות commit לסודות) |
-| `ecosystem.config.cjs` | **נוצר** – קונפיגורציית PM2 (instances: max, autorestart, env_production) |
+| `ecosystem.config.cjs` | **נוצר** – קונפיגורציית PM2 (fork, instances: 1 — SQLite + משימות רקע) |
 | `nginx-worldcup2026.conf` | **נוצר** – קונפיגורציית Nginx (port 80, gzip, security headers) |
 | `deploy.sh` | **נוצר** – סקריפט פריסה ל-Ubuntu (apt, npm, build, PM2, nginx) |
 | `server/_core/index.ts` | **עודכן** – `x-powered-by` כבוי, CORS ל-Production, לוגים ל-logger ב-production |
@@ -108,7 +108,7 @@ worldcup2026/
 
 - **Helmet** – כותרות אבטחה (CSP כבוי לצורך תאימות).
 - **Rate limiting** – API 120 בקשות/דקה, Auth 30/15 דקות.
-- **CORS** – ב-Production רק Origin של הבקשה (לא `*`).
+- **CORS** – ב-Production חובה `ALLOWED_ORIGINS` (רשימה מפורשת); לא משקפים Origin שרירותי.
 - **X-Powered-By** – כבוי.
 - **Cookies** – `secure` כאשר הבקשה מגיעה כ-HTTPS (כולל מאחורי Nginx עם `X-Forwarded-Proto`).
 - **סודות** – רק מ-env (JWT_SECRET, ADMIN_SECRET, CREATE_ADMIN_PASSWORD וכו').
@@ -127,6 +127,6 @@ worldcup2026/
 | deploy.sh | ✅ |
 | Helmet, Rate limit, CORS, cookies | ✅ |
 | TypeScript (`tsc --noEmit`) | ⚠️ יש 2–3 שגיאות קיימות (לא קשורות ל-Production); ה-build עובר |
-| DB מתחבר | ✅ (SQLite/MySQL לפי ENV) |
+| DB מתחבר | ✅ SQLite (ברירת מחדל); MySQL לא נתמך בפרודקשן בגרסה זו |
 
 **המלצה:** לתקן את שגיאות ה-TypeScript (Leaderboard JSX, Set iteration) עם `downlevelIteration` או עדכון טיפוסים – לא חובה לריצה ב-Production.

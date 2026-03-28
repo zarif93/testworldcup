@@ -3,7 +3,7 @@
  * Every monetary action is recorded; no updates/deletes.
  */
 
-import { eq, desc, gte, lte, and, inArray } from "drizzle-orm";
+import { eq, desc, gte, lte, and, or, inArray } from "drizzle-orm";
 import { getSchema, getDb } from "../db";
 import type { FinancialEventType } from "./types";
 /** Transaction or db client (same interface for select/insert). */

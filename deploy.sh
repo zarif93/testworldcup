@@ -30,7 +30,7 @@ fi
 
 echo "=== Preparing environment ==="
 if [ ! -f .env.production ] && [ -f .env.production.example ]; then
-  echo "Copying .env.production.example to .env.production – set JWT_SECRET and other secrets."
+  echo "Copying .env.production.example to .env.production – set JWT_SECRET, ALLOWED_ORIGINS, and other secrets."
   cp .env.production.example .env.production
 fi
 if [ ! -f .env.production ]; then

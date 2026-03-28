@@ -17,6 +17,6 @@ export const ENV = {
   superAdminUsernames: (process.env.SUPER_ADMIN_USERNAMES ?? "Yoven!,Yoven").split(",").map((s) => s.trim()).filter(Boolean),
   /** אם true – ב-HTTPS משתמשים ב-sameSite=lax (מומלץ כשה-API והאתר same-origin). ברירת מחדל: false */
   sameSiteLaxSameOrigin: process.env.SAME_SITE_LAX_SAME_ORIGIN === "1" || process.env.SAME_SITE_LAX_SAME_ORIGIN === "true",
-  /** רשימת origins מורשים ל-CORS (מופרדים בפסיק). בפרודקשן אם ריק – משתמשים ב-origin של הבקשה. אם מוגדר – רק הערכים ברשימה. */
+  /** רשימת origins מורשים ל-CORS (מופרדים בפסיק). בפרודקשן חובה (נבדק ב-validateCriticalConfig). */
   allowedOrigins: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean) : [] as string[],
 };

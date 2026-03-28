@@ -186,11 +186,9 @@ async function startServer() {
       const origin = req.headers.origin;
       const allowList = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean) : [];
       const allowOrigin =
-        process.env.NODE_ENV === "production" && allowList.length > 0
+        process.env.NODE_ENV === "production"
           ? (origin && allowList.includes(origin) ? origin : allowList[0])
-          : process.env.NODE_ENV === "production" && origin
-            ? origin
-            : req.headers.origin || "*";
+          : req.headers.origin || "*";
       res.setHeader("Access-Control-Allow-Origin", allowOrigin);
       res.setHeader("Access-Control-Allow-Credentials", "true");
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
