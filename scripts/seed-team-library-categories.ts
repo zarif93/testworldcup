@@ -1,23 +1,14 @@
 /**
  * Seed team library categories (football_custom only).
  * Idempotent: only inserts when team_library_categories is empty.
+ * Dataset: shared/teamLibraryDefaultCategories.ts (same as runtime bootstrap).
  * Usage: pnpm exec tsx scripts/seed-team-library-categories.ts
  */
 import { join } from "path";
 import { existsSync } from "fs";
+import { TEAM_LIBRARY_DEFAULT_CATEGORIES } from "../shared/teamLibraryDefaultCategories";
 
 const dbPath = join(process.cwd(), "data", "worldcup.db");
-
-const CATEGORIES: Array<[string, string, number]> = [
-  ["אנגלית", "english", 10],
-  ["ספרדית", "spanish", 20],
-  ["צרפתית", "french", 30],
-  ["איטלקית", "italian", 40],
-  ["גרמנית", "german", 50],
-  ["ליגת העל", "ligat-haal", 60],
-  ["NBA", "nba", 70],
-  ["כדורסל ישראלי", "israeli-basketball", 80],
-];
 
 async function main() {
   if (!existsSync(dbPath)) {
@@ -47,10 +38,10 @@ async function main() {
   const ins = db.prepare(
     "INSERT INTO team_library_categories (name, slug, displayOrder, isActive, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)"
   );
-  for (const [name, slug, order] of CATEGORIES) {
-    ins.run(name, slug, order, now, now);
+  for (const cat of TEAM_LIBRARY_DEFAULT_CATEGORIES) {
+    ins.run(cat.name, cat.slug, cat.displayOrder, now, now);
   }
-  console.log("Seeded", CATEGORIES.length, "team library categories (football_custom).");
+  console.log("Seeded", TEAM_LIBRARY_DEFAULT_CATEGORIES.length, "team library categories (football_custom).");
   db.close();
 }
 

@@ -7,6 +7,7 @@ import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { Loader2, FolderOpen, Plus, Pencil, Trash2, ArrowRight } from "lucide-react";
 import {
@@ -44,17 +45,21 @@ export function TeamLibrarySection({ onBack }: Props) {
   const [editingTeamId, setEditingTeamId] = useState<number | null>(null);
   const [editingTeamName, setEditingTeamName] = useState("");
   const [deleteConfirmTeam, setDeleteConfirmTeam] = useState<{ id: number; name: string } | null>(null);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [bulkText, setBulkText] = useState("");
 
   const utils = trpc.useUtils();
 
-  const { data: categories = [], isLoading: categoriesLoading } = trpc.admin.listTeamLibraryCategories.useQuery(
-    { scope: TEAM_LIBRARY_SCOPE },
-    { enabled: true }
-  );
+  const {
+    data: categories = [],
+    isLoading: categoriesLoading,
+    isError: categoriesError,
+    refetch: refetchCategories,
+  } = trpc.admin.listTeamLibraryCategories.useQuery({ scope: TEAM_LIBRARY_SCOPE }, { enabled: true, retry: 1 });
 
   const { data: teams = [], isLoading: teamsLoading } = trpc.admin.listTeamLibraryTeams.useQuery(
     { scope: TEAM_LIBRARY_SCOPE, categoryId: selectedCategoryId!, search: debouncedSearch || undefined },
-    { enabled: typeof selectedCategoryId === "number" }
+    { enabled: typeof selectedCategoryId === "number" && !categoriesError }
   );
 
   const createTeamMut = trpc.admin.createTeamLibraryTeam.useMutation({
@@ -83,6 +88,36 @@ export function TeamLibrarySection({ onBack }: Props) {
       toast.success("הקבוצה נמחקה");
     },
     onError: (e) => toast.error(e.message || "שגיאה"),
+  });
+
+  const createCategoryMut = trpc.admin.createTeamLibraryCategory.useMutation({
+    onSuccess: (data) => {
+      setNewCategoryName("");
+      void utils.admin.listTeamLibraryCategories.invalidate({ scope: TEAM_LIBRARY_SCOPE });
+      setSelectedCategoryId(data.id);
+      setTeamSearch("");
+      setBulkText("");
+      toast.success("הקטגוריה נוצרה");
+    },
+    onError: (e) => toast.error(e.message || "שגיאה ביצירת קטגוריה"),
+  });
+
+  const bulkTeamsMut = trpc.admin.bulkCreateTeamLibraryTeams.useMutation({
+    onSuccess: (res) => {
+      void utils.admin.listTeamLibraryTeams.invalidate({
+        scope: TEAM_LIBRARY_SCOPE,
+        categoryId: selectedCategoryId!,
+      });
+      void utils.admin.searchTeamLibraryTeams.invalidate();
+      const parts = [
+        `נוספו: ${res.inserted}`,
+        `דולגו (כפילויות): ${res.skippedDuplicate}`,
+        `לא תקין: ${res.invalid}`,
+      ];
+      toast.success(parts.join(" · "));
+      setBulkText("");
+    },
+    onError: (e) => toast.error(e.message || "שגיאה בייבוא"),
   });
 
   const selectedCategory = useMemo(
@@ -114,39 +149,119 @@ export function TeamLibrarySection({ onBack }: Props) {
             <Loader2 className="w-4 h-4 animate-spin" />
             טוען קטגוריות...
           </div>
+        ) : categoriesError ? (
+          <div className="rounded-lg border border-red-500/40 bg-red-950/30 px-4 py-4 space-y-3 text-right" role="alert">
+            <p className="text-sm font-medium text-red-100">
+              לא ניתן לטעון את קטגוריות ספריית הקבוצות. בדוק חיבור לשרת או נסה שוב.
+            </p>
+            <Button type="button" variant="outline" size="sm" className="border-red-400/50 text-red-100" onClick={() => refetchCategories()}>
+              נסה שוב
+            </Button>
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
+            <div className="space-y-3">
               <h3 className="text-white font-medium mb-2">קטגוריות</h3>
-              <div className="space-y-1 max-h-64 overflow-y-auto">
-                {categories.map((cat) => (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedCategoryId(cat.id);
-                      setTeamSearch("");
-                      setEditingTeamId(null);
-                      setNewTeamName("");
-                    }}
-                    className={`w-full text-right px-3 py-2 rounded-lg transition-colors flex items-center justify-between gap-2 ${
-                      selectedCategoryId === cat.id ? "bg-amber-600/80 text-white" : "bg-slate-700/50 text-slate-300 hover:bg-slate-700"
-                    }`}
-                  >
-                    <span>{cat.name}</span>
-                    <ArrowRight className="w-4 h-4 shrink-0 opacity-70" />
-                  </button>
-                ))}
-              </div>
+              <form
+                className="flex flex-wrap gap-2 items-end"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const n = newCategoryName.trim();
+                  if (!n) {
+                    toast.error("הזן שם לקטגוריה");
+                    return;
+                  }
+                  createCategoryMut.mutate({ scope: TEAM_LIBRARY_SCOPE, name: n });
+                }}
+              >
+                <div className="flex flex-col gap-1 flex-1 min-w-[160px]">
+                  <label htmlFor="new-team-category" className="text-xs text-slate-400">
+                    קטגוריה חדשה
+                  </label>
+                  <Input
+                    id="new-team-category"
+                    placeholder="שם קטגוריה (למשל: ליגה ספרדית)"
+                    className="bg-slate-800 text-white"
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    dir="rtl"
+                    maxLength={200}
+                  />
+                </div>
+                <Button type="submit" size="sm" variant="secondary" disabled={createCategoryMut.isPending} className="shrink-0">
+                  {createCategoryMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  צור קטגוריה
+                </Button>
+              </form>
+              {categories.length === 0 ? (
+                <p className="text-slate-500 text-sm rounded-lg border border-dashed border-slate-600 p-4 text-center">
+                  אין קטגוריות. צור קטגוריה למעלה או הדבק רשימת קבוצות אחרי שתבחר קטגוריה.
+                </p>
+              ) : (
+                <div className="space-y-1 max-h-64 overflow-y-auto">
+                  {categories.map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCategoryId(cat.id);
+                        setTeamSearch("");
+                        setEditingTeamId(null);
+                        setNewTeamName("");
+                      }}
+                      className={`w-full text-right px-3 py-2 rounded-lg transition-colors flex items-center justify-between gap-2 ${
+                        selectedCategoryId === cat.id ? "bg-amber-600/80 text-white" : "bg-slate-700/50 text-slate-300 hover:bg-slate-700"
+                      }`}
+                    >
+                      <span>{cat.name}</span>
+                      <ArrowRight className="w-4 h-4 shrink-0 opacity-70" />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div>
               {selectedCategoryId == null ? (
-                <p className="text-slate-500 text-sm">בחר קטגוריה כדי לראות ולהוסיף קבוצות.</p>
+                <p className="text-slate-500 text-sm">בחר קטגוריה משמאל כדי לייבא קבוצות או להוסיף ידנית.</p>
               ) : (
                 <>
                   <h3 className="text-white font-medium mb-2">קבוצות – {selectedCategory?.name ?? ""}</h3>
-                  <div className="space-y-3">
+                  <div className="space-y-4">
+                    <div className="rounded-lg border border-slate-600 bg-slate-900/40 p-3 space-y-2">
+                      <p className="text-sm text-slate-300 font-medium">ייבוא המוני (מומלץ)</p>
+                      <p className="text-xs text-slate-500">
+                        הדבק שם קבוצה בכל שורה. רווחים מיותרים יוסרו, שורות ריקות יתעלמו, כפילויות באותה הדבקה או מול הרשימה הקיימת ידולגו.
+                      </p>
+                      <Textarea
+                        placeholder={"מכבי תל אביב\nהפועל באר שבע\nמועדון קבוצה"}
+                        className="bg-slate-800 text-white min-h-[140px] font-sans text-sm"
+                        value={bulkText}
+                        onChange={(e) => setBulkText(e.target.value)}
+                        dir="rtl"
+                        spellCheck={false}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="bg-amber-600 hover:bg-amber-700"
+                        disabled={bulkTeamsMut.isPending}
+                        onClick={() => {
+                          if (!bulkText.trim()) {
+                            toast.error("הדבק לפחות שורה אחת עם שם קבוצה");
+                            return;
+                          }
+                          bulkTeamsMut.mutate({
+                            scope: TEAM_LIBRARY_SCOPE,
+                            categoryId: selectedCategoryId,
+                            text: bulkText,
+                          });
+                        }}
+                      >
+                        {bulkTeamsMut.isPending ? <Loader2 className="w-4 h-4 animate-spin ml-1" /> : null}
+                        ייבא קבוצות
+                      </Button>
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       <Input
                         placeholder="חיפוש קבוצות (למשל: אש)"
@@ -156,6 +271,7 @@ export function TeamLibrarySection({ onBack }: Props) {
                         dir="rtl"
                       />
                     </div>
+                    <p className="text-xs text-slate-500">הוספה בודדת (אופציונלי)</p>
                     <form
                       className="flex flex-wrap gap-2 items-center"
                       onSubmit={(e) => {

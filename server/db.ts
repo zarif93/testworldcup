@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck - db uses dynamic schema (SQLite/MySQL) so union types cause false errors at compile time; runtime uses SQLite when DATABASE_URL is not set.
-import { eq, and, desc, asc, inArray, gte, lte, or, isNull, isNotNull, like, sql, notInArray, ne } from "drizzle-orm";
+import { eq, and, desc, asc, inArray, gte, lte, or, isNull, isNotNull, like, sql, notInArray, ne, max } from "drizzle-orm";
 import { ENV } from "./_core/env";
+import { bootstrapTeamLibraryCategoriesIfEmpty } from "./teamLibraryBootstrap";
 import { WORLD_CUP_2026_MATCHES } from "@shared/matchesData";
 import { normalizeMarketTypeForStorage, normalizeStoredMarketType } from "./matchMarkets/marketMeta";
 import { validateSpreadPairForMarket } from "./matchMarkets/marketGrading";
@@ -1141,6 +1142,8 @@ async function initSqlite() {
       "Team library tables are missing. Run the migration before starting the app:  pnpm run migrate:team-library"
     );
   }
+
+  bootstrapTeamLibraryCategoriesIfEmpty(sqlite);
 
   // עדכון רשימת המשחקים מהקבוע – idempotent: INSERT OR IGNORE so concurrent inits (e.g. tests) don't hit UNIQUE on matchNumber
   for (const m of WORLD_CUP_2026_MATCHES) {
@@ -8870,6 +8873,147 @@ export type TeamLibraryTeamRow = { id: number; categoryId: number; name: string;
 
 function normalizeTeamNameForSearch(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** Normalize category name for duplicate detection (trim, collapse spaces, lowercase for Latin). */
+function normalizeCategoryNameForDedupe(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+const TEAM_NAME_MAX_LEN = 200;
+
+/** Parse bulk paste: one team per line, trim, skip empty, dedupe (first wins), count lines too long as invalid; count repeat lines as skippedDuplicateInBatch. */
+export function parseBulkTeamLines(rawText: string): {
+  names: string[];
+  invalidCount: number;
+  skippedDuplicateInBatch: number;
+} {
+  const lines = rawText.split(/\r?\n/);
+  const seen = new Set<string>();
+  const names: string[] = [];
+  let invalidCount = 0;
+  let skippedDuplicateInBatch = 0;
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) continue;
+    if (t.length > TEAM_NAME_MAX_LEN) {
+      invalidCount++;
+      continue;
+    }
+    const norm = normalizeTeamNameForSearch(t);
+    if (seen.has(norm)) {
+      skippedDuplicateInBatch++;
+      continue;
+    }
+    seen.add(norm);
+    names.push(t);
+  }
+  return { names, invalidCount, skippedDuplicateInBatch };
+}
+
+function generateUniqueCategorySlug(): string {
+  return `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+export async function createTeamLibraryCategory(data: { name: string }): Promise<{ id: number }> {
+  const { teamLibraryCategories } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const name = data.name.trim();
+  if (!name) throw new Error("TEAM_CATEGORY_NAME_REQUIRED");
+  const existing = await db.select().from(teamLibraryCategories).where(eq(teamLibraryCategories.isActive, true));
+  const want = normalizeCategoryNameForDedupe(name);
+  if (existing.some((c) => normalizeCategoryNameForDedupe((c as { name: string }).name) === want)) {
+    throw new Error("TEAM_CATEGORY_NAME_DUPLICATE");
+  }
+  const [maxRow] = await db.select({ m: max(teamLibraryCategories.displayOrder) }).from(teamLibraryCategories);
+  const nextOrder = (maxRow?.m != null && Number.isFinite(Number(maxRow.m)) ? Number(maxRow.m) : 0) + 1;
+  const now = new Date();
+  const [row] = await db
+    .insert(teamLibraryCategories)
+    .values({
+      name,
+      slug: generateUniqueCategorySlug(),
+      displayOrder: nextOrder,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: teamLibraryCategories.id });
+  if (!row?.id) throw new Error("Failed to create team library category");
+  return { id: row.id as number };
+}
+
+export type BulkCreateTeamLibraryTeamsResult = {
+  inserted: number;
+  skippedDuplicate: number;
+  invalid: number;
+};
+
+/**
+ * Bulk-add teams to a category from raw multiline text. Idempotent per normalized name vs existing rows.
+ * Uses one SQLite sync transaction when USE_SQLITE.
+ */
+export async function bulkCreateTeamLibraryTeams(categoryId: number, rawText: string): Promise<BulkCreateTeamLibraryTeamsResult> {
+  const cat = await getTeamLibraryCategoryById(categoryId);
+  if (!cat || !cat.isActive) throw new Error("TEAM_CATEGORY_NOT_FOUND");
+
+  const parsed = parseBulkTeamLines(rawText);
+  const toInsert = parsed.names;
+  const invalid = parsed.invalidCount;
+  let skippedDuplicate = parsed.skippedDuplicateInBatch;
+
+  const { teamLibraryTeams } = await getSchema();
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existingRows = await db
+    .select({ normalizedName: teamLibraryTeams.normalizedName })
+    .from(teamLibraryTeams)
+    .where(and(eq(teamLibraryTeams.categoryId, categoryId), eq(teamLibraryTeams.isActive, true)));
+  const existingSet = new Set(existingRows.map((r) => r.normalizedName as string));
+
+  let inserted = 0;
+
+  if (USE_SQLITE) {
+    db.transaction((tx) => {
+      for (const name of toInsert) {
+        const norm = normalizeTeamNameForSearch(name);
+        if (existingSet.has(norm)) {
+          skippedDuplicate++;
+          continue;
+        }
+        tx.insert(teamLibraryTeams).values({
+          categoryId,
+          name,
+          normalizedName: norm,
+          displayOrder: 0,
+          isActive: true,
+        }).run();
+        existingSet.add(norm);
+        inserted++;
+      }
+    });
+  } else {
+    for (const name of toInsert) {
+      const norm = normalizeTeamNameForSearch(name);
+      if (existingSet.has(norm)) {
+        skippedDuplicate++;
+        continue;
+      }
+      await db.insert(teamLibraryTeams).values({
+        categoryId,
+        name,
+        normalizedName: norm,
+        displayOrder: 0,
+        isActive: true,
+      });
+      existingSet.add(norm);
+      inserted++;
+    }
+  }
+
+  return { inserted, skippedDuplicate, invalid };
 }
 
 export async function listTeamLibraryCategories(): Promise<TeamLibraryCategoryRow[]> {

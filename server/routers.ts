@@ -111,6 +111,8 @@ import {
   getCustomMatchById,
   isTournamentResultsFinalized,
   listTeamLibraryCategories,
+  createTeamLibraryCategory,
+  bulkCreateTeamLibraryTeams,
   getTeamLibraryCategoryById,
   listTeamLibraryTeams,
   createTeamLibraryTeam,
@@ -2729,6 +2731,43 @@ siteProfit: participationCommissionOpts?.commissionSite ?? 0,
       .query(({ input }) => {
         assertTeamLibraryScope(input.scope);
         return listTeamLibraryCategories();
+      }),
+    createTeamLibraryCategory: adminProcedure
+      .input(z.object({ scope: z.literal("football_custom"), name: z.string().min(1).max(200) }))
+      .mutation(async ({ input }) => {
+        assertTeamLibraryScope(input.scope);
+        try {
+          return await createTeamLibraryCategory({ name: input.name });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (msg === "TEAM_CATEGORY_NAME_REQUIRED") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "שם הקטגוריה נדרש" });
+          }
+          if (msg === "TEAM_CATEGORY_NAME_DUPLICATE") {
+            throw new TRPCError({ code: "CONFLICT", message: "קטגוריה בשם זה כבר קיימת" });
+          }
+          throw e;
+        }
+      }),
+    bulkCreateTeamLibraryTeams: adminProcedure
+      .input(
+        z.object({
+          scope: z.literal("football_custom"),
+          categoryId: z.number().int().positive(),
+          text: z.string().max(500_000),
+        })
+      )
+      .mutation(async ({ input }) => {
+        assertTeamLibraryScope(input.scope);
+        try {
+          return await bulkCreateTeamLibraryTeams(input.categoryId, input.text);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (msg === "TEAM_CATEGORY_NOT_FOUND") {
+            throw new TRPCError({ code: "NOT_FOUND", message: "קטגוריה לא נמצאה" });
+          }
+          throw e;
+        }
       }),
     getTeamLibraryCategoryById: adminProcedure
       .input(z.object({ scope: z.literal("football_custom"), categoryId: z.number() }))
